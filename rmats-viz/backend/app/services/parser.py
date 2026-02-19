@@ -15,7 +15,7 @@ import uuid
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import insert
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.event import SplicingEvent

@@ -3,8 +3,8 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "rMATS Visualizer — PCBP1",
-  description: "Differential splicing event viewer for PCBP1 variant patients",
+  title: "SpliceAnalyzer",
+  description: "Exploration d'événements d'épissage différentiel",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -15,9 +15,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <header className="border-b bg-white">
             <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
               <a href="/analyses" className="text-lg font-bold text-blue-700 hover:text-blue-900">
-                rMATS Visualizer
+                SpliceAnalyzer
               </a>
-              <span className="text-sm text-gray-400">PCBP1 Splicing Events</span>
+              <span className="text-sm text-gray-400">Splicing Events Exploration</span>
             </div>
           </header>
           <main className="max-w-7xl mx-auto px-4 py-6">{children}</main>

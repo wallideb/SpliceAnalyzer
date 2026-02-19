@@ -21,7 +21,7 @@ async def list_events(
     event_type: str | None = Query(None),
     gene_symbol: str | None = Query(None),
     fdr_max: float | None = Query(None, ge=0, le=1),
-    sort_by: Literal["fdr", "abs_inc_level_diff", "gene_symbol"] = Query("fdr"),
+    sort_by: Literal["fdr", "p_value", "abs_inc_level_diff", "gene_symbol"] = Query("fdr"),
     sort_dir: Literal["asc", "desc"] = Query("asc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),

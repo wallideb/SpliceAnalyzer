@@ -71,6 +71,8 @@ def _coerce_types(df: pd.DataFrame) -> pd.DataFrame:
 
     for col in float_cols:
         if col in df.columns:
+            # Handle French locale decimal comma (e.g. "-0,117" → "-0.117")
+            df[col] = df[col].astype(str).str.replace(",", ".", regex=False)
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
     return df

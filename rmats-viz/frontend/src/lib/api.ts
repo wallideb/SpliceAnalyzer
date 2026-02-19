@@ -54,7 +54,7 @@ export interface EventsQuery {
   event_type?: string;
   gene_symbol?: string;
   fdr_max?: number;
-  sort_by?: "fdr" | "abs_inc_level_diff" | "gene_symbol";
+  sort_by?: "fdr" | "p_value" | "abs_inc_level_diff" | "gene_symbol";
   sort_dir?: "asc" | "desc";
   page?: number;
   page_size?: number;

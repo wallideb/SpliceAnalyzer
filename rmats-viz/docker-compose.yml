@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rmats}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rmats}
+      POSTGRES_DB: ${POSTGRES_DB:-rmatsdb}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rmats} -d ${POSTGRES_DB:-rmatsdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-rmats}:${POSTGRES_PASSWORD:-rmats}@db:5432/${POSTGRES_DB:-rmatsdb}
+      CORS_ORIGINS: '["http://localhost:3000","http://frontend:3000"]'
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      API_URL: http://backend:8000
+    volumes:
+      - ./frontend/src:/app/src
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:

@@ -147,7 +147,69 @@ def deduplicate_events(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     result = pd.concat(parts, ignore_index=True)
-    logger.info("After deduplication: %d rows (from %d)", len(result), len(df))
+    logger.info("After exact deduplication: %d rows (from %d)", len(result), len(df))
+    return result
+
+
+def deduplicate_with_overlap(df: pd.DataFrame, overlap_bp: int = 50) -> pd.DataFrame:
+    """
+    Secondary deduplication: remove events whose exon start and/or exon end are
+    within *overlap_bp* bases of a more-significant event already kept.
+
+    Within each (event_type, chr, strand) group, events are processed in order of
+    increasing p_value (most significant first, NaN last).  An event is considered
+    a near-duplicate of an already-kept event when:
+        |exon_start_candidate − exon_start_kept| ≤ overlap_bp
+        OR
+        |exon_end_candidate   − exon_end_kept  | ≤ overlap_bp
+
+    Only the most significant event (lowest p_value) of such a cluster is kept.
+    """
+    if df.empty:
+        return df
+
+    # Sort by p_value ASC (most significant first), NaN last, then |ΔPSI| DESC
+    df = df.sort_values(
+        by=["p_value", "abs_inc_level_diff"],
+        ascending=[True, False],
+        na_position="last",
+    ).reset_index(drop=True)
+
+    group_cols = [c for c in ["event_type", "chr", "strand"] if c in df.columns]
+    kept_indices: list[int] = []
+
+    for _, group_df in df.groupby(group_cols, sort=False, dropna=False):
+        kept_starts: list[float] = []
+        kept_ends: list[float] = []
+
+        for idx in group_df.index:
+            row = df.loc[idx]
+            start_val = row.get("exon_start") if "exon_start" in df.columns else None
+            end_val = row.get("exon_end") if "exon_end" in df.columns else None
+
+            start = float(start_val) if start_val is not None and not pd.isna(start_val) else None
+            end = float(end_val) if end_val is not None and not pd.isna(end_val) else None
+
+            is_dup = False
+            for ks, ke in zip(kept_starts, kept_ends):
+                start_near = (start is not None and ks is not None
+                              and abs(start - ks) <= overlap_bp)
+                end_near = (end is not None and ke is not None
+                            and abs(end - ke) <= overlap_bp)
+                if start_near or end_near:
+                    is_dup = True
+                    break
+
+            if not is_dup:
+                kept_indices.append(int(idx))
+                kept_starts.append(start)  # type: ignore[arg-type]
+                kept_ends.append(end)      # type: ignore[arg-type]
+
+    result = df.loc[kept_indices].reset_index(drop=True)
+    logger.info(
+        "After overlap deduplication (%d bp): %d rows (from %d)",
+        overlap_bp, len(result), len(df),
+    )
     return result
 
 
@@ -203,6 +265,7 @@ async def parse_and_store(
 
     combined = pd.concat(all_dfs, ignore_index=True)
     deduped = deduplicate_events(combined)
+    deduped = deduplicate_with_overlap(deduped, overlap_bp=50)
 
     # Assign top_rank
     top10 = select_top10(deduped)

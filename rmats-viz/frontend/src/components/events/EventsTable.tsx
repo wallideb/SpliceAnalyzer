@@ -6,13 +6,10 @@ import {
   flexRender,
   SortingState,
   getSortedRowModel,
-  createColumnHelper,
   ColumnDef,
 } from "@tanstack/react-table";
 import type { SplicingEvent } from "@/types/event";
 import { makeEventsColumns } from "./EventsTableColumns";
-
-const colHelper = createColumnHelper<SplicingEvent>();
 
 interface EventsTableProps {
   data: SplicingEvent[];
@@ -26,6 +23,8 @@ interface EventsTableProps {
   onSelectPage: (ids: string[]) => void;
   group1Label: string;
   group2Label: string;
+  /** IDs of events currently in the basket — rows get a basket icon */
+  basketIds?: Set<string>;
 }
 
 export function EventsTable({
@@ -40,6 +39,7 @@ export function EventsTable({
   onSelectPage,
   group1Label,
   group2Label,
+  basketIds,
 }: EventsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
@@ -129,6 +129,8 @@ export function EventsTable({
                     </th>
                   );
                 })}
+                {/* Basket indicator header */}
+                <th className="px-1 py-2 w-6" />
               </tr>
             ))}
           </thead>
@@ -156,12 +158,15 @@ export function EventsTable({
                 const event = row.original as SplicingEvent;
                 const isTop10 = event.top_rank != null;
                 const isSelected = selectedIds.has(event.id);
+                const isInBasket = basketIds?.has(event.id) ?? false;
                 return (
                   <tr
                     key={row.id}
                     className={`border-b transition-colors cursor-pointer ${
                       isSelected
                         ? "bg-blue-50 hover:bg-blue-100"
+                        : isInBasket
+                        ? "bg-green-50 hover:bg-green-100"
                         : "hover:bg-gray-50"
                     } ${isTop10 ? "border-l-4 border-l-blue-500" : ""}`}
                     onClick={() => onToggleSelect(event.id)}
@@ -174,6 +179,14 @@ export function EventsTable({
                         )}
                       </td>
                     ))}
+                    {/* Basket indicator — always rendered to keep column alignment */}
+                    <td className="px-1 py-2 w-6 text-center">
+                      {isInBasket && (
+                        <span title="Dans le panier" className="text-green-500 text-xs">
+                          🛒
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 );
               })

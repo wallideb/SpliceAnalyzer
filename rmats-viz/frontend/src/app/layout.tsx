@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
+import { BasketPanel } from "@/components/basket/BasketPanel";
 
 export const metadata: Metadata = {
   title: "SpliceAnalyzer",
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </header>
           <main className="max-w-7xl mx-auto px-4 py-6">{children}</main>
+          <BasketPanel />
         </Providers>
       </body>
     </html>

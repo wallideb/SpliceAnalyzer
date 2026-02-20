@@ -19,6 +19,7 @@ class AnalysisCreate(BaseModel):
     group2_label: str = "Contrôles"
     group1_samples: list[str] = []
     group2_samples: list[str] = []
+    mutated_genes: list[str] = []
 
 
 class AnalysisResponse(BaseModel):
@@ -26,6 +27,7 @@ class AnalysisResponse(BaseModel):
     name: str
     status: str
     error_message: str | None = None
+    mutated_genes: list[str] = []
     created_at: datetime
     updated_at: datetime
     sample_groups: list[SampleGroupResponse] = []
@@ -37,6 +39,7 @@ class AnalysisListItem(BaseModel):
     id: uuid.UUID
     name: str
     status: str
+    mutated_genes: list[str] = []
     created_at: datetime
     updated_at: datetime
 

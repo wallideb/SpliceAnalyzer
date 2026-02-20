@@ -23,8 +23,9 @@ interface EventsTableProps {
   onSelectPage: (ids: string[]) => void;
   group1Label: string;
   group2Label: string;
-  /** IDs of events currently in the basket — rows get a basket icon */
   basketIds?: Set<string>;
+  highlightTop10?: boolean;
+  showIncLevel?: boolean;
 }
 
 export function EventsTable({
@@ -40,6 +41,8 @@ export function EventsTable({
   group1Label,
   group2Label,
   basketIds,
+  highlightTop10 = true,
+  showIncLevel = false,
 }: EventsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
@@ -60,7 +63,7 @@ export function EventsTable({
         }}
         onChange={() => onSelectPage(pageIds)}
         onClick={(e) => e.stopPropagation()}
-        className="rounded border-gray-300 cursor-pointer"
+        className="rounded border-gray-300 cursor-pointer accent-blue-600"
         title="Sélectionner / désélectionner la page"
       />
     ),
@@ -70,13 +73,13 @@ export function EventsTable({
         checked={selectedIds.has((row.original as SplicingEvent).id)}
         onChange={() => onToggleSelect((row.original as SplicingEvent).id)}
         onClick={(e) => e.stopPropagation()}
-        className="rounded border-gray-300 cursor-pointer"
+        className="rounded border-gray-300 cursor-pointer accent-blue-600"
       />
     ),
     size: 40,
   };
 
-  const columns = [checkboxCol, ...makeEventsColumns(group1Label, group2Label)];
+  const columns = [checkboxCol, ...makeEventsColumns(group1Label, group2Label, showIncLevel)];
 
   const table = useReactTable({
     data,
@@ -88,15 +91,52 @@ export function EventsTable({
     manualSorting: false,
   });
 
-  const totalCols = columns.length;
+  const totalCols = columns.length + 1;
 
   return (
     <div className="space-y-3">
-      <div className="text-sm text-gray-500">{total} événements</div>
+      {/* Pagination controls */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">
+          Page {page}/{pages} &middot; {total.toLocaleString("fr-FR")} résultat{total !== 1 ? "s" : ""}
+        </span>
+        <div className="flex gap-1.5">
+          <button
+            disabled={page <= 1}
+            onClick={() => onPageChange(1)}
+            className="px-2 py-1 border border-border rounded-md text-xs hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Première page"
+          >
+            «
+          </button>
+          <button
+            disabled={page <= 1}
+            onClick={() => onPageChange(page - 1)}
+            className="px-2.5 py-1 border border-border rounded-md text-xs hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            ‹ Préc.
+          </button>
+          <button
+            disabled={page >= pages}
+            onClick={() => onPageChange(page + 1)}
+            className="px-2.5 py-1 border border-border rounded-md text-xs hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            Suiv. ›
+          </button>
+          <button
+            disabled={page >= pages}
+            onClick={() => onPageChange(pages)}
+            className="px-2 py-1 border border-border rounded-md text-xs hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Dernière page"
+          >
+            »
+          </button>
+        </div>
+      </div>
 
-      <div className="overflow-x-auto border rounded-lg">
+      <div className="overflow-x-auto border border-border rounded-xl shadow-sm">
         <table className="min-w-full text-sm">
-          <thead className="bg-gray-50 border-b">
+          <thead className="bg-muted/50 border-b border-border">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {hg.headers.map((header) => {
@@ -104,8 +144,8 @@ export function EventsTable({
                   return (
                     <th
                       key={header.id}
-                      className={`px-3 py-2 text-left text-xs font-semibold text-gray-600 whitespace-nowrap select-none ${
-                        isSelect ? "" : "cursor-pointer hover:bg-gray-100"
+                      className={`px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground whitespace-nowrap select-none ${
+                        isSelect ? "" : "cursor-pointer hover:bg-muted/80 hover:text-foreground transition-colors"
                       }`}
                       onClick={
                         isSelect
@@ -118,7 +158,7 @@ export function EventsTable({
                         header.getContext()
                       )}
                       {!isSelect && (
-                        <span className="ml-1 text-gray-400">
+                        <span className="ml-1 text-muted-foreground/50">
                           {
                             { asc: "↑", desc: "↓" }[
                               header.column.getIsSorted() as string
@@ -129,27 +169,23 @@ export function EventsTable({
                     </th>
                   );
                 })}
-                {/* Basket indicator header */}
-                <th className="px-1 py-2 w-6" />
+                <th className="px-1 py-2.5 w-6" />
               </tr>
             ))}
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td
-                  colSpan={totalCols}
-                  className="text-center py-8 text-gray-400"
-                >
-                  Chargement...
+                <td colSpan={totalCols} className="text-center py-10 text-muted-foreground">
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                    Chargement…
+                  </div>
                 </td>
               </tr>
             ) : table.getRowModel().rows.length === 0 ? (
               <tr>
-                <td
-                  colSpan={totalCols}
-                  className="text-center py-8 text-gray-400"
-                >
+                <td colSpan={totalCols} className="text-center py-10 text-muted-foreground text-sm">
                   Aucun résultat
                 </td>
               </tr>
@@ -159,31 +195,47 @@ export function EventsTable({
                 const isTop10 = event.top_rank != null;
                 const isSelected = selectedIds.has(event.id);
                 const isInBasket = basketIds?.has(event.id) ?? false;
+
+                const rowBg = isSelected
+                  ? "bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-950/50"
+                  : isInBasket
+                  ? "bg-green-50 dark:bg-green-950/20 hover:bg-green-100 dark:hover:bg-green-950/40"
+                  : "hover:bg-muted/40";
+
+                const top10Border =
+                  isTop10 && highlightTop10 ? "border-l-[3px] border-l-blue-500" : "";
+
                 return (
                   <tr
                     key={row.id}
-                    className={`border-b transition-colors cursor-pointer ${
-                      isSelected
-                        ? "bg-blue-50 hover:bg-blue-100"
-                        : isInBasket
-                        ? "bg-green-50 hover:bg-green-100"
-                        : "hover:bg-gray-50"
-                    } ${isTop10 ? "border-l-4 border-l-blue-500" : ""}`}
+                    className={`border-b border-border transition-colors cursor-pointer ${rowBg} ${top10Border}`}
                     onClick={() => onToggleSelect(event.id)}
                   >
                     {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-3 py-2 whitespace-nowrap">
+                      <td key={cell.id} className="px-3 py-2 whitespace-nowrap text-sm">
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext()
                         )}
                       </td>
                     ))}
-                    {/* Basket indicator — always rendered to keep column alignment */}
-                    <td className="px-1 py-2 w-6 text-center">
+                    <td className="px-1.5 py-2 w-6 text-center">
                       {isInBasket && (
-                        <span title="Dans le panier" className="text-green-500 text-xs">
-                          🛒
+                        <span title="Dans le panier" className="text-green-500">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className="w-3.5 h-3.5 inline"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z"
+                            />
+                          </svg>
                         </span>
                       )}
                     </td>
@@ -193,29 +245,6 @@ export function EventsTable({
             )}
           </tbody>
         </table>
-      </div>
-
-      {/* Pagination */}
-      <div className="flex items-center justify-between text-sm text-gray-500">
-        <span>
-          Page {page} / {pages}
-        </span>
-        <div className="flex gap-2">
-          <button
-            disabled={page <= 1}
-            onClick={() => onPageChange(page - 1)}
-            className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            ←
-          </button>
-          <button
-            disabled={page >= pages}
-            onClick={() => onPageChange(page + 1)}
-            className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            →
-          </button>
-        </div>
       </div>
     </div>
   );

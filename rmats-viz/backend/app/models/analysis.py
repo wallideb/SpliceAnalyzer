@@ -13,6 +13,7 @@ class Analysis(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="processing")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mutated_genes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 

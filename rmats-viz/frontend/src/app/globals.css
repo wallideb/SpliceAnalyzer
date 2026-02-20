@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    --background: 220 20% 97%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
@@ -23,6 +23,26 @@
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
   }
+
+  .dark {
+    --background: 222 28% 10%;
+    --foreground: 210 40% 95%;
+    --card: 222 28% 14%;
+    --card-foreground: 210 40% 95%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 222 20% 20%;
+    --secondary-foreground: 210 40% 95%;
+    --muted: 222 20% 18%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 222 20% 20%;
+    --accent-foreground: 210 40% 95%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 222 20% 22%;
+    --input: 222 20% 22%;
+    --ring: 217 91% 60%;
+  }
 }
 
 @layer base {
@@ -33,3 +53,73 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ── Custom range slider ──────────────────────────────────────────────────── */
+.stat-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  background: linear-gradient(
+    to right,
+    hsl(var(--primary)) 0%,
+    hsl(var(--primary)) var(--val, 0%),
+    hsl(var(--border)) var(--val, 0%),
+    hsl(var(--border)) 100%
+  );
+}
+
+.stat-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: hsl(var(--primary));
+  border: 2px solid white;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.stat-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.stat-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: hsl(var(--primary));
+  border: 2px solid white;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+
+/* ── DNA spinner animation ────────────────────────────────────────────────── */
+@keyframes dna-spin {
+  0%   { transform: rotate(0deg) scaleY(1); }
+  25%  { transform: rotate(90deg) scaleY(0.5); }
+  50%  { transform: rotate(180deg) scaleY(1); }
+  75%  { transform: rotate(270deg) scaleY(0.5); }
+  100% { transform: rotate(360deg) scaleY(1); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.6); }
+}
+
+.dna-strand {
+  animation: dna-spin 2s linear infinite;
+  transform-origin: center;
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.pulse-dot:nth-child(2) { animation-delay: 0.2s; }
+.pulse-dot:nth-child(3) { animation-delay: 0.4s; }

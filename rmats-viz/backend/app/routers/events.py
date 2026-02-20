@@ -22,6 +22,7 @@ async def list_events(
     gene_symbol: str | None = Query(None),
     fdr_max: float | None = Query(None, ge=0, le=1),
     p_value_max: float | None = Query(None, ge=0, le=1),
+    delta_psi_min: float | None = Query(None, ge=0, le=1),
     sort_by: Literal["fdr", "p_value", "abs_inc_level_diff", "gene_symbol"] = Query("fdr"),
     sort_dir: Literal["asc", "desc"] = Query("asc"),
     page: int = Query(1, ge=1),
@@ -38,8 +39,9 @@ async def list_events(
     gene_clause = SplicingEvent.gene_symbol.ilike(f"%{gene_symbol}%") if gene_symbol else None
     fdr_clause = (SplicingEvent.fdr <= fdr_max) if fdr_max is not None else None
     pval_clause = (SplicingEvent.p_value <= p_value_max) if p_value_max is not None else None
+    dpsi_clause = (SplicingEvent.abs_inc_level_diff >= delta_psi_min) if delta_psi_min is not None else None
 
-    stat_filters_active = fdr_clause is not None or pval_clause is not None
+    stat_filters_active = fdr_clause is not None or pval_clause is not None or dpsi_clause is not None
 
     if stat_filters_active:
         # Events that satisfy all filters (including stat thresholds)
@@ -52,6 +54,8 @@ async def list_events(
             full_conditions.append(fdr_clause)
         if pval_clause is not None:
             full_conditions.append(pval_clause)
+        if dpsi_clause is not None:
+            full_conditions.append(dpsi_clause)
 
         # Top-10 events always included regardless of stat thresholds
         top10_conditions = [

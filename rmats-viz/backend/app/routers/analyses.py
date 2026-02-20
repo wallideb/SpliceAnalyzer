@@ -25,11 +25,18 @@ async def create_analysis(
     group2_label: str = Form("Contrôles"),
     group1_samples: str = Form("[]"),
     group2_samples: str = Form("[]"),
+    mutated_genes: str = Form("[]"),
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
     analysis_id = uuid.uuid4()
-    analysis = Analysis(id=analysis_id, name=name, status="processing")
+    try:
+        parsed_genes = json.loads(mutated_genes)
+        if not isinstance(parsed_genes, list):
+            parsed_genes = []
+    except json.JSONDecodeError:
+        parsed_genes = []
+    analysis = Analysis(id=analysis_id, name=name, status="processing", mutated_genes=parsed_genes)
     db.add(analysis)
 
     try:

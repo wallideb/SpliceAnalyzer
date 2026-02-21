@@ -25,6 +25,8 @@ export interface EventsQuery {
   sort_dir?: "asc" | "desc";
   page?: number;
   page_size?: number;
+  /** When true, top-10 ranked events are excluded from the result. */
+  exclude_top10?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -42,6 +44,7 @@ export async function listEvents(analysisId: string, query: EventsQuery = {}): P
   if (query.sort_dir) params.set("sort_dir", query.sort_dir);
   if (query.page) params.set("page", String(query.page));
   if (query.page_size) params.set("page_size", String(query.page_size));
+  if (query.exclude_top10) params.set("exclude_top10", "true");
   return fetchJSON(`${BASE}/analyses/${analysisId}/events?${params}`);
 }
 

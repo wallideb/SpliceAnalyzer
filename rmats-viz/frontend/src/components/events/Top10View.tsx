@@ -3,13 +3,12 @@
 /**
  * Top10View
  * ==========
- * Displays the top-10 ranked splicing events with:
- *   - A collapsible left sidebar to switch the annotation mode
- *   - Annotated cards that update their content based on the selected mode
- *   - Full dark-mode support throughout
+ * Displays the top-10 ranked splicing events with a collapsible left sidebar
+ * to switch the annotation mode, and annotated cards that update their content
+ * based on the selected mode.
  *
- * Annotation data (PanelApp / GO / UniProt) is fetched lazily per gene
- * and cached for 5 minutes via React Query.
+ * The "Interactions" (StringDB) tab is only shown when at least one mutated
+ * gene was defined for the analysis.
  */
 
 import { useState } from "react";
@@ -21,13 +20,15 @@ import type { ViewMode } from "@/components/top10/types";
 
 interface Top10ViewProps {
   events: SplicingEvent[];
-  /** Resolved gene entries from the analysis (for ENSG ID hints). */
+  /** Resolved gene entries from the analysis (for ENSG ID hints + StringDB). */
   mutatedGenes?: GeneEntry[];
 }
 
 export function Top10View({ events, mutatedGenes = [] }: Top10ViewProps) {
   const [mode, setMode] = useState<ViewMode>("gene");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const showStringDB = mutatedGenes.length > 0;
 
   // Build a symbol → ensembl_id map from the analysis mutated genes list
   const ensemblHints: Record<string, string> = {};
@@ -36,17 +37,15 @@ export function Top10View({ events, mutatedGenes = [] }: Top10ViewProps) {
   }
 
   if (events.length === 0) {
-    return (
-      <p className="text-muted-foreground text-sm">Aucun événement top-10 trouvé.</p>
-    );
+    return <p className="text-muted-foreground text-sm">Aucun événement top-10 trouvé.</p>;
   }
 
   const MODE_LABELS: Record<ViewMode, string> = {
-    gene:         "Localisation génomique",
-    go:           "Ontologie génique (GO)",
-    panelapp:     "Panels PanelApp Australia",
-    scores:       "Scores rMATS détaillés",
-    conservation: "Conservation inter-espèce",
+    gene:     "Localisation génomique",
+    go:       "Ontologie génique (GO)",
+    panelapp: "Panels PanelApp Australia",
+    scores:   "Scores rMATS détaillés",
+    stringdb: "Interactions STRING-DB avec le gène muté",
   };
 
   return (
@@ -57,16 +56,15 @@ export function Top10View({ events, mutatedGenes = [] }: Top10ViewProps) {
         onChange={setMode}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+        showStringDB={showStringDB}
       />
 
       {/* ── Main content ── */}
       <div className="flex-1 min-w-0 p-4">
-        {/* Mode label */}
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-4">
           {MODE_LABELS[mode]}
         </p>
 
-        {/* Cards grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {events.map((ev) => {
             const symKey = (ev.gene_symbol ?? "").toUpperCase();
@@ -76,12 +74,13 @@ export function Top10View({ events, mutatedGenes = [] }: Top10ViewProps) {
                 event={ev}
                 mode={mode}
                 ensemblIdHint={ensemblHints[symKey] ?? ev.gene_id}
+                mutatedGenes={mutatedGenes}
               />
             );
           })}
         </div>
 
-        {/* PanelApp legend (only shown in panelapp mode) */}
+        {/* Mode legends */}
         {mode === "panelapp" && (
           <div className="mt-4 flex flex-wrap gap-3 text-xs text-muted-foreground border-t border-border pt-3">
             <span className="font-semibold text-foreground">Niveau de confiance PanelApp :</span>
@@ -94,14 +93,20 @@ export function Top10View({ events, mutatedGenes = [] }: Top10ViewProps) {
           </div>
         )}
 
-        {/* GO legend */}
         {mode === "go" && (
           <div className="mt-4 flex flex-wrap gap-3 text-xs text-muted-foreground border-t border-border pt-3">
             <span className="font-semibold text-foreground">Catégories GO :</span>
             <span className="flex items-center gap-1"><span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 text-[11px]">BP</span> Processus biologique</span>
             <span className="flex items-center gap-1"><span className="px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 text-[11px]">MF</span> Fonction moléculaire</span>
             <span className="flex items-center gap-1"><span className="px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 text-[11px]">CC</span> Composant cellulaire</span>
-            <span className="text-muted-foreground italic">· Survolez le nom du gène pour la description UniProt</span>
+            <span className="italic">· Survolez le nom du gène pour la description UniProt</span>
+          </div>
+        )}
+
+        {mode === "stringdb" && (
+          <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted-foreground border-t border-border pt-3">
+            <span className="font-semibold text-foreground">Source :</span>
+            <span>STRING-DB v12 · réseau de preuve d&apos;interaction protéine–protéine · cliquez sur l&apos;image pour ouvrir STRING.</span>
           </div>
         )}
       </div>

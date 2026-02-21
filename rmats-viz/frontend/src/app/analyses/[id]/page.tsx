@@ -40,6 +40,7 @@ export default function AnalysisDetailPage() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [highlightTop10, setHighlightTop10] = useState(true);
+  const [hideTop10, setHideTop10] = useState(false);
   const [showIncLevel, setShowIncLevel] = useState(false);
 
   const sortBy = sortKey.slice(0, sortKey.lastIndexOf("|")) as EventsQuery["sort_by"];
@@ -64,6 +65,7 @@ export default function AnalysisDetailPage() {
     sort_dir: sortDir,
     page,
     page_size: 50,
+    exclude_top10: hideTop10 || undefined,
   };
 
   const { data: eventsPage, isLoading } = useQuery({
@@ -168,7 +170,7 @@ export default function AnalysisDetailPage() {
         </div>
 
         {/* Top10 actions */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
           <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground select-none hover:text-foreground transition-colors">
             <input
               type="checkbox"
@@ -178,6 +180,30 @@ export default function AnalysisDetailPage() {
             />
             Surligner Top 10
           </label>
+          {/* Hide / show top-10 events toggle */}
+          <button
+            onClick={() => { setHideTop10((v) => !v); setPage(1); }}
+            title={hideTop10 ? "Afficher les Top 10 dans la liste" : "Masquer les Top 10 de la liste"}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+              hideTop10
+                ? "bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
+                : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            {hideTop10 ? (
+              /* Eye icon */
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            ) : (
+              /* Eye-slash icon */
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+              </svg>
+            )}
+            {hideTop10 ? "Top 10 masqué" : "Masquer Top 10"}
+          </button>
           <Link
             href={`/analyses/${id}/top10`}
             className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors shadow-sm"
@@ -322,8 +348,8 @@ export default function AnalysisDetailPage() {
             </svg>
             <span>
               Les <strong>Top 10 événements ◈</strong> sont sélectionnés selon les seuils rMATS par défaut
-              (FDR &lt; 0.05, |ΔPSI| ≥ 0.1), classés par FDR puis |ΔPSI|. Ils restent toujours affichés
-              indépendamment des filtres statistiques actifs.
+              (FDR &lt; 0.05, |ΔPSI| ≥ 0.1), classés par FDR puis |ΔPSI|. Ils sont filtrés comme tous les autres événements
+              lorsque des seuils statistiques sont actifs. Utilisez le bouton <strong>Masquer Top 10</strong> pour les exclure de la liste.
             </span>
           </div>
         )}

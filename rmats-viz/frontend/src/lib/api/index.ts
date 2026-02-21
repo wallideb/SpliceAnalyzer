@@ -8,14 +8,16 @@
  *   ├── client.ts     Shared fetchJSON helper and BASE URL constant
  *   ├── analyses.ts   Analysis CRUD (create, list, get, delete)
  *   ├── events.ts     Splicing events (list with filters, top-10)
- *   ├── genes.ts      Ensembl gene search and lookup
- *   └── index.ts      This file – re-exports everything
+ *   ├── genes.ts        Ensembl gene search and lookup
+ *   ├── annotations.ts  Gene annotation (PanelApp + GO + UniProt)
+ *   └── index.ts        This file – re-exports everything
  *
  * Usage:
  *   import { listAnalyses, searchGenes } from "@/lib/api";
  */
 
 export * from "./analyses";
+export * from "./annotations";
 export * from "./events";
 export * from "./genes";
 export { fetchJSON, BASE } from "./client";

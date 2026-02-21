@@ -5,11 +5,19 @@ import { formatFDR, formatDeltaPSI } from "@/lib/utils";
 
 const helper = createColumnHelper<SplicingEvent>();
 
-export function makeEventsColumns(group1Label: string, group2Label: string) {
-  return [
+export function makeEventsColumns(group1Label: string, group2Label: string, showIncLevel = false) {
+  const baseColumns = [
     helper.accessor("top_rank", {
-      header: "#",
-      cell: (info) => info.getValue() ?? "",
+      header: "◈",
+      cell: (info) => {
+        const v = info.getValue();
+        if (v == null) return <span className="text-muted-foreground/30">—</span>;
+        return (
+          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-xs font-bold">
+            {v}
+          </span>
+        );
+      },
       size: 40,
     }),
     helper.accessor("event_type", {
@@ -19,44 +27,56 @@ export function makeEventsColumns(group1Label: string, group2Label: string) {
     }),
     helper.accessor("gene_symbol", {
       header: "Gène",
-      cell: (info) => <span className="font-medium">{info.getValue() ?? "—"}</span>,
+      cell: (info) => (
+        <span className="font-semibold text-foreground">{info.getValue() ?? "—"}</span>
+      ),
     }),
     helper.accessor("chr", {
       header: "Chr",
-      cell: (info) => info.getValue() ?? "—",
+      cell: (info) => <span className="text-muted-foreground">{info.getValue() ?? "—"}</span>,
       size: 70,
     }),
     helper.accessor("strand", {
       header: "Brin",
-      cell: (info) => info.getValue() ?? "—",
+      cell: (info) => <span className="text-muted-foreground">{info.getValue() ?? "—"}</span>,
       size: 50,
     }),
     helper.accessor("exon_start", {
       header: "Exon start",
-      cell: (info) => info.getValue()?.toLocaleString() ?? "—",
+      cell: (info) => (
+        <span className="text-muted-foreground tabular-nums">
+          {info.getValue()?.toLocaleString() ?? "—"}
+        </span>
+      ),
     }),
     helper.accessor("exon_end", {
       header: "Exon end",
-      cell: (info) => info.getValue()?.toLocaleString() ?? "—",
+      cell: (info) => (
+        <span className="text-muted-foreground tabular-nums">
+          {info.getValue()?.toLocaleString() ?? "—"}
+        </span>
+      ),
     }),
     helper.accessor("fdr", {
       header: "FDR",
-      cell: (info) => formatFDR(info.getValue()),
+      cell: (info) => (
+        <span className="tabular-nums font-medium">{formatFDR(info.getValue())}</span>
+      ),
     }),
     helper.accessor("inc_level_difference", {
       header: "ΔPSI",
       cell: (info) => {
         const val = info.getValue();
         if (val === null || val === undefined)
-          return <span className="text-gray-400">N/A</span>;
+          return <span className="text-muted-foreground">N/A</span>;
         const txt = formatDeltaPSI(val);
         const cls =
           val > 0
-            ? "text-red-600 font-medium"
+            ? "text-red-600 dark:text-red-400 font-semibold"
             : val < 0
-            ? "text-blue-600 font-medium"
-            : "text-gray-600";
-        return <span className={cls}>{txt}</span>;
+            ? "text-blue-600 dark:text-blue-400 font-semibold"
+            : "text-muted-foreground";
+        return <span className={`tabular-nums ${cls}`}>{txt}</span>;
       },
     }),
     helper.display({
@@ -65,15 +85,15 @@ export function makeEventsColumns(group1Label: string, group2Label: string) {
       cell: ({ row }) => {
         const val = row.original.inc_level_difference;
         if (val === null || val === undefined || val === 0)
-          return <span className="text-gray-300">—</span>;
+          return <span className="text-muted-foreground/30">—</span>;
         if (val > 0)
           return (
-            <span className="inline-flex items-center gap-0.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded whitespace-nowrap">
+            <span className="inline-flex items-center gap-0.5 text-xs font-medium text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded whitespace-nowrap">
               ↑ {group1Label}
             </span>
           );
         return (
-          <span className="inline-flex items-center gap-0.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded whitespace-nowrap">
+          <span className="inline-flex items-center gap-0.5 text-xs font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 px-1.5 py-0.5 rounded whitespace-nowrap">
             ↑ {group2Label}
           </span>
         );
@@ -81,23 +101,34 @@ export function makeEventsColumns(group1Label: string, group2Label: string) {
     }),
     helper.accessor("abs_inc_level_diff", {
       header: "|ΔPSI|",
-      cell: (info) => info.getValue()?.toFixed(3) ?? "—",
-    }),
-    helper.accessor("inc_level_1", {
-      header: "IncLevel1",
       cell: (info) => (
-        <span className="text-xs text-gray-500 truncate max-w-[120px] block">
-          {info.getValue() ?? "—"}
-        </span>
-      ),
-    }),
-    helper.accessor("inc_level_2", {
-      header: "IncLevel2",
-      cell: (info) => (
-        <span className="text-xs text-gray-500 truncate max-w-[120px] block">
-          {info.getValue() ?? "—"}
+        <span className="tabular-nums font-medium">
+          {info.getValue()?.toFixed(3) ?? "—"}
         </span>
       ),
     }),
   ];
+
+  const incLevelColumns = showIncLevel
+    ? [
+        helper.accessor("inc_level_1", {
+          header: "IncLevel1",
+          cell: (info) => (
+            <span className="text-xs text-muted-foreground truncate max-w-[120px] block tabular-nums">
+              {info.getValue() ?? "—"}
+            </span>
+          ),
+        }),
+        helper.accessor("inc_level_2", {
+          header: "IncLevel2",
+          cell: (info) => (
+            <span className="text-xs text-muted-foreground truncate max-w-[120px] block tabular-nums">
+              {info.getValue() ?? "—"}
+            </span>
+          ),
+        }),
+      ]
+    : [];
+
+  return [...baseColumns, ...incLevelColumns];
 }

@@ -32,6 +32,7 @@ export interface UploadPayload {
   group2_label: string;
   group1_samples: string[];
   group2_samples: string[];
+  mutated_genes: string[];
   files: File[];
 }
 
@@ -42,6 +43,7 @@ export async function uploadAnalysis(payload: UploadPayload): Promise<UploadResp
   form.append("group2_label", payload.group2_label);
   form.append("group1_samples", JSON.stringify(payload.group1_samples));
   form.append("group2_samples", JSON.stringify(payload.group2_samples));
+  form.append("mutated_genes", JSON.stringify(payload.mutated_genes));
   for (const file of payload.files) {
     form.append("files", file);
   }
@@ -55,6 +57,7 @@ export interface EventsQuery {
   gene_symbol?: string;
   fdr_max?: number;
   p_value_max?: number;
+  delta_psi_min?: number;
   sort_by?: "fdr" | "p_value" | "abs_inc_level_diff" | "gene_symbol";
   sort_dir?: "asc" | "desc";
   page?: number;
@@ -67,6 +70,7 @@ export async function listEvents(analysisId: string, query: EventsQuery = {}): P
   if (query.gene_symbol) params.set("gene_symbol", query.gene_symbol);
   if (query.fdr_max !== undefined) params.set("fdr_max", String(query.fdr_max));
   if (query.p_value_max !== undefined) params.set("p_value_max", String(query.p_value_max));
+  if (query.delta_psi_min !== undefined) params.set("delta_psi_min", String(query.delta_psi_min));
   if (query.sort_by) params.set("sort_by", query.sort_by);
   if (query.sort_dir) params.set("sort_dir", query.sort_dir);
   if (query.page) params.set("page", String(query.page));

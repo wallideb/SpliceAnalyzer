@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { FileUploadZone } from "@/components/upload/FileUploadZone";
 import { GroupMappingDialog } from "@/components/upload/GroupMappingDialog";
@@ -9,13 +9,36 @@ export default function NewAnalysisPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [files, setFiles] = useState<File[]>([]);
-  const [group1Label, setGroup1Label] = useState("Patients PCBP1");
+  const [group1Label, setGroup1Label] = useState("Patients");
   const [group2Label, setGroup2Label] = useState("Contrôles");
+  const [mutatedGenes, setMutatedGenes] = useState<string[]>([]);
+  const [geneInput, setGeneInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
 
   const canNext = name.trim() && files.length > 0;
+
+  const addGene = () => {
+    const g = geneInput.trim().toUpperCase();
+    if (g && !mutatedGenes.includes(g)) {
+      setMutatedGenes((prev) => [...prev, g]);
+    }
+    setGeneInput("");
+  };
+
+  const removeGene = (gene: string) => {
+    setMutatedGenes((prev) => prev.filter((g) => g !== gene));
+  };
+
+  const handleGeneKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === "," || e.key === " ") {
+      e.preventDefault();
+      addGene();
+    } else if (e.key === "Backspace" && !geneInput && mutatedGenes.length > 0) {
+      setMutatedGenes((prev) => prev.slice(0, -1));
+    }
+  };
 
   const handleSubmit = async () => {
     if (!canNext) return;
@@ -28,6 +51,7 @@ export default function NewAnalysisPage() {
         group2_label: group2Label,
         group1_samples: [],
         group2_samples: [],
+        mutated_genes: mutatedGenes,
         files,
       });
       router.push(`/analyses/${res.analysis_id}`);
@@ -37,45 +61,107 @@ export default function NewAnalysisPage() {
     }
   };
 
+  if (loading) {
+    return <DnaLoadingScreen />;
+  }
+
   return (
     <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Nouvelle analyse</h1>
+      <div className="mb-6">
+        <h1 className="text-2xl font-extrabold tracking-tight text-foreground">Nouvelle analyse</h1>
+        <p className="text-sm text-muted-foreground mt-1">Importez vos fichiers rMATS et configurez votre analyse</p>
+      </div>
 
       {/* Step indicators */}
       <div className="flex items-center gap-2 mb-8">
-        <StepDot n={1} active={step === 1} done={step > 1} label="Fichiers" />
-        <div className="flex-1 h-px bg-gray-200" />
+        <StepDot n={1} active={step === 1} done={step > 1} label="Fichiers & gènes" />
+        <div className="flex-1 h-0.5 bg-border rounded" />
         <StepDot n={2} active={step === 2} done={false} label="Groupes" />
       </div>
 
-      <div className="bg-white border rounded-lg p-6 space-y-5">
+      <div className="bg-card border border-border rounded-xl p-6 space-y-5 shadow-sm">
         {step === 1 && (
           <>
+            {/* Analysis name */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Nom de l'analyse
+              <label className="block text-sm font-semibold text-foreground mb-1.5">
+                Nom de l&apos;analyse
               </label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Ex: PCBP1 cohort 2024"
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 transition-shadow"
               />
             </div>
+
+            {/* Mutated genes */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-foreground mb-1">
+                Gène(s) muté(s) dans la cohorte{" "}
+                <span className="text-muted-foreground font-normal">(nomenclature HUGO)</span>
+              </label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Ces gènes seront affichés dans l&apos;analyse même s&apos;ils n&apos;apparaissent pas dans les anomalies d&apos;épissage détectées.
+              </p>
+              <div
+                className="flex flex-wrap gap-1.5 border border-border rounded-lg px-3 py-2 bg-background min-h-[42px] cursor-text focus-within:ring-2 focus-within:ring-blue-500 dark:focus-within:ring-blue-400 transition-shadow"
+                onClick={() => document.getElementById("gene-input")?.focus()}
+              >
+                {mutatedGenes.map((gene) => (
+                  <span
+                    key={gene}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-700"
+                  >
+                    {gene}
+                    <button
+                      type="button"
+                      onClick={() => removeGene(gene)}
+                      className="hover:text-amber-600 dark:hover:text-amber-200 transition-colors"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </span>
+                ))}
+                <input
+                  id="gene-input"
+                  type="text"
+                  value={geneInput}
+                  onChange={(e) => setGeneInput(e.target.value)}
+                  onKeyDown={handleGeneKeyDown}
+                  onBlur={addGene}
+                  placeholder={mutatedGenes.length === 0 ? "PCBP1, TP53… (Entrée pour valider)" : ""}
+                  className="flex-1 min-w-[120px] text-sm bg-transparent text-foreground placeholder:text-muted-foreground outline-none"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Tapez un nom de gène et appuyez sur{" "}
+                <kbd className="px-1 py-0.5 rounded bg-muted text-xs font-mono">Entrée</kbd> ou{" "}
+                <kbd className="px-1 py-0.5 rounded bg-muted text-xs font-mono">,</kbd>
+              </p>
+            </div>
+
+            {/* File upload */}
+            <div>
+              <label className="block text-sm font-semibold text-foreground mb-2">
                 Fichiers rMATS
               </label>
               <FileUploadZone files={files} onChange={setFiles} />
             </div>
+
             <div className="flex justify-end">
               <button
                 disabled={!canNext}
                 onClick={() => setStep(2)}
-                className="bg-blue-600 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm"
               >
                 Suivant
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
               </button>
             </div>
           </>
@@ -84,8 +170,8 @@ export default function NewAnalysisPage() {
         {step === 2 && (
           <>
             <div>
-              <h2 className="text-base font-semibold mb-1">Labels des groupes</h2>
-              <p className="text-sm text-gray-500 mb-4">
+              <h2 className="text-base font-semibold text-foreground mb-1">Labels des groupes</h2>
+              <p className="text-sm text-muted-foreground mb-4">
                 Ces labels apparaîtront dans les colonnes IncLevel1 / IncLevel2.
               </p>
               <GroupMappingDialog
@@ -97,7 +183,7 @@ export default function NewAnalysisPage() {
             </div>
 
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">
+              <div className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-lg text-sm">
                 {error}
               </div>
             )}
@@ -105,16 +191,21 @@ export default function NewAnalysisPage() {
             <div className="flex justify-between">
               <button
                 onClick={() => setStep(1)}
-                className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2 rounded border hover:bg-gray-50"
+                className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground px-3 py-2 rounded-lg border border-border hover:bg-muted transition-colors"
               >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
                 Retour
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={loading}
-                className="bg-blue-600 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
+                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm"
               >
-                {loading ? "Analyse en cours..." : "Lancer l'analyse"}
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Lancer l&apos;analyse
               </button>
             </div>
           </>
@@ -124,17 +215,57 @@ export default function NewAnalysisPage() {
   );
 }
 
+function DnaLoadingScreen() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-8">
+      <div className="relative w-24 h-24 flex items-center justify-center">
+        <img
+          src="/logo.svg"
+          alt="SpliceAnalyzer"
+          className="w-20 h-20 dna-strand"
+          draggable={false}
+        />
+      </div>
+
+      <div className="text-center space-y-2">
+        <p className="text-lg font-semibold text-foreground">Analyse en cours…</p>
+        <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+          Veuillez patienter, suppression des duplicats et priorisation des événements d&apos;épissage…
+        </p>
+      </div>
+
+      <div className="flex gap-2">
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="w-2.5 h-2.5 rounded-full bg-blue-500 pulse-dot"
+            style={{ animationDelay: `${i * 0.2}s` }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StepDot({ n, active, done, label }: { n: number; active: boolean; done: boolean; label: string }) {
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-2">
       <div
-        className={`w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold ${
-          active ? "bg-blue-600 text-white" : done ? "bg-green-500 text-white" : "bg-gray-200 text-gray-500"
+        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${
+          active
+            ? "bg-blue-600 text-white ring-4 ring-blue-100 dark:ring-blue-900"
+            : done
+            ? "bg-green-500 text-white"
+            : "bg-muted text-muted-foreground"
         }`}
       >
-        {done ? "✓" : n}
+        {done ? (
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        ) : n}
       </div>
-      <span className={`text-sm ${active ? "font-medium text-gray-800" : "text-gray-400"}`}>{label}</span>
+      <span className={`text-sm font-medium ${active ? "text-foreground" : "text-muted-foreground"}`}>{label}</span>
     </div>
   );
 }

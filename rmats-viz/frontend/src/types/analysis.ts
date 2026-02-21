@@ -10,6 +10,7 @@ export interface Analysis {
   name: string;
   status: "processing" | "ready" | "error";
   error_message?: string | null;
+  mutated_genes: string[];
   created_at: string;
   updated_at: string;
   sample_groups: SampleGroup[];
@@ -19,6 +20,7 @@ export interface AnalysisListItem {
   id: string;
   name: string;
   status: "processing" | "ready" | "error";
+  mutated_genes: string[];
   created_at: string;
   updated_at: string;
 }

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SpliceAnalyzer - Logo SVG (modifiable)
+  Inspire de DNA.svg (double helice) + CONNECT.svg (noeuds reseau)
+  Concept : double helice d'ADN avec noeuds de jonction representant
+            les sites d'epissage alternatif et leur connectivite.
+  Palette : Indigo -> Bleu -> Cyan
+  ViewBox : 64x64 (scalable)
+-->
+<svg width="200" height="200" viewBox="0 0 64 64"
+     xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sa-strand-1" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#0ea5e9"/>
+    </linearGradient>
+    <linearGradient id="sa-strand-2" x1="1" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+    <radialGradient id="sa-node-center" cx="38%" cy="32%" r="65%">
+      <stop offset="0%"   stop-color="#a5b4fc"/>
+      <stop offset="100%" stop-color="#4338ca"/>
+    </radialGradient>
+    <radialGradient id="sa-node-ind" cx="40%" cy="35%" r="65%">
+      <stop offset="0%"   stop-color="#a5b4fc"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </radialGradient>
+    <radialGradient id="sa-node-cya" cx="40%" cy="35%" r="65%">
+      <stop offset="0%"   stop-color="#67e8f9"/>
+      <stop offset="100%" stop-color="#0891b2"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Paires de bases (dessous des brins) -->
+  <line x1="12" y1="8"  x2="52" y2="8"  stroke="#bfdbfe" stroke-width="1.5" stroke-linecap="round" opacity="0.85"/>
+  <line x1="18" y1="13" x2="46" y2="13" stroke="#bfdbfe" stroke-width="1.5" stroke-linecap="round" opacity="0.70"/>
+  <line x1="18" y1="51" x2="46" y2="51" stroke="#bfdbfe" stroke-width="1.5" stroke-linecap="round" opacity="0.70"/>
+  <line x1="12" y1="56" x2="52" y2="56" stroke="#bfdbfe" stroke-width="1.5" stroke-linecap="round" opacity="0.85"/>
+
+  <!-- Brin 1 : haut-gauche -> centre -> bas-droite (indigo->cyan) -->
+  <path d="M8,8 C28,8 8,32 32,32 C56,32 36,56 56,56"
+        fill="none" stroke="url(#sa-strand-1)" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Brin 2 : haut-droite -> centre -> bas-gauche (cyan->indigo) -->
+  <path d="M56,8 C36,8 56,32 32,32 C8,32 28,56 8,56"
+        fill="none" stroke="url(#sa-strand-2)" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Noeuds d'angle (extremites des brins) -->
+  <circle cx="8"  cy="8"  r="4.5" fill="url(#sa-node-ind)"/>
+  <circle cx="56" cy="8"  r="4.5" fill="url(#sa-node-cya)"/>
+  <circle cx="8"  cy="56" r="4.5" fill="url(#sa-node-cya)"/>
+  <circle cx="56" cy="56" r="4.5" fill="url(#sa-node-ind)"/>
+
+  <!-- Noeud central : site d'epissage (grand, prominent) -->
+  <circle cx="32" cy="32" r="9"   fill="url(#sa-node-center)"/>
+  <circle cx="32" cy="32" r="5.5" fill="white"/>
+  <circle cx="32" cy="32" r="2.5" fill="#4338ca"/>
+</svg>

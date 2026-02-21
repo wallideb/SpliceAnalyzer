@@ -156,10 +156,10 @@ export default function AnalysisDetailPage() {
                 <span className="text-xs text-muted-foreground">Gène(s) muté(s) :</span>
                 {analysis.mutated_genes.map((gene) => (
                   <span
-                    key={gene}
+                    key={typeof gene === "string" ? gene : gene.ensembl_id}
                     className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-700"
                   >
-                    {gene}
+                    {typeof gene === "string" ? gene : gene.display}
                   </span>
                 ))}
               </span>

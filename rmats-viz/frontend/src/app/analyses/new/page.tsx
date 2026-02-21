@@ -1,9 +1,11 @@
 "use client";
-import { useState, KeyboardEvent } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FileUploadZone } from "@/components/upload/FileUploadZone";
 import { GroupMappingDialog } from "@/components/upload/GroupMappingDialog";
-import { uploadAnalysis } from "@/lib/api";
+import { GeneAutocomplete } from "@/components/genes/GeneAutocomplete";
+import { uploadAnalysis } from "@/lib/api/analyses";
+import type { GeneEntry } from "@/types/gene";
 
 export default function NewAnalysisPage() {
   const router = useRouter();
@@ -11,34 +13,12 @@ export default function NewAnalysisPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [group1Label, setGroup1Label] = useState("Patients");
   const [group2Label, setGroup2Label] = useState("Contrôles");
-  const [mutatedGenes, setMutatedGenes] = useState<string[]>([]);
-  const [geneInput, setGeneInput] = useState("");
+  const [mutatedGenes, setMutatedGenes] = useState<GeneEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
 
   const canNext = name.trim() && files.length > 0;
-
-  const addGene = () => {
-    const g = geneInput.trim().toUpperCase();
-    if (g && !mutatedGenes.includes(g)) {
-      setMutatedGenes((prev) => [...prev, g]);
-    }
-    setGeneInput("");
-  };
-
-  const removeGene = (gene: string) => {
-    setMutatedGenes((prev) => prev.filter((g) => g !== gene));
-  };
-
-  const handleGeneKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" || e.key === "," || e.key === " ") {
-      e.preventDefault();
-      addGene();
-    } else if (e.key === "Backspace" && !geneInput && mutatedGenes.length > 0) {
-      setMutatedGenes((prev) => prev.slice(0, -1));
-    }
-  };
 
   const handleSubmit = async () => {
     if (!canNext) return;
@@ -96,52 +76,18 @@ export default function NewAnalysisPage() {
               />
             </div>
 
-            {/* Mutated genes */}
+            {/* Mutated genes – Ensembl autocomplete */}
             <div>
               <label className="block text-sm font-semibold text-foreground mb-1">
                 Gène(s) muté(s) dans la cohorte{" "}
                 <span className="text-muted-foreground font-normal">(nomenclature HUGO)</span>
               </label>
               <p className="text-xs text-muted-foreground mb-2">
-                Ces gènes seront affichés dans l&apos;analyse même s&apos;ils n&apos;apparaissent pas dans les anomalies d&apos;épissage détectées.
+                Ces gènes seront affichés dans l&apos;analyse même s&apos;ils n&apos;apparaissent pas
+                dans les anomalies d&apos;épissage détectées. L&apos;identifiant Ensembl (ENSG) est
+                récupéré automatiquement.
               </p>
-              <div
-                className="flex flex-wrap gap-1.5 border border-border rounded-lg px-3 py-2 bg-background min-h-[42px] cursor-text focus-within:ring-2 focus-within:ring-blue-500 dark:focus-within:ring-blue-400 transition-shadow"
-                onClick={() => document.getElementById("gene-input")?.focus()}
-              >
-                {mutatedGenes.map((gene) => (
-                  <span
-                    key={gene}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-700"
-                  >
-                    {gene}
-                    <button
-                      type="button"
-                      onClick={() => removeGene(gene)}
-                      className="hover:text-amber-600 dark:hover:text-amber-200 transition-colors"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </span>
-                ))}
-                <input
-                  id="gene-input"
-                  type="text"
-                  value={geneInput}
-                  onChange={(e) => setGeneInput(e.target.value)}
-                  onKeyDown={handleGeneKeyDown}
-                  onBlur={addGene}
-                  placeholder={mutatedGenes.length === 0 ? "PCBP1, TP53… (Entrée pour valider)" : ""}
-                  className="flex-1 min-w-[120px] text-sm bg-transparent text-foreground placeholder:text-muted-foreground outline-none"
-                />
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Tapez un nom de gène et appuyez sur{" "}
-                <kbd className="px-1 py-0.5 rounded bg-muted text-xs font-mono">Entrée</kbd> ou{" "}
-                <kbd className="px-1 py-0.5 rounded bg-muted text-xs font-mono">,</kbd>
-              </p>
+              <GeneAutocomplete value={mutatedGenes} onChange={setMutatedGenes} />
             </div>
 
             {/* File upload */}
@@ -181,6 +127,25 @@ export default function NewAnalysisPage() {
                 onGroup2Change={setGroup2Label}
               />
             </div>
+
+            {/* Summary of selected genes */}
+            {mutatedGenes.length > 0 && (
+              <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3">
+                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1.5">
+                  Gène(s) muté(s) sélectionné(s)
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {mutatedGenes.map((g) => (
+                    <span
+                      key={g.ensembl_id}
+                      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-700"
+                    >
+                      {g.display}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {error && (
               <div className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-lg text-sm">

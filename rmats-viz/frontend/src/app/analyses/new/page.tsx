@@ -219,20 +219,12 @@ function DnaLoadingScreen() {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-8">
       <div className="relative w-24 h-24 flex items-center justify-center">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
+        <img
+          src="/logo.svg"
+          alt="SpliceAnalyzer"
           className="w-20 h-20 dna-strand"
-          viewBox="0 0 64 64"
-          fill="none"
-        >
-          <path d="M16 8 C16 8 28 16 32 24 C36 32 48 40 48 40" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" />
-          <path d="M48 8 C48 8 36 16 32 24 C28 32 16 40 16 40" stroke="#06b6d4" strokeWidth="3" strokeLinecap="round" />
-          <path d="M16 40 C16 40 28 48 32 52 C36 56 48 56 48 56" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" opacity="0.5" />
-          <path d="M48 40 C48 40 36 48 32 52 C28 56 16 56 16 56" stroke="#06b6d4" strokeWidth="3" strokeLinecap="round" opacity="0.5" />
-          <line x1="22" y1="19" x2="42" y2="19" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
-          <line x1="21" y1="26" x2="43" y2="26" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
-          <line x1="22" y1="33" x2="42" y2="33" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
-        </svg>
+          draggable={false}
+        />
       </div>
 
       <div className="text-center space-y-2">

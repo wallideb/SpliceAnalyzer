@@ -254,7 +254,7 @@ export function GeneAutocomplete({ value, onChange }: GeneAutocompleteProps) {
       {isOpen && suggestions.length > 0 && (
         <ul
           ref={dropdownRef}
-          className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-lg shadow-lg overflow-hidden"
+          className="absolute z-50 mt-1 w-full bg-card text-card-foreground border border-border rounded-lg shadow-xl overflow-hidden"
           role="listbox"
         >
           {suggestions.map((gene, idx) => (
@@ -283,7 +283,7 @@ export function GeneAutocomplete({ value, onChange }: GeneAutocompleteProps) {
 
       {/* No results message */}
       {isOpen && suggestions.length === 0 && !isLoading && debouncedQuery.length >= 2 && (
-        <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-lg shadow-lg px-3 py-2 text-sm text-muted-foreground">
+        <div className="absolute z-50 mt-1 w-full bg-card text-card-foreground border border-border rounded-lg shadow-xl px-3 py-2 text-sm text-muted-foreground">
           Aucun gène trouvé pour &quot;{debouncedQuery}&quot;
         </div>
       )}

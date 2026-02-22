@@ -22,11 +22,11 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getGeneAnnotation } from "@/lib/api/annotations";
+import { getGeneAnnotation, getGeneInteractions } from "@/lib/api/annotations";
 import { EventTypeBadge } from "@/components/events/EventTypeBadge";
 import { formatFDR, formatDeltaPSI, formatCoord } from "@/lib/utils";
 import type { SplicingEvent } from "@/types/event";
-import type { GeneAnnotation, PanelConfidence } from "@/types/annotation";
+import type { GeneAnnotation, GeneInteraction, PanelConfidence } from "@/types/annotation";
 import type { GeneEntry } from "@/types/gene";
 import type { ViewMode } from "./types";
 
@@ -226,14 +226,224 @@ function ScoresView({ ev }: { ev: SplicingEvent }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// STRING-DB custom SVG diagram helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * InteractionDiagram
+ * Renders a custom SVG network diagram styled after STRING-DB:
+ *   - Two circular nodes (mutated gene left, event gene right)
+ *   - One colored Bézier arc per active evidence channel
+ *   - Arc thickness proportional to score (thicker = stronger evidence)
+ */
+function InteractionDiagram({ interaction }: { interaction: GeneInteraction }) {
+  const W = 300, H = 160;
+  const cx1 = 65, cx2 = 235, cy = 80, r = 36;
+
+  const meta = interaction.channel_meta;
+  const n = meta.length;
+
+  // Spread arcs vertically so they don't overlap
+  const spacing = Math.min(18, n > 1 ? 80 / (n - 1) : 0);
+  const startOffset = n > 1 ? -((n - 1) * spacing) / 2 : 0;
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className="w-full max-w-[280px] mx-auto"
+      aria-label={`Interaction STRING-DB : ${interaction.gene_a} – ${interaction.gene_b}`}
+    >
+      {/* Colored Bézier arcs, one per evidence channel */}
+      {meta.map((ch, i) => {
+        const score = interaction.channels[ch.key] ?? 0;
+        // Stroke width: 1.5 (min) → 5.5 (max at score=1)
+        const sw = 1.5 + score * 4;
+        const cpY = cy + startOffset + i * spacing;
+        // Cubic Bézier: start at right edge of left circle, end at left edge of right circle
+        const x1 = cx1 + r, x2 = cx2 - r;
+        const d = `M ${x1} ${cy} C ${x1 + 45} ${cpY}, ${x2 - 45} ${cpY}, ${x2} ${cy}`;
+        return (
+          <path
+            key={ch.key}
+            d={d}
+            fill="none"
+            stroke={ch.color}
+            strokeWidth={sw}
+            strokeOpacity={0.8}
+            strokeLinecap="round"
+          />
+        );
+      })}
+
+      {/* Left node – mutated gene (amber) */}
+      <circle cx={cx1} cy={cy} r={r} fill="#FFC000" fillOpacity={0.15} stroke="#FFC000" strokeWidth={2.5} />
+      <text x={cx1} y={cy} dominantBaseline="middle" textAnchor="middle"
+        fontSize={interaction.gene_a.length > 5 ? 8 : 10} fontWeight="700" fill="currentColor">
+        {interaction.gene_a}
+      </text>
+
+      {/* Right node – event gene (blue) */}
+      <circle cx={cx2} cy={cy} r={r} fill="#1F77B4" fillOpacity={0.15} stroke="#1F77B4" strokeWidth={2.5} />
+      <text x={cx2} y={cy} dominantBaseline="middle" textAnchor="middle"
+        fontSize={interaction.gene_b.length > 5 ? 8 : 10} fontWeight="700" fill="currentColor">
+        {interaction.gene_b}
+      </text>
+    </svg>
+  );
+}
+
+/**
+ * SingleInteraction
+ * Fetches and renders the STRING-DB result for ONE mutated gene / event gene pair.
+ */
+function SingleInteraction({
+  mutatedSymbol,
+  eventSymbol,
+}: {
+  mutatedSymbol: string;
+  eventSymbol: string;
+}) {
+  const { data, isLoading, isError } = useQuery<GeneInteraction>({
+    queryKey: ["stringdb", mutatedSymbol, eventSymbol],
+    queryFn: () => getGeneInteractions(mutatedSymbol, eventSymbol),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Pair label header
+  const pairLabel = (
+    <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground mb-2">
+      <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border border-amber-200 dark:border-amber-700">
+        {mutatedSymbol}
+      </span>
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+      </svg>
+      <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-700">
+        {eventSymbol}
+      </span>
+    </div>
+  );
+
+  if (isLoading) {
+    return (
+      <div>
+        {pairLabel}
+        <div className="space-y-1.5">
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div>
+        {pairLabel}
+        <p className="text-[11px] text-muted-foreground italic">
+          Erreur lors de la récupération des données STRING-DB.
+        </p>
+      </div>
+    );
+  }
+
+  if (!data.has_interaction) {
+    return (
+      <div>
+        {pairLabel}
+        <p className="text-[11px] text-muted-foreground italic">
+          Aucune interaction STRING-DB trouvée entre ces deux gènes.
+        </p>
+      </div>
+    );
+  }
+
+  // Combined score as percentage
+  const scorePercent = Math.round(data.combined_score * 1000) / 10;
+
+  return (
+    <div className="space-y-3">
+      {pairLabel}
+
+      {/* SVG network diagram */}
+      <InteractionDiagram interaction={data} />
+
+      {/* Score summary */}
+      <div className="text-center text-[11px] text-muted-foreground">
+        Score combiné STRING :{" "}
+        <span className="font-semibold text-foreground">{scorePercent}%</span>
+      </div>
+
+      {/* Evidence table */}
+      <div className="space-y-1">
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+          Preuves d'interaction
+        </p>
+        <div className="divide-y divide-border rounded-lg border border-border overflow-hidden text-[11px]">
+          {data.channel_meta.map((ch) => {
+            const score = data.channels[ch.key] ?? 0;
+            const pct = Math.round(score * 1000) / 10;
+            return (
+              <div key={ch.key} className="flex items-center gap-2 px-2.5 py-1.5 bg-card">
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: ch.color }}
+                />
+                <span className="flex-1 text-foreground">{ch.label}</span>
+                <span className="font-semibold text-foreground tabular-nums">{pct}%</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* PMIDs section (only when text-mining evidence exists) */}
+      {data.pmids.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+            Publications associées
+          </p>
+          <ul className="space-y-1.5">
+            {data.pmids.map((pub) => (
+              <li key={pub.pmid} className="text-[11px]">
+                <a
+                  href={`https://pubmed.ncbi.nlm.nih.gov/${pub.pmid}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-start gap-1 text-blue-600 dark:text-blue-400 hover:underline leading-snug"
+                >
+                  <ExternalIcon />
+                  <span>
+                    <span className="font-semibold">PMID: {pub.pmid}</span>
+                    {pub.year ? ` (${pub.year})` : ""}
+                    {pub.title ? ` – ${pub.title}` : ""}
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Link to STRING-DB */}
+      <a
+        href={data.string_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+      >
+        <ExternalIcon />
+        Ouvrir dans STRING-DB
+      </a>
+    </div>
+  );
+}
+
 /**
  * StringDBView
- * Shows the STRING protein interaction network between each mutated gene
- * and the current event gene.
- * Uses the STRING API image endpoint directly (no CORS issues, public API).
- *
- * STRING API docs: https://string-db.org/help/api/
- * Image endpoint: GET /api/image/network?identifiers={A}%0D{B}&species=9606
+ * Iterates over all mutated genes and shows one STRING-DB interaction
+ * panel per (mutated gene, event gene) pair. Self-pairs are skipped.
  */
 function StringDBView({
   eventSymbol,
@@ -242,70 +452,36 @@ function StringDBView({
   eventSymbol: string;
   mutatedGenes: GeneEntry[];
 }) {
-  const [imgErrors, setImgErrors] = useState<Record<string, boolean>>({});
-
   if (!eventSymbol) {
-    return <p className="text-xs text-muted-foreground italic">Symbole du gène non disponible.</p>;
+    return (
+      <p className="text-xs text-muted-foreground italic">
+        Symbole du gène non disponible.
+      </p>
+    );
+  }
+
+  // Deduplicate and skip self-interactions
+  const pairs = mutatedGenes.filter(
+    (g) => g.symbol.toUpperCase() !== eventSymbol.toUpperCase(),
+  );
+
+  if (pairs.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground italic">
+        Le gène porteur de l'événement est identique au gène muté — pas d'interaction à afficher.
+      </p>
+    );
   }
 
   return (
-    <div className="space-y-3">
-      {mutatedGenes.map((mutGene) => {
-        const isSelf = mutGene.symbol.toUpperCase() === eventSymbol.toUpperCase();
-        // STRING uses %0D (carriage-return) as separator between gene identifiers
-        const identifiers = isSelf
-          ? encodeURIComponent(eventSymbol)
-          : `${encodeURIComponent(mutGene.symbol)}%0D${encodeURIComponent(eventSymbol)}`;
-
-        const imgUrl = `https://string-db.org/api/image/network?identifiers=${identifiers}&species=9606&network_flavor=evidence&caller_identity=rmats-viz`;
-        const pageUrl = `https://string-db.org/cgi/network?identifiers=${identifiers}&species=9606`;
-
-        const hasError = imgErrors[mutGene.symbol];
-
-        return (
-          <div key={mutGene.symbol} className="space-y-1.5">
-            {/* Pair label */}
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-              <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border border-amber-200 dark:border-amber-700">
-                {mutGene.symbol}
-              </span>
-              {!isSelf && (
-                <>
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                  </svg>
-                  <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-700">
-                    {eventSymbol}
-                  </span>
-                </>
-              )}
-            </div>
-
-            {/* Network image */}
-            {hasError ? (
-              <p className="text-[11px] text-muted-foreground italic">
-                Image STRING non disponible pour cette paire.
-              </p>
-            ) : (
-              <a href={pageUrl} target="_blank" rel="noopener noreferrer" title="Ouvrir dans STRING-DB">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={imgUrl}
-                  alt={`Réseau STRING : ${mutGene.symbol} – ${eventSymbol}`}
-                  className="w-full rounded-lg border border-border hover:opacity-90 transition-opacity"
-                  onError={() => setImgErrors((prev) => ({ ...prev, [mutGene.symbol]: true }))}
-                />
-              </a>
-            )}
-
-            <a href={pageUrl} target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline">
-              <ExternalIcon />
-              Ouvrir dans STRING-DB
-            </a>
-          </div>
-        );
-      })}
+    <div className="space-y-5">
+      {pairs.map((mutGene) => (
+        <SingleInteraction
+          key={mutGene.symbol}
+          mutatedSymbol={mutGene.symbol}
+          eventSymbol={eventSymbol}
+        />
+      ))}
     </div>
   );
 }

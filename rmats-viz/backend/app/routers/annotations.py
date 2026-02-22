@@ -6,15 +6,17 @@ Aggregates external gene annotation data from multiple sources:
     PanelApp Australia – disease panel confidence ratings
     Gene Ontology      – GO terms via mygene.info
     UniProt            – reviewed protein function description
-
-All three sources are queried in parallel (asyncio.gather) to minimise
-latency.
+    STRING-DB          – protein–protein interaction evidence + PMIDs
 
 Endpoints
 ---------
 GET /api/v1/annotations/gene/{symbol}
     Full annotation for a gene by HUGO symbol.
     Optional query param ``ensembl_id`` improves GO term lookup precision.
+
+GET /api/v1/annotations/interactions
+    STRING-DB interaction between two genes (gene_a, gene_b).
+    Also returns PMIDs from Europe PMC when text-mining evidence is present.
 """
 
 from __future__ import annotations
@@ -89,3 +91,26 @@ async def gene_annotation(
         go_terms=go_terms,
         protein_function=protein_function,
     )
+
+
+@router.get(
+    "/interactions",
+    response_model=dict,
+    summary="STRING-DB interaction between two genes",
+)
+async def gene_interactions(
+    gene_a: str = Query(..., description="First gene HUGO symbol (e.g. BRCA1)"),
+    gene_b: str = Query(..., description="Second gene HUGO symbol (e.g. TP53)"),
+    species: int = Query(9606, description="NCBI taxonomy ID (9606 = Homo sapiens)"),
+) -> dict:
+    """
+    Retrieve STRING-DB interaction data between two genes.
+
+    Returns channel-level evidence scores (neighbourhood, fusion,
+    co-occurrence, co-expression, experimental, database, text-mining).
+    When text-mining evidence (tscore > 0) is present, co-mentioning
+    PMIDs are also fetched from Europe PMC.
+    """
+    from app.services.stringdb import get_interaction  # local import avoids circular deps
+
+    return await get_interaction(gene_a, gene_b, species)

@@ -102,7 +102,7 @@ function GeneView({ ev, annotation }: { ev: SplicingEvent; annotation?: GeneAnno
           )}
         </div>
       )}
-      <div className="text-xs text-muted-foreground bg-muted/40 rounded px-3 py-2 space-y-0.5">
+      <div className="text-xs text-muted-foreground bg-muted/40 dark:bg-slate-700/40 rounded px-3 py-2 space-y-0.5">
         <div><span className="font-medium text-foreground">Chr :</span>{" "}{ev.chr ?? "?"} {ev.strand ? `(brin ${ev.strand})` : ""}</div>
         <div><span className="font-medium text-foreground">Exon :</span>{" "}{formatCoord(ev.exon_start)} – {formatCoord(ev.exon_end)}</div>
         <div><span className="font-medium text-foreground">Upstream :</span>{" "}{formatCoord(ev.upstream_es)} – {formatCoord(ev.upstream_ee)}</div>
@@ -213,7 +213,7 @@ function ScoresView({ ev }: { ev: SplicingEvent }) {
         <StatRow label="PSI moy. G1" value={mean(incL1)} />
         <StatRow label="PSI moy. G2" value={mean(incL2)} />
       </div>
-      <div className="bg-muted/40 rounded px-2.5 py-2 space-y-1">
+      <div className="bg-muted/40 dark:bg-slate-700/40 rounded px-2.5 py-2 space-y-1">
         <p className="font-semibold text-foreground text-[10px] uppercase tracking-wide mb-1">
           Comptages (3 premiers échantillons)
         </p>
@@ -385,7 +385,7 @@ function SingleInteraction({
             const score = data.channels[ch.key] ?? 0;
             const pct = Math.round(score * 1000) / 10;
             return (
-              <div key={ch.key} className="flex items-center gap-2 px-2.5 py-1.5 bg-card">
+              <div key={ch.key} className="flex items-center gap-2 px-2.5 py-1.5 bg-card dark:bg-slate-800/60">
                 <span
                   className="w-2.5 h-2.5 rounded-full shrink-0"
                   style={{ backgroundColor: ch.color }}
@@ -582,9 +582,9 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: 
   });
 
   return (
-    <div className="flex flex-col border border-border rounded-xl bg-card shadow-sm hover:shadow-md transition-shadow">
+    <div className="flex flex-col border border-border dark:border-slate-600 rounded-xl bg-card dark:bg-slate-800/80 shadow-sm hover:shadow-md transition-shadow">
       {/* ── Fixed header ── */}
-      <div className="flex items-start justify-between gap-2 p-4 pb-3 border-b border-border">
+      <div className="flex items-start justify-between gap-2 p-4 pb-3 border-b border-border dark:border-slate-600/60">
         <div className="flex items-center gap-2.5 min-w-0">
           {ev.top_rank != null ? (
             /* Top-10 rank badge */
@@ -605,7 +605,7 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: 
       </div>
 
       {/* ── Quick stats ── */}
-      <div className="flex gap-4 px-4 py-2 border-b border-border bg-muted/20">
+      <div className="flex gap-4 px-4 py-2 border-b border-border dark:border-slate-600/60 bg-muted/20 dark:bg-slate-700/30">
         <div>
           <dt className="text-[10px] text-muted-foreground">FDR</dt>
           <dd className="text-xs font-bold text-foreground">{formatFDR(ev.fdr)}</dd>

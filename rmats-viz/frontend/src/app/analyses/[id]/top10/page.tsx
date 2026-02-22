@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { getAnalysis, getTop10 } from "@/lib/api";
 import { Top10View } from "@/components/events/Top10View";
+import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
 import type { GeneEntry } from "@/types/gene";
 
 export default function Top10Page() {
@@ -77,6 +78,9 @@ export default function Top10Page() {
           Chargement des événements…
         </div>
       )}
+
+      {/* Mutated gene annotation panel */}
+      <MutatedGenePanel mutatedGenes={mutatedGenes} analysisId={id} />
 
       {top10 && (
         <Top10View events={top10} mutatedGenes={mutatedGenes} />

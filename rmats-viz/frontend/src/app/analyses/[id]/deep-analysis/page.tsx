@@ -23,6 +23,7 @@ import Link from "next/link";
 import { getAnalysis, getTop10 } from "@/lib/api";
 import { useBasket } from "@/contexts/BasketContext";
 import { Top10View } from "@/components/events/Top10View";
+import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
 import type { GeneEntry } from "@/types/gene";
 import type { SplicingEvent } from "@/types/event";
 
@@ -214,6 +215,9 @@ export default function DeepAnalysisPage() {
           </div>
         )}
       </div>
+
+      {/* ── Mutated gene annotation panel ── */}
+      <MutatedGenePanel mutatedGenes={mutatedGenes} analysisId={id} />
 
       {/* ── Loading state ── */}
       {loadingTop10 && (

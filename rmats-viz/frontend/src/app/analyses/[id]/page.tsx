@@ -129,7 +129,32 @@ export default function AnalysisDetailPage() {
   const hasStatFilters = fdrSlider > 0 || pvalSlider > 0 || dpsiSlider > 0;
 
   return (
-    <div className="space-y-5">
+    <div className="flex gap-6 items-start">
+
+      {/* ══ LEFT STICKY SIDEBAR – Gene cards ══════════════════════════════ */}
+      {mutatedGenes.length > 0 && (
+        <aside className="sticky top-20 self-start w-60 shrink-0 z-10">
+          {/* Sidebar header */}
+          <div className="flex items-center gap-1.5 mb-2 px-1">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
+            </svg>
+            <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+              Gènes candidats
+            </span>
+          </div>
+          {/* Cards – scrollable if many genes */}
+          <div className="max-h-[calc(100vh-6rem)] overflow-y-auto space-y-3 pr-1"
+            style={{ scrollbarWidth: "thin", scrollbarColor: "rgb(251 191 36 / 0.3) transparent" }}
+          >
+            <MutatedGenePanel mutatedGenes={mutatedGenes} analysisId={id} layout="vertical" />
+          </div>
+        </aside>
+      )}
+
+      {/* ══ MAIN CONTENT ══════════════════════════════════════════════════ */}
+      <div className={`flex-1 min-w-0 space-y-5${selectedIds.size > 0 ? " pb-24" : ""}`}>
+
       {/* ── Header ── */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div className="min-w-0 flex-1">
@@ -362,37 +387,6 @@ export default function AnalysisDetailPage() {
         )}
       </div>
 
-      {/* ── Mutated gene annotation panel ── */}
-      <MutatedGenePanel mutatedGenes={mutatedGenes} analysisId={id} />
-
-      {/* ── Selection / basket bar – sticky so it follows scroll ── */}
-      {selectedIds.size > 0 && (
-        <div className="sticky bottom-4 z-30 bg-blue-50/95 dark:bg-blue-950/90 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 flex items-center justify-between flex-wrap gap-2 shadow-lg backdrop-blur-sm">
-          <span className="text-sm text-blue-700 dark:text-blue-300 font-medium">
-            {selectedIds.size} événement{selectedIds.size > 1 ? "s" : ""} sélectionné{selectedIds.size > 1 ? "s" : ""}
-          </span>
-          <div className="flex gap-2 items-center">
-            <button
-              onClick={() => setSelectedIds(new Set())}
-              className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 underline"
-            >
-              Tout désélectionner
-            </button>
-            <button
-              onClick={handleAddToBasket}
-              disabled={newCount === 0}
-              className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm px-3 py-1.5 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium"
-              title={newCount === 0 ? "Tous ces événements sont déjà dans le panier" : undefined}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z" />
-              </svg>
-              {newCount > 0 ? `Ajouter au panier (${newCount})` : "Déjà dans le panier"}
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* ── Events table ── */}
       {eventsPage && (
         <EventsTable
@@ -420,7 +414,47 @@ export default function AnalysisDetailPage() {
           Chargement des événements…
         </div>
       )}
-    </div>
+
+      </div>{/* end main content */}
+
+      {/* ══ FIXED BASKET ACTION BUTTON – always follows scroll ════════════ */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 right-6 z-50">
+          <div className="flex items-center gap-2 bg-blue-600 dark:bg-blue-700 border border-blue-500 dark:border-blue-600 rounded-2xl shadow-2xl px-3 py-2.5 text-white">
+            {/* Count badge */}
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white/20 text-xs font-extrabold tabular-nums">
+              {selectedIds.size}
+            </span>
+            <span className="text-sm font-medium pr-1">
+              sélectionné{selectedIds.size > 1 ? "s" : ""}
+            </span>
+            {/* Deselect */}
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="flex items-center justify-center w-6 h-6 rounded-lg text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
+              title="Tout désélectionner"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            {/* Add to basket */}
+            <button
+              onClick={handleAddToBasket}
+              disabled={newCount === 0}
+              className="inline-flex items-center gap-1.5 bg-white dark:bg-blue-50 text-blue-700 dark:text-blue-800 text-sm px-3 py-1.5 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold hover:bg-blue-50 shadow-sm"
+              title={newCount === 0 ? "Tous ces événements sont déjà dans le panier" : undefined}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z" />
+              </svg>
+              {newCount > 0 ? `Ajouter (${newCount})` : "Déjà dans le panier"}
+            </button>
+          </div>
+        </div>
+      )}
+
+    </div>{/* end outer flex */}
   );
 }
 

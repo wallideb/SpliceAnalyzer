@@ -249,9 +249,11 @@ function ExternalIcon() {
 function GeneCard({
   gene,
   analysisId,
+  fullWidth = false,
 }: {
   gene: GeneEntry;
   analysisId?: string;
+  fullWidth?: boolean;
 }) {
   const [tab, setTab] = useState<GeneTab>("gene");
 
@@ -262,7 +264,7 @@ function GeneCard({
   });
 
   return (
-    <div className="shrink-0 w-72 flex flex-col border-2 border-amber-400 dark:border-amber-500 rounded-xl bg-gradient-to-b from-amber-50 to-white dark:from-amber-950/30 dark:to-card shadow-md hover:shadow-lg transition-shadow overflow-hidden">
+    <div className={`${fullWidth ? "w-full" : "shrink-0 w-72"} flex flex-col border-2 border-amber-400 dark:border-amber-500 rounded-xl bg-gradient-to-b from-amber-50 to-white dark:from-amber-950/30 dark:to-card shadow-md hover:shadow-lg transition-shadow overflow-hidden`}>
       {/* Card header – gradient for depth */}
       <div className="px-4 py-3 border-b-2 border-amber-300 dark:border-amber-600 bg-gradient-to-r from-amber-200 to-amber-100 dark:from-amber-900/50 dark:to-amber-900/20">
         <div className="flex items-center gap-2">
@@ -342,9 +344,31 @@ interface MutatedGenePanelProps {
   mutatedGenes: GeneEntry[];
   /** Analysis ID, used to fetch per-gene rMATS event counts. */
   analysisId?: string;
+  /**
+   * "horizontal" (default): scrollable horizontal strip with section wrapper.
+   * "vertical": stacked vertically, full-width cards, no section wrapper
+   *             (caller is responsible for the container/heading).
+   */
+  layout?: "horizontal" | "vertical";
 }
 
-export function MutatedGenePanel({ mutatedGenes, analysisId }: MutatedGenePanelProps) {
+export function MutatedGenePanel({ mutatedGenes, analysisId, layout = "horizontal" }: MutatedGenePanelProps) {
+  // ── Vertical sidebar mode ────────────────────────────────────────────────
+  if (layout === "vertical") {
+    return (
+      <div className="space-y-3">
+        {mutatedGenes.length === 0 ? (
+          <NoGeneCard />
+        ) : (
+          mutatedGenes.map((gene) => (
+            <GeneCard key={gene.ensembl_id || gene.symbol} gene={gene} analysisId={analysisId} fullWidth />
+          ))
+        )}
+      </div>
+    );
+  }
+
+  // ── Horizontal strip mode (default) ─────────────────────────────────────
   return (
     <section aria-label="Gènes candidats" className="bg-amber-50/30 dark:bg-amber-950/10 border border-amber-200/60 dark:border-amber-800/30 rounded-xl p-4">
       <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">

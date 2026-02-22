@@ -22,13 +22,23 @@ interface Top10ViewProps {
   events: SplicingEvent[];
   /** Resolved gene entries from the analysis (for ENSG ID hints + StringDB). */
   mutatedGenes?: GeneEntry[];
+  /**
+   * Optional set of deep-analysis module keys to enable extra sidebar tabs.
+   * Supported: "pathways" | "motifs" | "splice"
+   * When not provided (Top-10 context) no extra tabs are shown.
+   */
+  activeModules?: Set<string>;
 }
 
-export function Top10View({ events, mutatedGenes = [] }: Top10ViewProps) {
+export function Top10View({ events, mutatedGenes = [], activeModules }: Top10ViewProps) {
   const [mode, setMode] = useState<ViewMode>("gene");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const showStringDB = mutatedGenes.length > 0;
+  // StringDB shown only when mutated genes exist.
+  // In deep-analysis context also requires "stringdb" in activeModules.
+  const showStringDB =
+    mutatedGenes.length > 0 &&
+    (activeModules === undefined || activeModules.has("stringdb"));
 
   // Build a symbol → ensembl_id map from the analysis mutated genes list
   const ensemblHints: Record<string, string> = {};
@@ -46,6 +56,9 @@ export function Top10View({ events, mutatedGenes = [] }: Top10ViewProps) {
     panelapp: "Panels PanelApp Australia",
     scores:   "Scores rMATS détaillés",
     stringdb: "Interactions STRING-DB avec le gène muté",
+    pathways: "Voies moléculaires (à venir)",
+    motifs:   "Motifs récurrents (à venir)",
+    splice:   "Sites consensus d'épissage (à venir)",
   };
 
   return (
@@ -57,6 +70,7 @@ export function Top10View({ events, mutatedGenes = [] }: Top10ViewProps) {
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         showStringDB={showStringDB}
+        activeModules={activeModules}
       />
 
       {/* ── Main content ── */}

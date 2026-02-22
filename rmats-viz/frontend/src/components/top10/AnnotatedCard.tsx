@@ -487,6 +487,31 @@ function StringDBView({
 }
 
 // ---------------------------------------------------------------------------
+// Coming-soon stub for deep-analysis modules not yet implemented
+// ---------------------------------------------------------------------------
+
+const COMING_SOON_LABELS: Partial<Record<ViewMode, string>> = {
+  pathways: "Voies moléculaires",
+  motifs:   "Motifs récurrents",
+  splice:   "Sites consensus d'épissage",
+};
+
+function ComingSoonView({ mode }: { mode: ViewMode }) {
+  const label = COMING_SOON_LABELS[mode] ?? mode;
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 py-6 text-center">
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <p className="text-sm font-semibold text-foreground">Module à venir</p>
+      <p className="text-[11px] text-muted-foreground max-w-[180px] leading-relaxed">
+        Le module <strong>{label}</strong> est en cours de développement.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
@@ -561,9 +586,19 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: 
       {/* ── Fixed header ── */}
       <div className="flex items-start justify-between gap-2 p-4 pb-3 border-b border-border">
         <div className="flex items-center gap-2.5 min-w-0">
-          <span className="w-7 h-7 flex items-center justify-center rounded-full bg-blue-600 text-white text-xs font-bold shrink-0">
-            {ev.top_rank}
-          </span>
+          {ev.top_rank != null ? (
+            /* Top-10 rank badge */
+            <span className="w-7 h-7 flex items-center justify-center rounded-full bg-blue-600 text-white text-xs font-bold shrink-0">
+              {ev.top_rank}
+            </span>
+          ) : (
+            /* Basket badge (not a top-10 event) */
+            <span title="Événement du panier" className="w-7 h-7 flex items-center justify-center rounded-full bg-violet-600 text-white shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z" />
+              </svg>
+            </span>
+          )}
           <GeneSymbolWithTooltip symbol={symbol || "—"} annotation={annotation} />
         </div>
         <EventTypeBadge type={ev.event_type} />
@@ -597,8 +632,9 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: 
         {mode === "go"       && <GOView annotation={annotation} isLoading={annotationLoading} />}
         {mode === "panelapp" && <PanelAppView annotation={annotation} isLoading={annotationLoading} />}
         {mode === "scores"   && <ScoresView ev={ev} />}
-        {mode === "stringdb" && (
-          <StringDBView eventSymbol={symbol} mutatedGenes={mutatedGenes} />
+        {mode === "stringdb" && <StringDBView eventSymbol={symbol} mutatedGenes={mutatedGenes} />}
+        {(mode === "pathways" || mode === "motifs" || mode === "splice") && (
+          <ComingSoonView mode={mode} />
         )}
       </div>
     </div>

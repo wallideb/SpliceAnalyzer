@@ -91,38 +91,52 @@ async def _query_string(gene_a: str, gene_b: str, species: int) -> dict | None:
 
 async def _query_europepmc(gene_a: str, gene_b: str, limit: int = 5) -> list[dict]:
     """
-    Search Europe PMC for abstracts co-mentioning both gene symbols.
+    Search Europe PMC for PubMed abstracts co-mentioning both gene symbols.
+
+    Uses the SRC:MED filter to restrict to PubMed articles so the pmid
+    field is always populated.  Falls back to an unquoted query if the
+    strict quoted search returns no results.
 
     Returns a list of dicts: [{"pmid", "title", "year", "authors"}, ...]
     """
-    query = f'"{gene_a}" AND "{gene_b}"'
-    params = {
-        "query": query,
-        "format": "json",
-        "pageSize": limit,
-        "resultType": "lite",
-        "sort": "RELEVANCE",
-    }
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(f"{_EUROPEPMC_BASE}/search", params=params)
-            resp.raise_for_status()
-            data = resp.json()
 
+    async def _search(query: str, client: httpx.AsyncClient) -> list[dict]:
+        params = {
+            "query": query,
+            "format": "json",
+            "pageSize": limit,
+            "resultType": "lite",
+            "sort": "RELEVANCE",
+            "synonym": "TRUE",
+        }
+        resp = await client.get(f"{_EUROPEPMC_BASE}/search", params=params)
+        resp.raise_for_status()
+        data = resp.json()
         results = []
         for item in data.get("resultList", {}).get("result", []):
-            pmid = item.get("pmid", "")
-            if not pmid:
+            pmid = item.get("pmid") or item.get("id", "")
+            if not pmid or not str(pmid).isdigit():
                 continue
             results.append(
                 {
-                    "pmid": pmid,
-                    "title": item.get("title", ""),
+                    "pmid": str(pmid),
+                    "title": item.get("title", "").rstrip("."),
                     "year": item.get("pubYear", ""),
                     "authors": item.get("authorString", ""),
                 }
             )
         return results
+
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            # Try strict query first (both genes quoted, PubMed source)
+            strict = f'("{gene_a}" AND "{gene_b}") SRC:MED'
+            results = await _search(strict, client)
+            if not results:
+                # Relaxed: no source filter, no quotes
+                relaxed = f"{gene_a} AND {gene_b} AND SRC:MED"
+                results = await _search(relaxed, client)
+        return results[:limit]
     except httpx.HTTPError as exc:
         logger.warning("Europe PMC error for %r/%r: %s", gene_a, gene_b, exc)
         return []

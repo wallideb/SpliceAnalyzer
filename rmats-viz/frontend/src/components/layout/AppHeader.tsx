@@ -7,19 +7,19 @@ export function AppHeader() {
 
   return (
     <header className="border-b bg-card text-card-foreground shadow-sm sticky top-0 z-30 transition-colors duration-200">
-      <div className="max-w-7xl mx-auto px-4 py-0 flex items-center justify-between h-14">
+      <div className="max-w-7xl mx-auto px-4 py-0 flex items-center justify-between h-16">
 
         {/* ── Logo + Titre ── */}
-        <Link href="/analyses" className="flex items-center gap-2.5 group">
+        <Link href="/analyses" className="flex items-center gap-3 group">
           {/* Logo SVG (public/logo.svg) */}
           <img
             src="/logo.svg"
             alt="SpliceAnalyzer logo"
-            className="w-8 h-8 shrink-0"
+            className="w-11 h-11 shrink-0"
             draggable={false}
           />
           <div className="leading-tight">
-            <span className="block text-xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-500 via-blue-500 to-cyan-500 dark:from-indigo-400 dark:via-blue-400 dark:to-cyan-300 bg-clip-text text-transparent">
+            <span className="block text-2xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-500 via-blue-500 to-cyan-500 dark:from-indigo-400 dark:via-blue-400 dark:to-cyan-300 bg-clip-text text-transparent">
               SpliceAnalyzer
             </span>
             <span className="block text-[10px] text-muted-foreground font-medium tracking-widest uppercase leading-none">

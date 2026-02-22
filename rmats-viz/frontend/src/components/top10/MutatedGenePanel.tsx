@@ -262,21 +262,28 @@ function GeneCard({
   });
 
   return (
-    <div className="shrink-0 w-72 flex flex-col border-2 border-amber-300 dark:border-amber-600 rounded-xl bg-amber-50 dark:bg-amber-950/20 shadow-sm overflow-hidden">
-      {/* Card header */}
-      <div className="px-4 py-3 border-b border-amber-200 dark:border-amber-700 bg-amber-100 dark:bg-amber-900/30">
-        <p className="font-bold text-sm text-amber-900 dark:text-amber-200">
-          {gene.symbol}
-        </p>
+    <div className="shrink-0 w-72 flex flex-col border-2 border-amber-400 dark:border-amber-500 rounded-xl bg-gradient-to-b from-amber-50 to-white dark:from-amber-950/30 dark:to-card shadow-md hover:shadow-lg transition-shadow overflow-hidden">
+      {/* Card header – gradient for depth */}
+      <div className="px-4 py-3 border-b-2 border-amber-300 dark:border-amber-600 bg-gradient-to-r from-amber-200 to-amber-100 dark:from-amber-900/50 dark:to-amber-900/20">
+        <div className="flex items-center gap-2">
+          <span className="w-5 h-5 flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold shrink-0">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
+            </svg>
+          </span>
+          <p className="font-extrabold text-sm text-amber-900 dark:text-amber-100">
+            {gene.symbol}
+          </p>
+        </div>
         {gene.ensembl_id && (
-          <p className="text-[10px] font-mono text-amber-700 dark:text-amber-400 truncate">
+          <p className="text-[10px] font-mono text-amber-700 dark:text-amber-400 truncate mt-0.5 pl-7">
             {gene.ensembl_id}
           </p>
         )}
       </div>
 
       {/* Tab strip */}
-      <div className="flex border-b border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/10">
+      <div className="flex border-b border-amber-200 dark:border-amber-700 bg-amber-50/60 dark:bg-amber-950/10">
         {(Object.keys(TAB_LABELS) as GeneTab[]).map((t) => (
           <button
             key={t}
@@ -309,17 +316,17 @@ function GeneCard({
 
 function NoGeneCard() {
   return (
-    <div className="w-full flex flex-col items-center justify-center gap-3 border-2 border-dashed border-muted rounded-xl bg-muted/20 px-8 py-6 text-center">
-      <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <div className="flex items-center gap-4 border-2 border-dashed border-muted rounded-xl bg-muted/10 dark:bg-muted/5 px-6 py-4">
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7 text-muted-foreground/30 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
       <div>
         <p className="text-sm font-semibold text-muted-foreground">
           Aucun gène candidat sélectionné lors de l&apos;analyse
         </p>
-        <p className="text-[11px] text-muted-foreground/70 mt-1 max-w-[320px]">
-          Ajoutez un gène muté lors de la création ou de la modification de l&apos;analyse
-          pour activer les annotations de gène candidat et l&apos;onglet Interactions STRING-DB.
+        <p className="text-[11px] text-muted-foreground/60 mt-0.5">
+          Ajoutez un gène muté lors de la création ou modification de l&apos;analyse
+          pour activer les annotations et l&apos;onglet Interactions STRING-DB.
         </p>
       </div>
     </div>
@@ -339,18 +346,25 @@ interface MutatedGenePanelProps {
 
 export function MutatedGenePanel({ mutatedGenes, analysisId }: MutatedGenePanelProps) {
   return (
-    <section aria-label="Gènes candidats">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <section aria-label="Gènes candidats" className="bg-amber-50/30 dark:bg-amber-950/10 border border-amber-200/60 dark:border-amber-800/30 rounded-xl p-4">
+      <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
         </svg>
         Gène{mutatedGenes.length !== 1 ? "s" : ""} candidat{mutatedGenes.length !== 1 ? "s" : ""}
+        {mutatedGenes.length > 0 && (
+          <span className="ml-1 font-normal normal-case text-amber-600 dark:text-amber-500">
+            — cliquez sur un onglet pour explorer les annotations
+          </span>
+        )}
       </p>
 
       {mutatedGenes.length === 0 ? (
         <NoGeneCard />
       ) : (
-        <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory">
+        <div className="flex gap-3 overflow-x-auto pb-1 snap-x snap-mandatory"
+          style={{ scrollbarWidth: "thin", scrollbarColor: "rgb(251 191 36 / 0.4) transparent" }}
+        >
           {mutatedGenes.map((gene) => (
             <div key={gene.ensembl_id || gene.symbol} className="snap-start">
               <GeneCard gene={gene} analysisId={analysisId} />

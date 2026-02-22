@@ -73,15 +73,38 @@ async def _query_source(base: str, symbol: str) -> list[dict]:
     """
     Query one PanelApp instance for all panels related to *symbol*.
 
+    Strategy:
+      1. Exact match  – ``entity_name=SYMBOL``
+      2. If empty, case-insensitive fallback – ``entity_name__icontains=SYMBOL``
+         with post-filtering to keep only exact gene-symbol matches.
+
     Returns raw API result entries (empty list on error or no match).
     """
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            # ── 1. Exact match (most common, fastest) ──────────────────────
             entries = await _fetch_all_pages(
                 client,
                 f"{base}/genes/",
                 params={"entity_name": symbol, "format": "json"},
             )
+
+            # ── 2. Case-insensitive fallback ───────────────────────────────
+            if not entries:
+                logger.debug(
+                    "PanelApp exact match empty for %r at %s – trying icontains", symbol, base
+                )
+                all_entries = await _fetch_all_pages(
+                    client,
+                    f"{base}/genes/",
+                    params={"entity_name__icontains": symbol, "format": "json"},
+                )
+                # Keep only entries whose entity_name matches exactly (case-insensitive)
+                entries = [
+                    e for e in all_entries
+                    if e.get("entity_name", "").upper() == symbol
+                ]
+
         return entries
     except httpx.HTTPError as exc:
         logger.warning("PanelApp request failed (%s) for %r: %s", base, symbol, exc)

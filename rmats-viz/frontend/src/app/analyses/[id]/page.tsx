@@ -5,8 +5,10 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { getAnalysis, listEvents } from "@/lib/api";
 import { EventsTable } from "@/components/events/EventsTable";
+import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
 import { useBasket } from "@/contexts/BasketContext";
 import type { EventsQuery } from "@/lib/api";
+import type { GeneEntry } from "@/types/gene";
 
 // ── Stat slider helpers ────────────────────────────────────────────────────────
 // FDR / p-value: logarithmic scale 10^(-pos/10)
@@ -79,6 +81,11 @@ export default function AnalysisDetailPage() {
   const group1Label = group1?.group_label ?? "Groupe 1";
   const group2Label = group2?.group_label ?? "Groupe 2";
   const analysisName = analysis?.name ?? "";
+
+  // Resolved mutated gene entries (guard against legacy string format)
+  const mutatedGenes: GeneEntry[] = (analysis?.mutated_genes ?? []).filter(
+    (g): g is GeneEntry => typeof g === "object" && "ensembl_id" in g,
+  );
 
   const handleToggleSelect = useCallback((eventId: string) => {
     setSelectedIds((prev) => {
@@ -355,9 +362,12 @@ export default function AnalysisDetailPage() {
         )}
       </div>
 
-      {/* ── Selection / basket bar ── */}
+      {/* ── Mutated gene annotation panel ── */}
+      <MutatedGenePanel mutatedGenes={mutatedGenes} analysisId={id} />
+
+      {/* ── Selection / basket bar – sticky so it follows scroll ── */}
       {selectedIds.size > 0 && (
-        <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 flex items-center justify-between flex-wrap gap-2">
+        <div className="sticky bottom-4 z-30 bg-blue-50/95 dark:bg-blue-950/90 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 flex items-center justify-between flex-wrap gap-2 shadow-lg backdrop-blur-sm">
           <span className="text-sm text-blue-700 dark:text-blue-300 font-medium">
             {selectedIds.size} événement{selectedIds.size > 1 ? "s" : ""} sélectionné{selectedIds.size > 1 ? "s" : ""}
           </span>

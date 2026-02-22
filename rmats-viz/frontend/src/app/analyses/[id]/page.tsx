@@ -454,7 +454,7 @@ export default function AnalysisDetailPage() {
         </div>
       )}
 
-    </div>{/* end outer flex */}
+    </div>
   );
 }
 

@@ -8,20 +8,22 @@
  * Base modes (always available in Top-10 and deep-analysis):
  * - gene         → Genomic location (ENSG, coordinates, Ensembl link)
  * - go           → Gene Ontology terms (BP / MF / CC)
- * - panelapp     → PanelApp Australia disease panels (green/amber/red)
  * - scores       → Detailed rMATS statistics + read counts
  * - stringdb     → STRING-DB interaction network with the mutated gene
  *                  (only shown when mutated genes were defined for the analysis)
  *
- * Extended modes (deep-analysis only, shown as "coming soon" stubs):
+ * Note: PanelApp confidence is now shown as a colored badge directly on each
+ * card (green / amber / red) with panel names revealed on hover — no longer a
+ * dedicated sidebar tab.
+ *
+ * Extended modes (deep-analysis only):
  * - pathways     → Molecular pathway enrichment (KEGG / Reactome)
- * - motifs       → Recurrent splicing motifs
- * - splice       → Splice-site consensus strength (5'/3'/branch)
+ * - motifs       → Recurrent splicing motifs across SE events
+ * - splice       → Splice-site consensus strength (5'/3'/branch/PPT)
  */
 export type ViewMode =
   | "gene"
   | "go"
-  | "panelapp"
   | "scores"
   | "stringdb"
   | "pathways"

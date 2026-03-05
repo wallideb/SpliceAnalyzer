@@ -487,6 +487,71 @@ function StringDBView({
 }
 
 // ---------------------------------------------------------------------------
+// PanelApp badge (replaces the dedicated sidebar tab)
+// ---------------------------------------------------------------------------
+
+/** Highest-confidence level across all panels for this gene. */
+function topPanelConfidence(panels: GeneAnnotation["panels"]): PanelConfidence | null {
+  if (!panels?.length) return null;
+  if (panels.some((p) => p.confidence_label === "green")) return "green";
+  if (panels.some((p) => p.confidence_label === "amber")) return "amber";
+  if (panels.some((p) => p.confidence_label === "red"))   return "red";
+  return "unknown";
+}
+
+const PANEL_BADGE_STYLE: Record<PanelConfidence, string> = {
+  green:   "bg-green-500 text-white",
+  amber:   "bg-amber-400 text-white",
+  red:     "bg-red-500 text-white",
+  unknown: "bg-muted text-muted-foreground",
+};
+
+function PanelAppBadge({ annotation }: { annotation?: GeneAnnotation }) {
+  const [show, setShow] = useState(false);
+  const conf = topPanelConfidence(annotation?.panels ?? []);
+  if (!conf || conf === "unknown") return null;
+
+  const panels = annotation!.panels!;
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wide leading-none select-none ${PANEL_BADGE_STYLE[conf]}`}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="w-2.5 h-2.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+        PanelApp
+      </button>
+
+      {show && (
+        <div className="absolute right-0 top-full mt-1 z-50 w-64 bg-card border border-border rounded-lg shadow-xl p-2.5 space-y-1.5">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+            Panels de maladie
+          </p>
+          {panels.slice(0, 6).map((p) => {
+            const c = p.confidence_label as PanelConfidence;
+            return (
+              <div key={p.panel_name} className={`flex items-start gap-1.5 px-2 py-1.5 rounded text-xs border ${CONFIDENCE_STYLES[c]}`}>
+                <span className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${CONFIDENCE_DOT[c]}`} />
+                <span className="font-medium leading-tight">{p.panel_name}</span>
+              </div>
+            );
+          })}
+          {panels.length > 6 && (
+            <p className="text-[11px] text-muted-foreground text-right">
+              +{panels.length - 6} panel{panels.length - 6 > 1 ? "s" : ""}…
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Coming-soon stub for deep-analysis modules not yet implemented
 // ---------------------------------------------------------------------------
 
@@ -573,7 +638,8 @@ function GeneSymbolWithTooltip({
 export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: AnnotatedCardProps) {
   const symbol = ev.gene_symbol ?? ev.gene_id ?? "";
 
-  const needsAnnotation = mode === "go" || mode === "panelapp" || !!symbol;
+  // annotation always fetched when symbol available (needed for PanelApp badge + GO + gene views)
+  const needsAnnotation = !!symbol;
   const { data: annotation, isLoading: annotationLoading } = useQuery({
     queryKey: ["annotation", symbol, ensemblIdHint],
     queryFn: () => getGeneAnnotation(symbol, ensemblIdHint),
@@ -601,7 +667,11 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: 
           )}
           <GeneSymbolWithTooltip symbol={symbol || "—"} annotation={annotation} />
         </div>
-        <EventTypeBadge type={ev.event_type} />
+        {/* Right side: EventType badge + PanelApp badge */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <PanelAppBadge annotation={annotation} />
+          <EventTypeBadge type={ev.event_type} />
+        </div>
       </div>
 
       {/* ── Quick stats ── */}
@@ -630,7 +700,6 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: 
       <div className="p-4 flex-1">
         {mode === "gene"     && <GeneView ev={ev} annotation={annotation} />}
         {mode === "go"       && <GOView annotation={annotation} isLoading={annotationLoading} />}
-        {mode === "panelapp" && <PanelAppView annotation={annotation} isLoading={annotationLoading} />}
         {mode === "scores"   && <ScoresView ev={ev} />}
         {mode === "stringdb" && <StringDBView eventSymbol={symbol} mutatedGenes={mutatedGenes} />}
         {(mode === "pathways" || mode === "motifs" || mode === "splice") && (

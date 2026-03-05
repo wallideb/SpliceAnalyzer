@@ -53,7 +53,6 @@ export function Top10View({ events, mutatedGenes = [], activeModules }: Top10Vie
   const MODE_LABELS: Record<ViewMode, string> = {
     gene:     "Localisation génomique",
     go:       "Ontologie génique (GO)",
-    panelapp: "Panels PanelApp Australia",
     scores:   "Scores rMATS détaillés",
     stringdb: "Interactions STRING-DB avec le gène muté",
     pathways: "Voies moléculaires (à venir)",

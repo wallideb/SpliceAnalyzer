@@ -45,6 +45,18 @@ export async function deleteAnalysis(id: string): Promise<void> {
   await fetch(`${BASE}/analyses/${id}`, { method: "DELETE" });
 }
 
+export async function downloadAnalysisExcel(analysisId: string): Promise<void> {
+  const url = `${BASE}/export/${analysisId}/excel`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error("Export failed");
+  const blob = await resp.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `rmats_${analysisId}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 export async function uploadAnalysis(payload: UploadPayload): Promise<UploadResponse> {
   const form = new FormData();
   form.append("name", payload.name);

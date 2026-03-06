@@ -3,7 +3,7 @@ import { useState, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getAnalysis, listEvents } from "@/lib/api";
+import { getAnalysis, listEvents, downloadAnalysisExcel } from "@/lib/api";
 import { EventsTable } from "@/components/events/EventsTable";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
 import { useBasket } from "@/contexts/BasketContext";
@@ -40,6 +40,7 @@ export default function AnalysisDetailPage() {
   const [pvalSlider, setPvalSlider] = useState(0);
   const [dpsiSlider, setDpsiSlider] = useState(0);
 
+  const [isExporting, setIsExporting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [highlightTop10, setHighlightTop10] = useState(true);
   const [hideTop10, setHideTop10] = useState(false);
@@ -119,6 +120,17 @@ export default function AnalysisDetailPage() {
     );
     setSelectedIds(new Set());
   }, [eventsPage, selectedIds, addItems, id, analysisName]);
+
+  const handleExport = useCallback(async () => {
+    setIsExporting(true);
+    try {
+      await downloadAnalysisExcel(id);
+    } catch {
+      alert("Erreur lors de l'export Excel. Veuillez réessayer.");
+    } finally {
+      setIsExporting(false);
+    }
+  }, [id]);
 
   const newCount = useMemo(() => {
     let n = 0;
@@ -235,6 +247,14 @@ export default function AnalysisDetailPage() {
               </svg>
             )}
             {hideTop10 ? "Top 10 masqué" : "Masquer Top 10"}
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={isExporting}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50 transition-colors"
+          >
+            {isExporting ? <SpinnerIcon /> : <DownloadIcon />}
+            {isExporting ? "Export…" : "Excel"}
           </button>
           <Link
             href={`/analyses/${id}/top10`}
@@ -455,6 +475,24 @@ export default function AnalysisDetailPage() {
       )}
 
     </div>
+  );
+}
+
+// ── Export icon components ─────────────────────────────────────────────────────
+function DownloadIcon() {
+  return (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    </svg>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+    </svg>
   );
 }
 

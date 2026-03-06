@@ -25,7 +25,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSplicePatterns, computeSpliceFeatures } from "@/lib/api/splice";
 import type { SplicingEvent } from "@/types/event";
 import type { ExonSizeStats } from "@/types/splice";
-import { SpliceSequenceLogo } from "./SpliceSequenceLogo";
+import { ConsensusLogoPanel } from "./ConsensusLogoPanel";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -359,7 +359,14 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
               Consensus IUPAC : <code className="font-mono font-bold text-foreground">{donor_sites.consensus}</code>
             </p>
           )}
-          <SpliceSequenceLogo pwm={donor_sites.pwm} highlight={[3, 4]} />
+          <ConsensusLogoPanel
+            pwm={donor_sites.pwm}
+            title="Logo 5'SS (9 nt)"
+            startPosition={-3}
+            skipZero
+            canonicalPositions={[1, 2]}
+            id="logo-donor"
+          />
         </Section>
       )}
 
@@ -371,7 +378,14 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
               Consensus IUPAC : <code className="font-mono font-bold text-foreground">{acceptor_sites.consensus}</code>
             </p>
           )}
-          <SpliceSequenceLogo pwm={acceptor_sites.pwm} highlight={[17, 18]} />
+          <ConsensusLogoPanel
+            pwm={acceptor_sites.pwm}
+            title="Logo 3'SS (23 nt)"
+            startPosition={-20}
+            skipZero
+            canonicalPositions={[-2, -1]}
+            id="logo-acceptor"
+          />
         </Section>
       )}
 

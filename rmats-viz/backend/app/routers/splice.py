@@ -26,6 +26,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, delete
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -117,35 +118,40 @@ async def _compute_one(
         except Exception as exc:
             logger.warning("MANE lookup failed for %s: %s", event.gene_id, exc)
 
-    # Upsert feature row
-    existing = await db.execute(
-        select(EventSpliceFeature).where(EventSpliceFeature.event_id == event.id)
+    # Atomic upsert — avoids UniqueViolationError when the bulk POST and a
+    # per-event GET run concurrently and both see feat=None before inserting.
+    values: dict = dict(
+        event_id            = event.id,
+        exon_size           = feat_data.exon_size,
+        upstream_intron_size   = feat_data.upstream_intron_size,
+        downstream_intron_size = feat_data.downstream_intron_size,
+        donor_seq           = feat_data.donor_seq or None,
+        acceptor_seq        = feat_data.acceptor_seq or None,
+        ppt_seq             = feat_data.ppt_seq or None,
+        donor_is_gt         = feat_data.donor_is_gt,
+        acceptor_is_ag      = feat_data.acceptor_is_ag,
+        ppt_score           = feat_data.ppt_score,
+        ppt_longest_run     = feat_data.ppt_longest_run,
+        bp_motif_found      = feat_data.bp_motif_found,
+        bp_distance         = feat_data.bp_distance,
+        bp_score            = feat_data.bp_score,
+        mane_transcript_id  = mane.get("transcript_id"),
+        exon_rank           = mane.get("exon_rank"),
+        frame_region        = mane.get("frame_region", "unknown"),
+        frame_class         = mane.get("frame_class", "unknown"),
+        cds_exon_length     = mane.get("cds_exon_length"),
     )
-    feat = existing.scalar_one_or_none()
-    if feat is None:
-        feat = EventSpliceFeature(id=uuid.uuid4(), event_id=event.id)
-        db.add(feat)
-
-    feat.exon_size              = feat_data.exon_size
-    feat.upstream_intron_size   = feat_data.upstream_intron_size
-    feat.downstream_intron_size = feat_data.downstream_intron_size
-    feat.donor_seq              = feat_data.donor_seq or None
-    feat.acceptor_seq           = feat_data.acceptor_seq or None
-    feat.ppt_seq                = feat_data.ppt_seq or None
-    feat.donor_is_gt            = feat_data.donor_is_gt
-    feat.acceptor_is_ag         = feat_data.acceptor_is_ag
-    feat.ppt_score              = feat_data.ppt_score
-    feat.ppt_longest_run        = feat_data.ppt_longest_run
-    feat.bp_motif_found         = feat_data.bp_motif_found
-    feat.bp_distance            = feat_data.bp_distance
-    feat.bp_score               = feat_data.bp_score
-    feat.mane_transcript_id     = mane.get("transcript_id")
-    feat.exon_rank              = mane.get("exon_rank")
-    feat.frame_region           = mane.get("frame_region", "unknown")
-    feat.frame_class            = mane.get("frame_class", "unknown")
-    feat.cds_exon_length        = mane.get("cds_exon_length")
-
-    await db.flush()
+    stmt = (
+        pg_insert(EventSpliceFeature)
+        .values(id=uuid.uuid4(), **values)
+        .on_conflict_do_update(
+            index_elements=["event_id"],
+            set_=values,
+        )
+        .returning(EventSpliceFeature)
+    )
+    result = await db.execute(stmt)
+    feat = result.scalar_one()
     return feat
 
 

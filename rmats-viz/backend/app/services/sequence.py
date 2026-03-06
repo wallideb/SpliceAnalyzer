@@ -51,22 +51,29 @@ _UCSC_TO_REFSEQ: dict[str, str] = {
     "chrM":  "NC_012920.1",  "chrMT": "NC_012920.1",
 }
 
-# Cache: set of contig names actually present in the current FASTA index
-_fai_contigs: set[str] | None = None
+# Cache: (fasta_path → contig set). Keyed by path so a FASTA swap is handled;
+# also re-reads if the cache entry is empty (FASTA not yet assembled at startup).
+_fai_cache: dict[str, set[str]] = {}
 
 
 def _fai_contig_set(fasta_path: str) -> set[str]:
-    """Return the set of contig names from the .fai index (cached)."""
-    global _fai_contigs
-    if _fai_contigs is None:
-        import os
-        fai = fasta_path + ".fai"
-        if os.path.isfile(fai):
-            with open(fai) as f:
-                _fai_contigs = {line.split("\t")[0] for line in f if line.strip()}
-        else:
-            _fai_contigs = set()
-    return _fai_contigs
+    """Return the set of contig names from the .fai index.
+
+    Cached per fasta_path, but re-reads when the cached set is empty so that a
+    FASTA assembled after the backend started is picked up on the next request.
+    """
+    import os
+    cached = _fai_cache.get(fasta_path)
+    if cached:          # non-empty hit → return immediately
+        return cached
+    fai = fasta_path + ".fai"
+    if os.path.isfile(fai):
+        with open(fai) as f:
+            contigs = {line.split("\t")[0] for line in f if line.strip()}
+        if contigs:
+            _fai_cache[fasta_path] = contigs
+            return contigs
+    return set()
 
 
 def _resolve_chrom(chrom: str, fasta_path: str) -> str:

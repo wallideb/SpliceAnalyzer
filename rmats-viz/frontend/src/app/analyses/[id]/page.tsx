@@ -3,7 +3,7 @@ import { useState, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getAnalysis, listEvents, downloadAnalysisExcel } from "@/lib/api";
+import { getAnalysis, listEvents, downloadAnalysisExcel, downloadAnalysisPDF } from "@/lib/api";
 import { EventsTable } from "@/components/events/EventsTable";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
 import { useBasket } from "@/contexts/BasketContext";
@@ -41,6 +41,7 @@ export default function AnalysisDetailPage() {
   const [dpsiSlider, setDpsiSlider] = useState(0);
 
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [highlightTop10, setHighlightTop10] = useState(true);
   const [hideTop10, setHideTop10] = useState(false);
@@ -129,6 +130,17 @@ export default function AnalysisDetailPage() {
       alert("Erreur lors de l'export Excel. Veuillez réessayer.");
     } finally {
       setIsExporting(false);
+    }
+  }, [id]);
+
+  const handleExportPDF = useCallback(async () => {
+    setIsExportingPDF(true);
+    try {
+      await downloadAnalysisPDF(id);
+    } catch {
+      alert("Erreur lors de la génération du PDF. Veuillez réessayer.");
+    } finally {
+      setIsExportingPDF(false);
     }
   }, [id]);
 
@@ -255,6 +267,14 @@ export default function AnalysisDetailPage() {
           >
             {isExporting ? <SpinnerIcon /> : <DownloadIcon />}
             {isExporting ? "Export…" : "Excel"}
+          </button>
+          <button
+            onClick={handleExportPDF}
+            disabled={isExportingPDF}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg disabled:opacity-50 transition-colors"
+          >
+            {isExportingPDF ? <SpinnerIcon /> : <DownloadIcon />}
+            {isExportingPDF ? "PDF…" : "PDF"}
           </button>
           <Link
             href={`/analyses/${id}/top10`}

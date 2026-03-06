@@ -4,7 +4,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine
-from app.routers import analyses, annotations, events, genes
+from app.routers import analyses, annotations, events, genes, splice
 
 app = FastAPI(title="rMATS Visualizer API", version="1.0.0")
 
@@ -20,6 +20,7 @@ app.include_router(analyses.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
 app.include_router(genes.router, prefix="/api/v1")
 app.include_router(annotations.router, prefix="/api/v1")
+app.include_router(splice.router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health")

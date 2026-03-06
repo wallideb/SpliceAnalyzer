@@ -233,6 +233,7 @@ export default function DeepAnalysisPage() {
           events={allEvents}
           mutatedGenes={mutatedGenes}
           activeModules={activeModules}
+          analysisId={id}
         />
       )}
 

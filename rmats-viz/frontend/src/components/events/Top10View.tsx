@@ -16,6 +16,7 @@ import type { SplicingEvent } from "@/types/event";
 import type { GeneEntry } from "@/types/gene";
 import { SidebarNav } from "@/components/top10/SidebarNav";
 import { AnnotatedCard } from "@/components/top10/AnnotatedCard";
+import { MotifPatternPanel } from "@/components/top10/MotifPatternPanel";
 import type { ViewMode } from "@/components/top10/types";
 
 interface Top10ViewProps {
@@ -28,9 +29,11 @@ interface Top10ViewProps {
    * When not provided (Top-10 context) no extra tabs are shown.
    */
   activeModules?: Set<string>;
+  /** Analysis UUID — passed to AnnotatedCard (splice view) and MotifPatternPanel. */
+  analysisId?: string;
 }
 
-export function Top10View({ events, mutatedGenes = [], activeModules }: Top10ViewProps) {
+export function Top10View({ events, mutatedGenes = [], activeModules, analysisId }: Top10ViewProps) {
   const [mode, setMode] = useState<ViewMode>("gene");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -56,8 +59,8 @@ export function Top10View({ events, mutatedGenes = [], activeModules }: Top10Vie
     scores:   "Scores rMATS détaillés",
     stringdb: "Interactions STRING-DB avec le gène muté",
     pathways: "Voies moléculaires (à venir)",
-    motifs:   "Motifs récurrents (à venir)",
-    splice:   "Sites consensus d'épissage (à venir)",
+    motifs:   "Patterns d'épissage récurrents",
+    splice:   "Sites consensus d'épissage",
   };
 
   return (
@@ -78,34 +81,32 @@ export function Top10View({ events, mutatedGenes = [], activeModules }: Top10Vie
           {MODE_LABELS[mode]}
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {events.map((ev) => {
-            const symKey = (ev.gene_symbol ?? "").toUpperCase();
-            return (
-              <AnnotatedCard
-                key={ev.id}
-                event={ev}
-                mode={mode}
-                ensemblIdHint={ensemblHints[symKey] ?? ev.gene_id}
-                mutatedGenes={mutatedGenes}
-              />
-            );
-          })}
-        </div>
-
-        {/* Mode legends */}
-        {mode === "panelapp" && (
-          <div className="mt-4 flex flex-wrap gap-3 text-xs text-muted-foreground border-t border-border pt-3">
-            <span className="font-semibold text-foreground">Niveau de confiance PanelApp :</span>
-            {(["green", "amber", "red"] as const).map((c) => (
-              <span key={c} className="flex items-center gap-1.5">
-                <span className={`w-2 h-2 rounded-full ${c === "green" ? "bg-green-500" : c === "amber" ? "bg-amber-500" : "bg-red-500"}`} />
-                {c === "green" ? "Vert – haute confiance" : c === "amber" ? "Ambre – confiance modérée" : "Rouge – faible confiance"}
-              </span>
-            ))}
+        {/* Motifs mode → full-width aggregate panel */}
+        {mode === "motifs" && analysisId ? (
+          <MotifPatternPanel events={events} analysisId={analysisId} />
+        ) : mode === "motifs" ? (
+          <p className="text-xs text-muted-foreground italic">
+            analysisId non disponible pour ce contexte.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {events.map((ev) => {
+              const symKey = (ev.gene_symbol ?? "").toUpperCase();
+              return (
+                <AnnotatedCard
+                  key={ev.id}
+                  event={ev}
+                  mode={mode}
+                  ensemblIdHint={ensemblHints[symKey] ?? ev.gene_id}
+                  mutatedGenes={mutatedGenes}
+                  analysisId={analysisId}
+                />
+              );
+            })}
           </div>
         )}
 
+        {/* Mode legends */}
         {mode === "go" && (
           <div className="mt-4 flex flex-wrap gap-3 text-xs text-muted-foreground border-t border-border pt-3">
             <span className="font-semibold text-foreground">Catégories GO :</span>

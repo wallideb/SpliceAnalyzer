@@ -29,6 +29,7 @@ import type { SplicingEvent } from "@/types/event";
 import type { GeneAnnotation, GeneInteraction, PanelConfidence } from "@/types/annotation";
 import type { GeneEntry } from "@/types/gene";
 import type { ViewMode } from "./types";
+import { SpliceView } from "./SpliceView";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -41,6 +42,8 @@ interface AnnotatedCardProps {
   ensemblIdHint?: string | null;
   /** Mutated genes from the analysis, used for StringDB interaction view. */
   mutatedGenes: GeneEntry[];
+  /** Analysis UUID — needed by SpliceView to trigger bulk feature computation. */
+  analysisId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -558,7 +561,6 @@ function PanelAppBadge({ annotation }: { annotation?: GeneAnnotation }) {
 const COMING_SOON_LABELS: Partial<Record<ViewMode, string>> = {
   pathways: "Voies moléculaires",
   motifs:   "Motifs récurrents",
-  splice:   "Sites consensus d'épissage",
 };
 
 function ComingSoonView({ mode }: { mode: ViewMode }) {
@@ -635,7 +637,7 @@ function GeneSymbolWithTooltip({
 // Main card component
 // ---------------------------------------------------------------------------
 
-export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: AnnotatedCardProps) {
+export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, analysisId }: AnnotatedCardProps) {
   const symbol = ev.gene_symbol ?? ev.gene_id ?? "";
 
   // annotation always fetched when symbol available (needed for PanelApp badge + GO + gene views)
@@ -702,7 +704,8 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: 
         {mode === "go"       && <GOView annotation={annotation} isLoading={annotationLoading} />}
         {mode === "scores"   && <ScoresView ev={ev} />}
         {mode === "stringdb" && <StringDBView eventSymbol={symbol} mutatedGenes={mutatedGenes} />}
-        {(mode === "pathways" || mode === "motifs" || mode === "splice") && (
+        {mode === "splice"   && <SpliceView event={ev} analysisId={analysisId} />}
+        {(mode === "pathways" || mode === "motifs") && (
           <ComingSoonView mode={mode} />
         )}
       </div>

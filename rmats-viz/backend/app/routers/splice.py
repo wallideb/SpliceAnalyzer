@@ -18,6 +18,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import statistics
 import uuid
@@ -90,30 +91,33 @@ async def _compute_one(
     fa_ok: bool,
 ) -> EventSpliceFeature:
     """Compute (or recompute) features for a single SE event. DB write included."""
+    # ── Sequence extraction (subprocess — run in thread to avoid blocking event loop) ──
     windows = None
     if fa_ok and event.exon_start is not None and event.exon_end is not None:
         try:
-            windows = get_splice_windows(
-                chrom=event.chr or "",
-                strand=event.strand or "+",
-                exon_start=event.exon_start,
-                exon_end=event.exon_end,
+            windows = await asyncio.to_thread(
+                get_splice_windows,
+                event.chr or "",
+                event.strand or "+",
+                event.exon_start,
+                event.exon_end,
             )
         except Exception as exc:
             logger.warning("sequence extraction failed for %s: %s", event.id, exc)
 
     feat_data = compute_features(event, windows)
 
-    # MANE annotation (network call, cached in SQLite)
+    # ── MANE annotation (synchronous httpx calls — run in thread) ──────────
     mane: dict = {}
     if event.gene_id:
         try:
-            mane = annotate_mane(
-                gene_id=event.gene_id,
-                chrom=event.chr or "",
-                strand=event.strand or "+",
-                exon_start=event.exon_start or 0,
-                exon_end=event.exon_end or 0,
+            mane = await asyncio.to_thread(
+                annotate_mane,
+                event.gene_id,
+                event.chr or "",
+                event.strand or "+",
+                event.exon_start or 0,
+                event.exon_end or 0,
             )
         except Exception as exc:
             logger.warning("MANE lookup failed for %s: %s", event.gene_id, exc)

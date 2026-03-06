@@ -1,0 +1,13 @@
+# FASTA / genome data files (large binaries — not tracked in git)
+data/*.fa
+data/*.fasta
+data/*.fai
+data/*.fa.fai
+
+# Common ignore patterns
+__pycache__/
+*.pyc
+*.pyo
+.env
+.DS_Store
+node_modules/

@@ -93,6 +93,30 @@ export interface MANETranscriptResponse {
   skipped_end: number | null;
 }
 
+export interface EventPermResult {
+  event_id: string;
+  gene_symbol: string | null;
+  observed_delta_psi: number | null;
+  empirical_p_value: number | null;
+  n1: number;
+  n2: number;
+  null_hist_bins: number[];
+  null_hist_counts: number[];
+}
+
+export interface PermutationResponse {
+  analysis_id: string;
+  n_iterations: number;
+  n_events_tested: number;
+  events: EventPermResult[];
+  global_null_hist_bins: number[];
+  global_null_hist_counts: number[];
+  observed_hist_bins: number[];
+  observed_hist_counts: number[];
+  pct_p05: number | null;
+  pct_p01: number | null;
+}
+
 export interface IntronSizeStats {
   median: number | null;
   mean: number | null;

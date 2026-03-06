@@ -4,6 +4,7 @@ import type {
   ComputeJobResponse,
   PatternAnalysisResponse,
   MANETranscriptResponse,
+  PermutationResponse,
 } from "@/types/splice";
 
 export function getEventSpliceFeature(eventId: string): Promise<SpliceFeatureResponse> {
@@ -22,4 +23,14 @@ export function getSplicePatterns(analysisId: string): Promise<PatternAnalysisRe
 
 export function getMANETranscript(eventId: string): Promise<MANETranscriptResponse> {
   return fetchJSON<MANETranscriptResponse>(`${BASE}/splice/mane_transcript/${eventId}`);
+}
+
+export function runPermutationTest(
+  analysisId: string,
+  nIterations: number = 500,
+): Promise<PermutationResponse> {
+  return fetchJSON<PermutationResponse>(
+    `${BASE}/splice/permutation/${analysisId}?n_iterations=${nIterations}`,
+    { method: "POST" },
+  );
 }

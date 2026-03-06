@@ -25,6 +25,7 @@ import { computeSpliceFeatures } from "@/lib/api/splice";
 import { useBasket } from "@/contexts/BasketContext";
 import { Top10View } from "@/components/events/Top10View";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
+import { PermutationPanel } from "@/components/top10/PermutationPanel";
 import type { GeneEntry } from "@/types/gene";
 import type { SplicingEvent } from "@/types/event";
 
@@ -257,6 +258,14 @@ export default function DeepAnalysisPage() {
           vérifiez que l&apos;analyse a des données.
         </p>
       )}
+
+      {/* ── 4B — Test de permutation — Significativité ── */}
+      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <h2 className="text-sm font-bold text-foreground mb-4">
+          Significativité par permutation
+        </h2>
+        <PermutationPanel analysisId={id} />
+      </div>
     </div>
   );
 }

@@ -5,8 +5,10 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { getAnalysis, listEvents } from "@/lib/api";
 import { EventsTable } from "@/components/events/EventsTable";
+import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
 import { useBasket } from "@/contexts/BasketContext";
 import type { EventsQuery } from "@/lib/api";
+import type { GeneEntry } from "@/types/gene";
 
 // ── Stat slider helpers ────────────────────────────────────────────────────────
 // FDR / p-value: logarithmic scale 10^(-pos/10)
@@ -40,6 +42,7 @@ export default function AnalysisDetailPage() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [highlightTop10, setHighlightTop10] = useState(true);
+  const [hideTop10, setHideTop10] = useState(false);
   const [showIncLevel, setShowIncLevel] = useState(false);
 
   const sortBy = sortKey.slice(0, sortKey.lastIndexOf("|")) as EventsQuery["sort_by"];
@@ -64,6 +67,7 @@ export default function AnalysisDetailPage() {
     sort_dir: sortDir,
     page,
     page_size: 50,
+    exclude_top10: hideTop10 || undefined,
   };
 
   const { data: eventsPage, isLoading } = useQuery({
@@ -77,6 +81,11 @@ export default function AnalysisDetailPage() {
   const group1Label = group1?.group_label ?? "Groupe 1";
   const group2Label = group2?.group_label ?? "Groupe 2";
   const analysisName = analysis?.name ?? "";
+
+  // Resolved mutated gene entries (guard against legacy string format)
+  const mutatedGenes: GeneEntry[] = (analysis?.mutated_genes ?? []).filter(
+    (g): g is GeneEntry => typeof g === "object" && "ensembl_id" in g,
+  );
 
   const handleToggleSelect = useCallback((eventId: string) => {
     setSelectedIds((prev) => {
@@ -120,7 +129,32 @@ export default function AnalysisDetailPage() {
   const hasStatFilters = fdrSlider > 0 || pvalSlider > 0 || dpsiSlider > 0;
 
   return (
-    <div className="space-y-5">
+    <div className="flex gap-6 items-start">
+
+      {/* ══ LEFT STICKY SIDEBAR – Gene cards ══════════════════════════════ */}
+      {mutatedGenes.length > 0 && (
+        <aside className="sticky top-20 self-start w-60 shrink-0 z-10">
+          {/* Sidebar header */}
+          <div className="flex items-center gap-1.5 mb-2 px-1">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
+            </svg>
+            <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+              Gènes candidats
+            </span>
+          </div>
+          {/* Cards – scrollable if many genes */}
+          <div className="max-h-[calc(100vh-6rem)] overflow-y-auto space-y-3 pr-1"
+            style={{ scrollbarWidth: "thin", scrollbarColor: "rgb(251 191 36 / 0.3) transparent" }}
+          >
+            <MutatedGenePanel mutatedGenes={mutatedGenes} analysisId={id} layout="vertical" />
+          </div>
+        </aside>
+      )}
+
+      {/* ══ MAIN CONTENT ══════════════════════════════════════════════════ */}
+      <div className={`flex-1 min-w-0 space-y-5${selectedIds.size > 0 ? " pb-24" : ""}`}>
+
       {/* ── Header ── */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div className="min-w-0 flex-1">
@@ -156,10 +190,10 @@ export default function AnalysisDetailPage() {
                 <span className="text-xs text-muted-foreground">Gène(s) muté(s) :</span>
                 {analysis.mutated_genes.map((gene) => (
                   <span
-                    key={gene}
+                    key={typeof gene === "string" ? gene : gene.ensembl_id}
                     className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-700"
                   >
-                    {gene}
+                    {typeof gene === "string" ? gene : gene.display}
                   </span>
                 ))}
               </span>
@@ -168,7 +202,7 @@ export default function AnalysisDetailPage() {
         </div>
 
         {/* Top10 actions */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
           <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground select-none hover:text-foreground transition-colors">
             <input
               type="checkbox"
@@ -178,6 +212,30 @@ export default function AnalysisDetailPage() {
             />
             Surligner Top 10
           </label>
+          {/* Hide / show top-10 events toggle */}
+          <button
+            onClick={() => { setHideTop10((v) => !v); setPage(1); }}
+            title={hideTop10 ? "Afficher les Top 10 dans la liste" : "Masquer les Top 10 de la liste"}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+              hideTop10
+                ? "bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
+                : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            {hideTop10 ? (
+              /* Eye icon */
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            ) : (
+              /* Eye-slash icon */
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+              </svg>
+            )}
+            {hideTop10 ? "Top 10 masqué" : "Masquer Top 10"}
+          </button>
           <Link
             href={`/analyses/${id}/top10`}
             className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors shadow-sm"
@@ -322,40 +380,12 @@ export default function AnalysisDetailPage() {
             </svg>
             <span>
               Les <strong>Top 10 événements ◈</strong> sont sélectionnés selon les seuils rMATS par défaut
-              (FDR &lt; 0.05, |ΔPSI| ≥ 0.1), classés par FDR puis |ΔPSI|. Ils restent toujours affichés
-              indépendamment des filtres statistiques actifs.
+              (FDR &lt; 0.05, |ΔPSI| ≥ 0.1), classés par FDR puis |ΔPSI|. Ils sont filtrés comme tous les autres événements
+              lorsque des seuils statistiques sont actifs. Utilisez le bouton <strong>Masquer Top 10</strong> pour les exclure de la liste.
             </span>
           </div>
         )}
       </div>
-
-      {/* ── Selection / basket bar ── */}
-      {selectedIds.size > 0 && (
-        <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 flex items-center justify-between flex-wrap gap-2">
-          <span className="text-sm text-blue-700 dark:text-blue-300 font-medium">
-            {selectedIds.size} événement{selectedIds.size > 1 ? "s" : ""} sélectionné{selectedIds.size > 1 ? "s" : ""}
-          </span>
-          <div className="flex gap-2 items-center">
-            <button
-              onClick={() => setSelectedIds(new Set())}
-              className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 underline"
-            >
-              Tout désélectionner
-            </button>
-            <button
-              onClick={handleAddToBasket}
-              disabled={newCount === 0}
-              className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm px-3 py-1.5 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium"
-              title={newCount === 0 ? "Tous ces événements sont déjà dans le panier" : undefined}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z" />
-              </svg>
-              {newCount > 0 ? `Ajouter au panier (${newCount})` : "Déjà dans le panier"}
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* ── Events table ── */}
       {eventsPage && (
@@ -384,6 +414,46 @@ export default function AnalysisDetailPage() {
           Chargement des événements…
         </div>
       )}
+
+      </div>{/* end main content */}
+
+      {/* ══ FIXED BASKET ACTION BUTTON – always follows scroll ════════════ */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 right-6 z-50">
+          <div className="flex items-center gap-2 bg-blue-600 dark:bg-blue-700 border border-blue-500 dark:border-blue-600 rounded-2xl shadow-2xl px-3 py-2.5 text-white">
+            {/* Count badge */}
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white/20 text-xs font-extrabold tabular-nums">
+              {selectedIds.size}
+            </span>
+            <span className="text-sm font-medium pr-1">
+              sélectionné{selectedIds.size > 1 ? "s" : ""}
+            </span>
+            {/* Deselect */}
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="flex items-center justify-center w-6 h-6 rounded-lg text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
+              title="Tout désélectionner"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            {/* Add to basket */}
+            <button
+              onClick={handleAddToBasket}
+              disabled={newCount === 0}
+              className="inline-flex items-center gap-1.5 bg-white dark:bg-blue-50 text-blue-700 dark:text-blue-800 text-sm px-3 py-1.5 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold hover:bg-blue-50 shadow-sm"
+              title={newCount === 0 ? "Tous ces événements sont déjà dans le panier" : undefined}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z" />
+              </svg>
+              {newCount > 0 ? `Ajouter (${newCount})` : "Déjà dans le panier"}
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

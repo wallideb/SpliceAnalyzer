@@ -4,7 +4,7 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -27,6 +27,7 @@ async def list_events(
     sort_dir: Literal["asc", "desc"] = Query("asc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    exclude_top10: bool = Query(False, description="When true, hide top-10 ranked events"),
     db: AsyncSession = Depends(get_db),
 ):
     # Verify analysis exists
@@ -34,49 +35,22 @@ async def list_events(
     if not res.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    # Build individual filter clauses
-    type_clause = (SplicingEvent.event_type == event_type.upper()) if event_type else None
-    gene_clause = SplicingEvent.gene_symbol.ilike(f"%{gene_symbol}%") if gene_symbol else None
-    fdr_clause = (SplicingEvent.fdr <= fdr_max) if fdr_max is not None else None
-    pval_clause = (SplicingEvent.p_value <= p_value_max) if p_value_max is not None else None
-    dpsi_clause = (SplicingEvent.abs_inc_level_diff >= delta_psi_min) if delta_psi_min is not None else None
+    conditions = [SplicingEvent.analysis_id == analysis_id]
 
-    stat_filters_active = fdr_clause is not None or pval_clause is not None or dpsi_clause is not None
+    if event_type:
+        conditions.append(SplicingEvent.event_type == event_type.upper())
+    if gene_symbol:
+        conditions.append(SplicingEvent.gene_symbol.ilike(f"%{gene_symbol}%"))
+    if fdr_max is not None:
+        conditions.append(SplicingEvent.fdr <= fdr_max)
+    if p_value_max is not None:
+        conditions.append(SplicingEvent.p_value <= p_value_max)
+    if delta_psi_min is not None:
+        conditions.append(SplicingEvent.abs_inc_level_diff >= delta_psi_min)
+    if exclude_top10:
+        conditions.append(SplicingEvent.top_rank.is_(None))
 
-    if stat_filters_active:
-        # Events that satisfy all filters (including stat thresholds)
-        full_conditions = [SplicingEvent.analysis_id == analysis_id]
-        if type_clause is not None:
-            full_conditions.append(type_clause)
-        if gene_clause is not None:
-            full_conditions.append(gene_clause)
-        if fdr_clause is not None:
-            full_conditions.append(fdr_clause)
-        if pval_clause is not None:
-            full_conditions.append(pval_clause)
-        if dpsi_clause is not None:
-            full_conditions.append(dpsi_clause)
-
-        # Top-10 events always included regardless of stat thresholds
-        top10_conditions = [
-            SplicingEvent.analysis_id == analysis_id,
-            SplicingEvent.top_rank.isnot(None),
-        ]
-        if type_clause is not None:
-            top10_conditions.append(type_clause)
-        if gene_clause is not None:
-            top10_conditions.append(gene_clause)
-
-        q = select(SplicingEvent).where(
-            or_(and_(*full_conditions), and_(*top10_conditions))
-        )
-    else:
-        base_conditions = [SplicingEvent.analysis_id == analysis_id]
-        if type_clause is not None:
-            base_conditions.append(type_clause)
-        if gene_clause is not None:
-            base_conditions.append(gene_clause)
-        q = select(SplicingEvent).where(and_(*base_conditions))
+    q = select(SplicingEvent).where(and_(*conditions))
 
     # Count total
     count_q = select(func.count()).select_from(q.subquery())

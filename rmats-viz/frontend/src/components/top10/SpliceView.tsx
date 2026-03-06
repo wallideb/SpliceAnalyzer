@@ -265,6 +265,19 @@ export function SpliceView({
           </span>
         </div>
       )}
+
+      {/* ── SpliceAI placeholder ── */}
+      <div className="flex items-center gap-2 px-2 py-1.5 rounded border border-dashed border-border bg-muted/20">
+        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+          SpliceAI
+        </span>
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-muted text-[9px] text-muted-foreground border border-border">
+          à venir
+        </span>
+        <span className="text-[10px] text-muted-foreground">
+          Score d&apos;impact sur les sites donneur / accepteur (Jaganathan et al. 2019)
+        </span>
+      </div>
     </div>
   );
 }

@@ -14,6 +14,7 @@ import type { SplicingEvent } from "@/types/event";
 import { ExonDiagram } from "./ExonDiagram";
 import { SpliceSiteTrack } from "./SpliceSiteTrack";
 import { PPTTrack } from "./PPTTrack";
+import { MANETranscriptTrack } from "./MANETranscriptTrack";
 
 // ---------------------------------------------------------------------------
 // Helper — mean of a comma-separated PSI string
@@ -117,6 +118,13 @@ export function SpliceView({
         pptSeq={data.ppt_seq ?? null}
         bpFound={data.bp_motif_found ?? null}
         bpDistance={data.bp_distance ?? null}
+      />
+
+      {/* 1C — MANE transcript linear diagram */}
+      <MANETranscriptTrack
+        eventId={ev.id}
+        maneTranscriptId={data.mane_transcript_id ?? null}
+        exonRank={data.exon_rank ?? null}
       />
 
       {/* 1B — Splice-site sequence tracks with position axes */}

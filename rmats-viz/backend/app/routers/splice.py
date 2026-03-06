@@ -44,7 +44,7 @@ from app.schemas.splice import (
     ClusterInfo,
 )
 from app.services.event_cluster import cluster_se_events
-from app.services.mane import annotate_mane
+from app.services.mane import annotate_mane, get_transcript_exons
 from app.services.sequence import fasta_available, get_splice_windows
 from app.services.splice_features import compute_features, compute_pwm, iupac_consensus
 
@@ -434,3 +434,61 @@ async def get_splice_patterns(
         frame           = frame_stats,
         bp_found_pct    = bp_pct,
     )
+
+# ---------------------------------------------------------------------------
+# GET /splice/mane_transcript/{event_id}
+# ---------------------------------------------------------------------------
+
+@router.get("/mane_transcript/{event_id}")
+async def get_mane_transcript(
+    event_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the full MANE Select transcript exon structure for a SE event.
+
+    Used by the MANETranscriptTrack frontend component to draw the linear
+    transcript diagram with the skipped exon highlighted.
+
+    Response fields:
+      transcript_id  — Ensembl transcript accession (or null)
+      exons          — list of {start, end, size} sorted by position (0-based)
+      n_exons        — total exon count in the MANE transcript
+      exon_rank      — 1-based rank of the skipped exon in the transcript
+      strand         — '+' or '-'
+      skipped_start  — genomic start of the skipped exon (0-based)
+      skipped_end    — genomic end of the skipped exon
+    """
+    ev_res = await db.execute(
+        select(SplicingEvent).where(SplicingEvent.id == event_id)
+    )
+    event = ev_res.scalar_one_or_none()
+    if event is None:
+        raise HTTPException(404, "Event not found")
+
+    feat_res = await db.execute(
+        select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
+    )
+    feat = feat_res.scalar_one_or_none()
+
+    if feat is None or not feat.mane_transcript_id:
+        return {
+            "transcript_id": None,
+            "exons": [],
+            "n_exons": 0,
+            "exon_rank": None,
+            "strand": event.strand,
+            "skipped_start": event.exon_start,
+            "skipped_end": event.exon_end,
+        }
+
+    exons = await asyncio.to_thread(get_transcript_exons, feat.mane_transcript_id)
+
+    return {
+        "transcript_id": feat.mane_transcript_id,
+        "exons": exons,
+        "n_exons": len(exons),
+        "exon_rank": feat.exon_rank,
+        "strand": event.strand,
+        "skipped_start": event.exon_start,
+        "skipped_end": event.exon_end,
+    }

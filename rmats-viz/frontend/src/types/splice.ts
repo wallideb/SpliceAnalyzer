@@ -77,6 +77,22 @@ export interface FrameStats {
   unknown: number;
 }
 
+export interface MANEExon {
+  start: number;
+  end: number;
+  size: number;
+}
+
+export interface MANETranscriptResponse {
+  transcript_id: string | null;
+  exons: MANEExon[];
+  n_exons: number;
+  exon_rank: number | null;
+  strand: string | null;
+  skipped_start: number | null;
+  skipped_end: number | null;
+}
+
 export interface PatternAnalysisResponse {
   analysis_id: string;
   n_se_events: number;

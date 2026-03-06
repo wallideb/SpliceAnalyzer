@@ -3,6 +3,7 @@ import type {
   SpliceFeatureResponse,
   ComputeJobResponse,
   PatternAnalysisResponse,
+  MANETranscriptResponse,
 } from "@/types/splice";
 
 export function getEventSpliceFeature(eventId: string): Promise<SpliceFeatureResponse> {
@@ -17,4 +18,8 @@ export function computeSpliceFeatures(analysisId: string): Promise<ComputeJobRes
 
 export function getSplicePatterns(analysisId: string): Promise<PatternAnalysisResponse> {
   return fetchJSON<PatternAnalysisResponse>(`${BASE}/splice/patterns/${analysisId}`);
+}
+
+export function getMANETranscript(eventId: string): Promise<MANETranscriptResponse> {
+  return fetchJSON<MANETranscriptResponse>(`${BASE}/splice/mane_transcript/${eventId}`);
 }

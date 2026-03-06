@@ -59,6 +59,13 @@ def _db_conn() -> sqlite3.Connection:
             PRIMARY KEY (gene_id, exon_start, exon_end)
         )"""
     )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS mane_exon_cache (
+            transcript_id TEXT PRIMARY KEY,
+            n_exons INTEGER,
+            exons_json TEXT
+        )"""
+    )
     conn.commit()
     return conn
 
@@ -231,6 +238,55 @@ def _frame_class(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+def _exon_cache_get(transcript_id: str) -> list | None:
+    conn = _db_conn()
+    row = conn.execute(
+        "SELECT exons_json FROM mane_exon_cache WHERE transcript_id=?",
+        (transcript_id,),
+    ).fetchone()
+    conn.close()
+    return json.loads(row[0]) if row else None
+
+
+def _exon_cache_set(transcript_id: str, exons: list) -> None:
+    conn = _db_conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO mane_exon_cache (transcript_id, n_exons, exons_json)"
+        " VALUES (?, ?, ?)",
+        (transcript_id, len(exons), json.dumps(exons)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_transcript_exons(transcript_id: str) -> list[dict]:
+    """Return sorted list of exon dicts {start, end, size} for a MANE transcript.
+
+    Coordinates are 0-based half-open (converted from Ensembl 1-based inclusive).
+    Results are cached in the SQLite mane_exon_cache table.
+    """
+    cached = _exon_cache_get(transcript_id)
+    if cached is not None:
+        return cached
+
+    struct = _get_transcript_structure(transcript_id)
+    if not struct:
+        return []
+
+    exons_raw = struct.get("Exon", [])
+    exons = [
+        {
+            "start": e.get("start", 1) - 1,   # 1-based → 0-based
+            "end":   e.get("end", 0),
+            "size":  e.get("end", 0) - (e.get("start", 1) - 1),
+        }
+        for e in exons_raw
+    ]
+    exons.sort(key=lambda e: e["start"])
+    _exon_cache_set(transcript_id, exons)
+    return exons
+
 
 def annotate_mane(
     gene_id: str,

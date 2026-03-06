@@ -43,9 +43,11 @@ from app.schemas.splice import (
     PPTStats,
     FrameStats,
     ClusterInfo,
+    PermutationResponse,
 )
 from app.services.event_cluster import cluster_se_events
 from app.services.mane import annotate_mane, get_transcript_exons
+from app.services.permutation import run_permutation
 from app.services.sequence import fasta_available, get_splice_windows
 from app.services.splice_features import compute_features, compute_pwm, iupac_consensus
 
@@ -516,3 +518,72 @@ async def get_mane_transcript(
         "skipped_start": event.exon_start,
         "skipped_end": event.exon_end,
     }
+
+# ---------------------------------------------------------------------------
+# POST /splice/permutation/{analysis_id}
+# ---------------------------------------------------------------------------
+
+@router.post("/permutation/{analysis_id}", response_model=PermutationResponse)
+async def run_permutation_test(
+    analysis_id: uuid.UUID,
+    n_iterations: int = 500,
+    db: AsyncSession = Depends(get_db),
+):
+    """Run a permutation test for all SE events of an analysis.
+
+    For each SE event, the patient/control group labels are randomly shuffled
+    *n_iterations* times and ΔΨ is recomputed.  The empirical p-value is the
+    fraction of permutations where |permuted ΔΨ| ≥ |observed ΔΨ|.
+
+    Parameters
+    ----------
+    n_iterations : number of permutation iterations (default 500, max 2000).
+
+    Response
+    --------
+    • events            — per-event results (observed ΔΨ, empirical p-value)
+    • global_null_hist  — null distribution histogram (all events × iterations)
+    • observed_hist     — observed ΔΨ histogram (for overlay comparison)
+    • pct_p05 / pct_p01 — % events significant at p < 0.05 / 0.01
+    """
+    n_iterations = min(max(n_iterations, 10), 2000)
+
+    result = await db.execute(
+        select(SplicingEvent).where(
+            SplicingEvent.analysis_id == analysis_id,
+            SplicingEvent.event_type == "SE",
+        )
+    )
+    se_events = list(result.scalars().all())
+
+    if not se_events:
+        raise HTTPException(404, "No SE events found for this analysis")
+
+    perm_result = await asyncio.to_thread(
+        run_permutation, se_events, n_iterations
+    )
+
+    return PermutationResponse(
+        analysis_id             = str(analysis_id),
+        n_iterations            = perm_result.n_iterations,
+        n_events_tested         = perm_result.n_events_tested,
+        events                  = [
+            {
+                "event_id":           r.event_id,
+                "gene_symbol":        r.gene_symbol,
+                "observed_delta_psi": r.observed_delta_psi,
+                "empirical_p_value":  r.empirical_p_value,
+                "n1":                 r.n1,
+                "n2":                 r.n2,
+                "null_hist_bins":     r.null_hist_bins,
+                "null_hist_counts":   r.null_hist_counts,
+            }
+            for r in perm_result.events
+        ],
+        global_null_hist_bins   = perm_result.global_null_hist_bins,
+        global_null_hist_counts = perm_result.global_null_hist_counts,
+        observed_hist_bins      = perm_result.observed_hist_bins,
+        observed_hist_counts    = perm_result.observed_hist_counts,
+        pct_p05                 = perm_result.pct_p05,
+        pct_p01                 = perm_result.pct_p01,
+    )

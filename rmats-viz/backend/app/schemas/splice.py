@@ -107,6 +107,30 @@ class ClusterInfo(BaseModel):
     n_clusters: int = 0
 
 
+class EventPermResult(BaseModel):
+    event_id: str
+    gene_symbol: str | None = None
+    observed_delta_psi: float | None = None
+    empirical_p_value: float | None = None
+    n1: int = 0
+    n2: int = 0
+    null_hist_bins: list[float] = []
+    null_hist_counts: list[int] = []
+
+
+class PermutationResponse(BaseModel):
+    analysis_id: str
+    n_iterations: int
+    n_events_tested: int
+    events: list[EventPermResult] = []
+    global_null_hist_bins: list[float] = []
+    global_null_hist_counts: list[int] = []
+    observed_hist_bins: list[float] = []
+    observed_hist_counts: list[int] = []
+    pct_p05: float | None = None
+    pct_p01: float | None = None
+
+
 class PatternAnalysisResponse(BaseModel):
     analysis_id: str
     n_se_events: int

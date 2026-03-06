@@ -38,6 +38,54 @@ logger = logging.getLogger(__name__)
 # Complement table
 _COMP = str.maketrans("ACGTacgtNn", "TGCAtgcaNn")
 
+# UCSC chr-style → GRCh38 RefSeq accession (for NCBI-headered FASTA files)
+_UCSC_TO_REFSEQ: dict[str, str] = {
+    "chr1":  "NC_000001.11", "chr2":  "NC_000002.12", "chr3":  "NC_000003.12",
+    "chr4":  "NC_000004.12", "chr5":  "NC_000005.10", "chr6":  "NC_000006.12",
+    "chr7":  "NC_000007.14", "chr8":  "NC_000008.11", "chr9":  "NC_000009.12",
+    "chr10": "NC_000010.11", "chr11": "NC_000011.10", "chr12": "NC_000012.12",
+    "chr13": "NC_000013.11", "chr14": "NC_000014.9",  "chr15": "NC_000015.10",
+    "chr16": "NC_000016.10", "chr17": "NC_000017.11", "chr18": "NC_000018.10",
+    "chr19": "NC_000019.10", "chr20": "NC_000020.11", "chr21": "NC_000021.9",
+    "chr22": "NC_000022.11", "chrX":  "NC_000023.11", "chrY":  "NC_000024.10",
+    "chrM":  "NC_012920.1",  "chrMT": "NC_012920.1",
+}
+
+# Cache: set of contig names actually present in the current FASTA index
+_fai_contigs: set[str] | None = None
+
+
+def _fai_contig_set(fasta_path: str) -> set[str]:
+    """Return the set of contig names from the .fai index (cached)."""
+    global _fai_contigs
+    if _fai_contigs is None:
+        import os
+        fai = fasta_path + ".fai"
+        if os.path.isfile(fai):
+            with open(fai) as f:
+                _fai_contigs = {line.split("\t")[0] for line in f if line.strip()}
+        else:
+            _fai_contigs = set()
+    return _fai_contigs
+
+
+def _resolve_chrom(chrom: str, fasta_path: str) -> str:
+    """Return the contig name as it appears in the FASTA index.
+
+    Handles two common cases:
+    - rMATS uses UCSC names (chr1…chr22, chrX, chrY, chrM)
+    - NCBI FASTA files use RefSeq accessions (NC_000001.11 …)
+    """
+    contigs = _fai_contig_set(fasta_path)
+    if chrom in contigs:
+        return chrom
+    # Try RefSeq alias
+    alias = _UCSC_TO_REFSEQ.get(chrom)
+    if alias and alias in contigs:
+        return alias
+    # Return as-is; samtools will emit a warning but we catch the error
+    return chrom
+
 
 def reverse_complement(seq: str) -> str:
     return seq.translate(_COMP)[::-1]
@@ -58,8 +106,9 @@ def extract_region(
     if end <= start:
         return ""
     fasta = fasta_path or settings.GRCH38_FASTA
+    resolved = _resolve_chrom(chrom, fasta)
     # samtools faidx region: 1-based inclusive
-    region = f"{chrom}:{start + 1}-{end}"
+    region = f"{resolved}:{start + 1}-{end}"
     try:
         result = subprocess.run(
             [settings.SAMTOOLS_BIN, "faidx", fasta, region],

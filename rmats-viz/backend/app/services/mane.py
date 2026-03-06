@@ -136,10 +136,16 @@ def _get_mane_transcript(chrom: str, exon_start: int, exon_end: int) -> str | No
 
 def _get_transcript_structure(transcript_id: str) -> dict | None:
     """Fetch exon list + CDS intervals for a transcript."""
-    data = _ensembl_get(
+    exons = _ensembl_get(
         f"/lookup/id/{transcript_id}?expand=1&content-type=application/json"
     )
-    return data
+    if not exons:
+        return None
+    cds = _ensembl_get(
+        f"/overlap/id/{transcript_id}?feature=cds&content-type=application/json"
+    )
+    exons["CDS"] = cds if isinstance(cds, list) else []
+    return exons
 
 
 def _frame_class(
@@ -235,14 +241,14 @@ def annotate_mane(
 
     transcript_id = _get_mane_transcript(chrom, exon_start, exon_end)
     if not transcript_id:
-        _cache_set(gene_id, exon_start, exon_end, result)
+        # Do not cache: Ensembl may be temporarily unreachable or the region
+        # may not yet have a MANE transcript — allow retry on next compute.
         return result
 
     result["transcript_id"] = transcript_id
 
     transcript = _get_transcript_structure(transcript_id)
     if not transcript:
-        _cache_set(gene_id, exon_start, exon_end, result)
         return result
 
     fc = _frame_class(exon_start, exon_end, transcript)

@@ -262,13 +262,35 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
 
       {/* ── Frame breakdown ── */}
       <Section title="Classe de cadre de lecture (exon sauté)">
+        {/* Prominent summary badges */}
+        <div className="flex flex-wrap gap-2 mb-3">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-700">
+            <span className="text-green-700 dark:text-green-300 text-base font-bold tabular-nums">{frame.in_frame}</span>
+            <span className="text-[10px] font-semibold text-green-700 dark:text-green-400 uppercase tracking-wide">in-frame</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-700">
+            <span className="text-red-700 dark:text-red-300 text-base font-bold tabular-nums">{frame.frameshift}</span>
+            <span className="text-[10px] font-semibold text-red-700 dark:text-red-400 uppercase tracking-wide">frameshift</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-slate-50 border-slate-200 dark:bg-slate-700/30 dark:border-slate-600">
+            <span className="text-slate-600 dark:text-slate-300 text-base font-bold tabular-nums">{frame.non_coding}</span>
+            <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">non-codant</span>
+          </span>
+          {frame.unknown > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-muted border-border">
+              <span className="text-muted-foreground text-base font-bold tabular-nums">{frame.unknown}</span>
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">inconnu</span>
+            </span>
+          )}
+        </div>
+        {/* Proportional bars */}
         <div className="space-y-1.5">
-          {frameBars.map((fb) => (
+          {frameBars.filter(fb => fb.value > 0).map((fb) => (
             <div key={fb.label} className="flex items-center gap-2">
               <span className="w-20 text-[10px] text-muted-foreground truncate">{fb.label}</span>
               <Bar pct={fb.pct} className={fb.color} />
-              <span className="w-8 text-right text-[10px] font-semibold tabular-nums text-foreground">
-                {fb.value}
+              <span className="w-10 text-right text-[10px] font-semibold tabular-nums text-foreground">
+                {fb.pct.toFixed(0)}%
               </span>
             </div>
           ))}

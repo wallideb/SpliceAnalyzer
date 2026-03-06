@@ -34,8 +34,8 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 _ENSEMBL = "https://rest.ensembl.org"
-_TIMEOUT = 10.0
-_HEADERS = {"Content-Type": "application/json"}
+_TIMEOUT = 15.0
+_HEADERS = {"Accept": "application/json"}
 
 
 # ---------------------------------------------------------------------------
@@ -118,19 +118,34 @@ def _ensembl_get(path: str) -> Any | None:
     return None
 
 
-def _get_mane_transcript(chrom: str, exon_start: int, exon_end: int) -> str | None:
-    """Return the MANE Select transcript ID overlapping the region, or None."""
-    # Remove 'chr' prefix — Ensembl REST uses '19', not 'chr19'
+def _get_mane_transcript(gene_id: str, chrom: str, exon_start: int, exon_end: int) -> str | None:
+    """Return the MANE Select transcript ID for the given gene.
+
+    Tries two strategies:
+    1. Gene-level lookup by Ensembl gene ID (most reliable).
+    2. Region-overlap fallback if the gene lookup fails or returns no MANE.
+    """
+    # Strategy 1: gene-level lookup — avoids coordinate ambiguity
+    gene_data = _ensembl_get(
+        f"/lookup/id/{gene_id}?expand=1&content-type=application/json"
+    )
+    if gene_data:
+        for t in gene_data.get("Transcript", []):
+            # field name varies by Ensembl release: is_mane_select (int) or mane_select (NM_ string)
+            if t.get("is_mane_select") or t.get("mane_select"):
+                return t.get("id")
+
+    # Strategy 2: region overlap fallback
     chrom_clean = chrom.lstrip("chr")
     data = _ensembl_get(
         f"/overlap/region/human/{chrom_clean}:{exon_start + 1}-{exon_end}"
         "?feature=transcript&content-type=application/json"
     )
-    if not data:
-        return None
-    for t in data:
-        if t.get("is_mane_select"):
-            return t.get("id")
+    if data:
+        for t in data:
+            if t.get("is_mane_select") or t.get("mane_select"):
+                return t.get("id")
+
     return None
 
 
@@ -162,14 +177,18 @@ def _frame_class(
     }
 
     exons = transcript.get("Exon", [])
-    # Find exon rank (1-based)
+    # Find exon rank by maximum overlap (robust against boundary differences)
+    best_rank: int | None = None
+    best_overlap = 0
     for idx, ex in enumerate(sorted(exons, key=lambda e: e.get("start", 0)), start=1):
         ex_s = ex.get("start", 0) - 1  # Ensembl 1-based → 0-based
         ex_e = ex.get("end", 0)
-        # Near-match (within 10 bp) to handle edge cases
-        if abs(ex_s - exon_start) <= 10 and abs(ex_e - exon_end) <= 10:
-            result["exon_rank"] = idx
-            break
+        overlap = max(0, min(exon_end, ex_e) - max(exon_start, ex_s))
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best_rank = idx
+    if best_rank is not None and best_overlap > 0:
+        result["exon_rank"] = best_rank
 
     # CDS intervals
     cds_list = transcript.get("CDS", [])  # may be absent for non-coding
@@ -239,7 +258,7 @@ def annotate_mane(
         "cds_exon_length": None,
     }
 
-    transcript_id = _get_mane_transcript(chrom, exon_start, exon_end)
+    transcript_id = _get_mane_transcript(gene_id, chrom, exon_start, exon_end)
     if not transcript_id:
         # Do not cache: Ensembl may be temporarily unreachable or the region
         # may not yet have a MANE transcript — allow retry on next compute.
@@ -254,5 +273,7 @@ def annotate_mane(
     fc = _frame_class(exon_start, exon_end, transcript)
     result.update(fc)
 
-    _cache_set(gene_id, exon_start, exon_end, result)
+    # Only cache definitive results — "unknown" may be retried on next compute
+    if result.get("frame_class") not in (None, "unknown"):
+        _cache_set(gene_id, exon_start, exon_end, result)
     return result

@@ -32,13 +32,22 @@ const FRAME_STYLE: Record<string, string> = {
   in_frame:   "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-green-200 dark:border-green-700",
   frameshift: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-700",
   non_coding: "bg-slate-100 text-slate-600 dark:bg-slate-700/40 dark:text-slate-300 border-slate-300 dark:border-slate-600",
+  partial:    "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300 border-orange-200 dark:border-orange-700",
   unknown:    "bg-muted text-muted-foreground border-border",
 };
 const FRAME_LABEL: Record<string, string> = {
-  in_frame:   "In-frame",
-  frameshift: "Frameshift",
+  in_frame:   "✓ In-frame",
+  frameshift: "⚠ Frameshift",
   non_coding: "Non codant",
-  unknown:    "Inconnu",
+  partial:    "Partiel (CDS)",
+  unknown:    "Phase inconnue",
+};
+const FRAME_ICON: Record<string, string> = {
+  in_frame:   "▲",
+  frameshift: "▼",
+  non_coding: "◆",
+  partial:    "◇",
+  unknown:    "?",
 };
 
 // ---------------------------------------------------------------------------
@@ -201,20 +210,40 @@ export function SpliceView({
       </div>
 
       {/* ── Frame + MANE ── */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className={`inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-bold ${FRAME_STYLE[fc]}`}>
-          {FRAME_LABEL[fc] ?? fc}
-        </span>
-        {data.frame_region && data.frame_region !== "unknown" && (
-          <span className="text-[10px] text-muted-foreground">
-            région : <strong>{data.frame_region}</strong>
+      <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 space-y-1.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-bold tracking-wide ${FRAME_STYLE[fc]}`}>
+            <span aria-hidden="true">{FRAME_ICON[fc] ?? "?"}</span>
+            {FRAME_LABEL[fc] ?? fc}
           </span>
-        )}
-        {data.mane_transcript_id && (
-          <span className="text-[10px] text-muted-foreground truncate max-w-[140px]" title={data.mane_transcript_id}>
-            MANE : <strong>{data.mane_transcript_id}</strong>
-            {data.exon_rank != null && ` (exon ${data.exon_rank})`}
-          </span>
+          {data.cds_exon_length != null && (
+            <span className="text-[10px] text-muted-foreground">
+              <strong className="text-foreground">{data.cds_exon_length} nt</strong> codants
+              {" · "}{data.cds_exon_length % 3 === 0 ? "multiple de 3" : `reste ${data.cds_exon_length % 3}`}
+            </span>
+          )}
+          {data.frame_region && data.frame_region !== "unknown" && data.frame_region !== fc && (
+            <span className="text-[10px] text-muted-foreground">
+              région : <strong>{data.frame_region}</strong>
+            </span>
+          )}
+        </div>
+        {data.mane_transcript_id ? (
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <span className="font-semibold text-foreground/70">MANE</span>
+            <code className="font-mono text-foreground" title={data.mane_transcript_id}>
+              {data.mane_transcript_id}
+            </code>
+            {data.exon_rank != null && (
+              <span className="px-1.5 py-0.5 rounded bg-muted border border-border text-[9px] font-semibold">
+                exon {data.exon_rank}
+              </span>
+            )}
+          </div>
+        ) : (
+          <p className="text-[10px] text-muted-foreground italic">
+            Transcrit MANE non trouvé pour ce gène
+          </p>
         )}
       </div>
 

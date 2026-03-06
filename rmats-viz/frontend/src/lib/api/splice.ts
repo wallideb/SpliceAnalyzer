@@ -1,4 +1,4 @@
-import { fetchJSON } from "./client";
+import { BASE, fetchJSON } from "./client";
 import type {
   SpliceFeatureResponse,
   ComputeJobResponse,
@@ -6,15 +6,15 @@ import type {
 } from "@/types/splice";
 
 export function getEventSpliceFeature(eventId: string): Promise<SpliceFeatureResponse> {
-  return fetchJSON<SpliceFeatureResponse>(`/splice/feature/${eventId}`);
+  return fetchJSON<SpliceFeatureResponse>(`${BASE}/splice/feature/${eventId}`);
 }
 
 export function computeSpliceFeatures(analysisId: string): Promise<ComputeJobResponse> {
-  return fetchJSON<ComputeJobResponse>(`/splice/compute/${analysisId}`, {
+  return fetchJSON<ComputeJobResponse>(`${BASE}/splice/compute/${analysisId}`, {
     method: "POST",
   });
 }
 
 export function getSplicePatterns(analysisId: string): Promise<PatternAnalysisResponse> {
-  return fetchJSON<PatternAnalysisResponse>(`/splice/patterns/${analysisId}`);
+  return fetchJSON<PatternAnalysisResponse>(`${BASE}/splice/patterns/${analysisId}`);
 }

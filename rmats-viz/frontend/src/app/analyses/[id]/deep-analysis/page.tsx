@@ -16,11 +16,12 @@
  * Route : /analyses/[id]/deep-analysis?modules=stringdb,pathways,...
  */
 
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getAnalysis, getTop10 } from "@/lib/api";
+import { computeSpliceFeatures } from "@/lib/api/splice";
 import { useBasket } from "@/contexts/BasketContext";
 import { Top10View } from "@/components/events/Top10View";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
@@ -73,6 +74,19 @@ export default function DeepAnalysisPage() {
       ),
     [analysis],
   );
+
+  // Auto-compute splice features when the "splice" module is active.
+  // Fires once on mount (or when id changes) so per-event views are ready
+  // before the user switches to the "Sites consensus" tab.
+  const qc = useQueryClient();
+  const { mutate: autoCompute } = useMutation({
+    mutationFn: () => computeSpliceFeatures(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["splice-feature"] }),
+  });
+  useEffect(() => {
+    if (activeModules.has("splice") && id) autoCompute();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   const group1 = analysis?.sample_groups.find((g) => g.group_index === 1);
   const group2 = analysis?.sample_groups.find((g) => g.group_index === 2);

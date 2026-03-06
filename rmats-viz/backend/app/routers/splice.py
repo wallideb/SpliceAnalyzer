@@ -138,6 +138,13 @@ async def _upsert_feature(
     db: AsyncSession,
 ) -> EventSpliceFeature:
     """DB write step (sequential, single session)."""
+    # Determine frame_class: prefer MANE-based result; fall back to exon-size
+    # divisibility when MANE lookup was not available (Ensembl unreachable,
+    # gene_id missing, or no MANE transcript found).
+    mane_frame_class = mane.get("frame_class", "unknown") or "unknown"
+    if mane_frame_class in ("unknown", None) and feat_data.exon_size is not None:
+        mane_frame_class = "in_frame" if feat_data.exon_size % 3 == 0 else "frameshift"
+
     values: dict = dict(
         event_id               = event.id,
         exon_size              = feat_data.exon_size,
@@ -156,7 +163,7 @@ async def _upsert_feature(
         mane_transcript_id     = mane.get("transcript_id"),
         exon_rank              = mane.get("exon_rank"),
         frame_region           = mane.get("frame_region", "unknown"),
-        frame_class            = mane.get("frame_class", "unknown"),
+        frame_class            = mane_frame_class,
         cds_exon_length        = mane.get("cds_exon_length"),
     )
     stmt = (

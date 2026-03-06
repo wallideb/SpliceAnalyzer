@@ -3,139 +3,28 @@
 /**
  * SpliceView — per-card splice signal view (mode "splice")
  * =========================================================
- * Displayed inside each AnnotatedCard when the user selects the "Sites
- * consensus" sidebar tab.
- *
- * Shows:
- *  - Exon size + upstream/downstream intron sizes
- *  - Frame class badge (in_frame / frameshift / non_coding / unknown)
- *  - MANE transcript + exon rank
- *  - Donor site (9 nt): xxx [GT] yyyy — GT highlighted
- *  - Acceptor site (23 nt): ………………… [AG] xxx — AG highlighted
- *  - PPT sequence with C/T coloured orange, score bar
- *  - Branch-point: found / not found + distance to 3'SS
- *
- * For non-SE events displays a brief notice.
- * If features not yet computed shows a "Calculate" button.
+ * Affiche uniquement l'ExonDiagram plein format avec toutes les données
+ * encodées dans les tooltips SVG interactifs. Les sections texte ont été
+ * supprimées — toutes les informations sont accessibles via les zones hover.
  */
 
-import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getEventSpliceFeature, computeSpliceFeatures } from "@/lib/api/splice";
 import type { SplicingEvent } from "@/types/event";
 import { ExonDiagram } from "./ExonDiagram";
 
 // ---------------------------------------------------------------------------
-// Frame badge
+// Helper — mean of a comma-separated PSI string
 // ---------------------------------------------------------------------------
 
-const FRAME_STYLE: Record<string, string> = {
-  in_frame:   "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-green-200 dark:border-green-700",
-  frameshift: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-700",
-  non_coding: "bg-slate-100 text-slate-600 dark:bg-slate-700/40 dark:text-slate-300 border-slate-300 dark:border-slate-600",
-  partial:    "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300 border-orange-200 dark:border-orange-700",
-  unknown:    "bg-muted text-muted-foreground border-border",
-};
-const FRAME_LABEL: Record<string, string> = {
-  in_frame:   "✓ In-frame",
-  frameshift: "⚠ Frameshift",
-  non_coding: "Non codant",
-  partial:    "Partiel (CDS)",
-  unknown:    "Phase inconnue",
-};
-const FRAME_ICON: Record<string, string> = {
-  in_frame:   "▲",
-  frameshift: "▼",
-  non_coding: "◆",
-  partial:    "◇",
-  unknown:    "?",
-};
-
-// ---------------------------------------------------------------------------
-// Sequence display with highlighted dinucleotide
-// ---------------------------------------------------------------------------
-
-function SeqDisplay({
-  seq,
-  hlStart,
-  hlEnd,
-  label,
-}: {
-  seq: string;
-  hlStart: number;
-  hlEnd: number;
-  label: string;
-}) {
-  const pre  = seq.slice(0, hlStart);
-  const hl   = seq.slice(hlStart, hlEnd);
-  const post = seq.slice(hlEnd);
-  return (
-    <div>
-      <p className="text-[10px] text-muted-foreground mb-0.5">{label}</p>
-      <code className="text-xs tracking-wider font-mono">
-        <span className="text-foreground/70">{pre}</span>
-        <span className="bg-green-400/30 text-green-700 dark:text-green-300 font-bold px-0.5 rounded">
-          {hl}
-        </span>
-        <span className="text-foreground/70">{post}</span>
-      </code>
-    </div>
-  );
+function meanPsi(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const vals = s.split(",").map(Number).filter((v) => !isNaN(v) && isFinite(v));
+  return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 }
 
 // ---------------------------------------------------------------------------
-// PPT display
-// ---------------------------------------------------------------------------
-
-function PPTDisplay({ seq, score }: { seq: string; score: number | null }) {
-  return (
-    <div>
-      <p className="text-[10px] text-muted-foreground mb-0.5">
-        Zone PPT (47 nt avant 3&apos;SS)
-      </p>
-      <code className="text-xs tracking-wider font-mono leading-relaxed break-all">
-        {seq.split("").map((c, i) => (
-          <span
-            key={i}
-            className={c === "C" || c === "T" ? "text-amber-600 dark:text-amber-400 font-bold" : "text-foreground/40"}
-          >
-            {c}
-          </span>
-        ))}
-      </code>
-      {score !== null && (
-        <div className="flex items-center gap-2 mt-1">
-          <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-            <div
-              className="h-full rounded-full bg-amber-400"
-              style={{ width: `${Math.round(score * 100)}%` }}
-            />
-          </div>
-          <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 tabular-nums">
-            {Math.round(score * 100)}% Y
-          </span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Size chip
-// ---------------------------------------------------------------------------
-
-function SizeChip({ label, value, unit = "nt" }: { label: string; value: number | null; unit?: string }) {
-  if (value === null) return null;
-  return (
-    <div className="text-center">
-      <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{label}</p>
-      <p className="text-xs font-bold text-foreground tabular-nums">{value.toLocaleString()} {unit}</p>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Main SpliceView component
+// Main component
 // ---------------------------------------------------------------------------
 
 export function SpliceView({
@@ -178,7 +67,6 @@ export function SpliceView({
     );
   }
 
-  // 404 or not computed yet
   if (isError || !data) {
     return (
       <div className="flex flex-col items-center gap-3 py-4 text-center">
@@ -198,131 +86,34 @@ export function SpliceView({
     );
   }
 
-  const fc = data.frame_class ?? "unknown";
-
   return (
-    <div className="space-y-3 text-xs">
-
-      {/* ── Exon diagram ── */}
-      <div className="overflow-x-auto rounded-lg bg-slate-900/60 dark:bg-slate-900/80 border border-slate-700/50 px-1 py-2">
-        <ExonDiagram
-          exonSize={data.exon_size}
-          upstreamIntronSize={data.upstream_intron_size}
-          downstreamIntronSize={data.downstream_intron_size}
-          incLevelDifference={ev.inc_level_difference ?? null}
-          fdr={ev.fdr ?? null}
-          pValue={ev.p_value ?? null}
-          strand={ev.strand ?? null}
-          donorIsGt={data.donor_is_gt}
-          acceptorIsAg={data.acceptor_is_ag}
-        />
-      </div>
-
-      {/* ── Sizes ── */}
-      <div className="flex gap-4 justify-between px-2 py-2 rounded-lg bg-muted/30 dark:bg-slate-700/30">
-        <SizeChip label="Exon sauté" value={data.exon_size} />
-        <SizeChip label="Intron amont" value={data.upstream_intron_size} />
-        <SizeChip label="Intron aval" value={data.downstream_intron_size} />
-      </div>
-
-      {/* ── Frame + MANE ── */}
-      <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 space-y-1.5">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-bold tracking-wide ${FRAME_STYLE[fc]}`}>
-            <span aria-hidden="true">{FRAME_ICON[fc] ?? "?"}</span>
-            {FRAME_LABEL[fc] ?? fc}
-          </span>
-          {data.cds_exon_length != null && (
-            <span className="text-[10px] text-muted-foreground">
-              <strong className="text-foreground">{data.cds_exon_length} nt</strong> codants
-              {" · "}{data.cds_exon_length % 3 === 0 ? "multiple de 3" : `reste ${data.cds_exon_length % 3}`}
-            </span>
-          )}
-          {data.frame_region && data.frame_region !== "unknown" && data.frame_region !== fc && (
-            <span className="text-[10px] text-muted-foreground">
-              région : <strong>{data.frame_region}</strong>
-            </span>
-          )}
-        </div>
-        {data.mane_transcript_id ? (
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <span className="font-semibold text-foreground/70">MANE</span>
-            <code className="font-mono text-foreground" title={data.mane_transcript_id}>
-              {data.mane_transcript_id}
-            </code>
-            {data.exon_rank != null && (
-              <span className="px-1.5 py-0.5 rounded bg-muted border border-border text-[9px] font-semibold">
-                exon {data.exon_rank}
-              </span>
-            )}
-          </div>
-        ) : (
-          <p className="text-[10px] text-muted-foreground italic">
-            Transcrit MANE non trouvé pour ce gène
-          </p>
-        )}
-      </div>
-
-      {/* ── FASTA not available message ── */}
-      {!data.fasta_available && (
-        <p className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded px-2 py-1">
-          FASTA GRCh38 non disponible — séquences non extraites (tailles calculées depuis coordonnées).
-        </p>
-      )}
-
-      {/* ── Donor site ── */}
-      {data.donor_seq && (
-        <div className="space-y-0.5">
-          <SeqDisplay
-            seq={data.donor_seq}
-            hlStart={3}
-            hlEnd={5}
-            label={`Site donneur 5'SS${data.donor_is_gt === false ? " ⚠ non-GT" : ""}`}
-          />
-        </div>
-      )}
-
-      {/* ── Acceptor site ── */}
-      {data.acceptor_seq && (
-        <SeqDisplay
-          seq={data.acceptor_seq}
-          hlStart={17}
-          hlEnd={19}
-          label={`Site accepteur 3'SS${data.acceptor_is_ag === false ? " ⚠ non-AG" : ""}`}
-        />
-      )}
-
-      {/* ── PPT ── */}
-      {data.ppt_seq && (
-        <PPTDisplay seq={data.ppt_seq} score={data.ppt_score} />
-      )}
-
-      {/* ── Branch-point ── */}
-      {data.ppt_seq && (
-        <div className="flex items-center gap-2">
-          <span
-            className={`w-2 h-2 rounded-full shrink-0 ${data.bp_motif_found ? "bg-green-500" : "bg-muted-foreground/40"}`}
-          />
-          <span className="text-[10px] text-muted-foreground">
-            {data.bp_motif_found
-              ? `YNYURAY trouvé (score ${data.bp_score}/7, dist. ~${data.bp_distance} nt du 3'SS)`
-              : "Motif YNYURAY non détecté"}
-          </span>
-        </div>
-      )}
-
-      {/* ── SpliceAI placeholder ── */}
-      <div className="flex items-center gap-2 px-2 py-1.5 rounded border border-dashed border-border bg-muted/20">
-        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-          SpliceAI
-        </span>
-        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-muted text-[9px] text-muted-foreground border border-border">
-          à venir
-        </span>
-        <span className="text-[10px] text-muted-foreground">
-          Score d&apos;impact sur les sites donneur / accepteur (Jaganathan et al. 2019)
-        </span>
-      </div>
-    </div>
+    <ExonDiagram
+      exonSize={data.exon_size}
+      upstreamIntronSize={data.upstream_intron_size}
+      downstreamIntronSize={data.downstream_intron_size}
+      incLevelDifference={ev.inc_level_difference ?? null}
+      fdr={ev.fdr ?? null}
+      pValue={ev.p_value ?? null}
+      strand={ev.strand ?? null}
+      donorIsGt={data.donor_is_gt}
+      acceptorIsAg={data.acceptor_is_ag}
+      psi1={meanPsi(ev.inc_level_1)}
+      psi2={meanPsi(ev.inc_level_2)}
+      exonStart={ev.exon_start ?? null}
+      exonEnd={ev.exon_end ?? null}
+      upstreamExonStart={ev.upstream_es ?? null}
+      upstreamExonEnd={ev.upstream_ee ?? null}
+      downstreamExonStart={ev.downstream_es ?? null}
+      downstreamExonEnd={ev.downstream_ee ?? null}
+      frameClass={data.frame_class ?? null}
+      maneTranscriptId={data.mane_transcript_id ?? null}
+      exonRank={data.exon_rank ?? null}
+      donorSeq={data.donor_seq ?? null}
+      acceptorSeq={data.acceptor_seq ?? null}
+      pptScore={data.ppt_score ?? null}
+      pptSeq={data.ppt_seq ?? null}
+      bpFound={data.bp_motif_found ?? null}
+      bpDistance={data.bp_distance ?? null}
+    />
   );
 }

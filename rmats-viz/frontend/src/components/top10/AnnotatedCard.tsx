@@ -649,6 +649,47 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
     staleTime: 5 * 60 * 1000,
   });
 
+  // Mode splice : layout compact (header inline + diagramme plein format)
+  if (mode === "splice") {
+    return (
+      <div className="flex flex-col border border-border dark:border-slate-600 rounded-xl bg-card dark:bg-slate-800/80 shadow-sm">
+        {/* Header compact inline */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border dark:border-slate-600/60">
+          {ev.top_rank != null ? (
+            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold shrink-0">
+              {ev.top_rank}
+            </span>
+          ) : (
+            <span title="Événement du panier" className="w-5 h-5 flex items-center justify-center rounded-full bg-violet-600 text-white shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z" />
+              </svg>
+            </span>
+          )}
+          <GeneSymbolWithTooltip symbol={symbol || "—"} annotation={annotation} />
+          <div className="flex items-center gap-1.5 ml-auto shrink-0">
+            <PanelAppBadge annotation={annotation} />
+            <EventTypeBadge type={ev.event_type} />
+            <span className="text-[10px] text-muted-foreground font-mono">
+              FDR {formatFDR(ev.fdr)}
+            </span>
+            <span className={`text-[10px] font-bold font-mono ${
+              (ev.inc_level_difference ?? 0) > 0
+                ? "text-red-500 dark:text-red-400"
+                : "text-blue-500 dark:text-blue-400"
+            }`}>
+              ΔΨ {formatDeltaPSI(ev.inc_level_difference)}
+            </span>
+          </div>
+        </div>
+        {/* Diagramme plein format */}
+        <div className="px-2 py-3">
+          <SpliceView event={ev} analysisId={analysisId} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col border border-border dark:border-slate-600 rounded-xl bg-card dark:bg-slate-800/80 shadow-sm hover:shadow-md transition-shadow">
       {/* ── Fixed header ── */}
@@ -704,7 +745,6 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
         {mode === "go"       && <GOView annotation={annotation} isLoading={annotationLoading} />}
         {mode === "scores"   && <ScoresView ev={ev} />}
         {mode === "stringdb" && <StringDBView eventSymbol={symbol} mutatedGenes={mutatedGenes} />}
-        {mode === "splice"   && <SpliceView event={ev} analysisId={analysisId} />}
         {(mode === "pathways" || mode === "motifs") && (
           <ComingSoonView mode={mode} />
         )}

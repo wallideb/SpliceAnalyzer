@@ -89,7 +89,7 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
             analysisId non disponible pour ce contexte.
           </p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             {events.map((ev) => {
               const symKey = (ev.gene_symbol ?? "").toUpperCase();
               return (

@@ -12,6 +12,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getEventSpliceFeature, computeSpliceFeatures } from "@/lib/api/splice";
 import type { SplicingEvent } from "@/types/event";
 import { ExonDiagram } from "./ExonDiagram";
+import { SpliceSiteTrack } from "./SpliceSiteTrack";
+import { PPTTrack } from "./PPTTrack";
 
 // ---------------------------------------------------------------------------
 // Helper — mean of a comma-separated PSI string
@@ -87,33 +89,54 @@ export function SpliceView({
   }
 
   return (
-    <ExonDiagram
-      exonSize={data.exon_size}
-      upstreamIntronSize={data.upstream_intron_size}
-      downstreamIntronSize={data.downstream_intron_size}
-      incLevelDifference={ev.inc_level_difference ?? null}
-      fdr={ev.fdr ?? null}
-      pValue={ev.p_value ?? null}
-      strand={ev.strand ?? null}
-      donorIsGt={data.donor_is_gt}
-      acceptorIsAg={data.acceptor_is_ag}
-      psi1={meanPsi(ev.inc_level_1)}
-      psi2={meanPsi(ev.inc_level_2)}
-      exonStart={ev.exon_start ?? null}
-      exonEnd={ev.exon_end ?? null}
-      upstreamExonStart={ev.upstream_es ?? null}
-      upstreamExonEnd={ev.upstream_ee ?? null}
-      downstreamExonStart={ev.downstream_es ?? null}
-      downstreamExonEnd={ev.downstream_ee ?? null}
-      frameClass={data.frame_class ?? null}
-      maneTranscriptId={data.mane_transcript_id ?? null}
-      exonRank={data.exon_rank ?? null}
-      donorSeq={data.donor_seq ?? null}
-      acceptorSeq={data.acceptor_seq ?? null}
-      pptScore={data.ppt_score ?? null}
-      pptSeq={data.ppt_seq ?? null}
-      bpFound={data.bp_motif_found ?? null}
-      bpDistance={data.bp_distance ?? null}
-    />
+    <div className="space-y-0">
+      <ExonDiagram
+        exonSize={data.exon_size}
+        upstreamIntronSize={data.upstream_intron_size}
+        downstreamIntronSize={data.downstream_intron_size}
+        incLevelDifference={ev.inc_level_difference ?? null}
+        fdr={ev.fdr ?? null}
+        pValue={ev.p_value ?? null}
+        strand={ev.strand ?? null}
+        donorIsGt={data.donor_is_gt}
+        acceptorIsAg={data.acceptor_is_ag}
+        psi1={meanPsi(ev.inc_level_1)}
+        psi2={meanPsi(ev.inc_level_2)}
+        exonStart={ev.exon_start ?? null}
+        exonEnd={ev.exon_end ?? null}
+        upstreamExonStart={ev.upstream_es ?? null}
+        upstreamExonEnd={ev.upstream_ee ?? null}
+        downstreamExonStart={ev.downstream_es ?? null}
+        downstreamExonEnd={ev.downstream_ee ?? null}
+        frameClass={data.frame_class ?? null}
+        maneTranscriptId={data.mane_transcript_id ?? null}
+        exonRank={data.exon_rank ?? null}
+        donorSeq={data.donor_seq ?? null}
+        acceptorSeq={data.acceptor_seq ?? null}
+        pptScore={data.ppt_score ?? null}
+        pptSeq={data.ppt_seq ?? null}
+        bpFound={data.bp_motif_found ?? null}
+        bpDistance={data.bp_distance ?? null}
+      />
+
+      {/* 1B — Splice-site sequence tracks with position axes */}
+      {(data.donor_seq || data.acceptor_seq) && (
+        <SpliceSiteTrack
+          donorSeq={data.donor_seq ?? null}
+          acceptorSeq={data.acceptor_seq ?? null}
+        />
+      )}
+
+      {/* 1D — PPT per-nucleotide track */}
+      {data.ppt_seq && (
+        <PPTTrack
+          pptSeq={data.ppt_seq}
+          pptScore={data.ppt_score ?? null}
+          pptLongestRun={data.ppt_longest_run ?? null}
+          bpFound={data.bp_motif_found ?? null}
+          bpDistance={data.bp_distance ?? null}
+        />
+      )}
+    </div>
   );
 }

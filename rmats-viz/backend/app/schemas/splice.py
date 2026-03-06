@@ -67,6 +67,11 @@ class ComputeJobResponse(BaseModel):
 # Aggregate pattern analysis
 # ---------------------------------------------------------------------------
 
+class IntronSizeStats(BaseModel):
+    median: float | None = None
+    mean: float | None = None
+
+
 class ExonSizeStats(BaseModel):
     mean: float | None = None
     median: float | None = None
@@ -109,6 +114,9 @@ class PatternAnalysisResponse(BaseModel):
     clusters: ClusterInfo
     fasta_available: bool
     exon_sizes: ExonSizeStats
+    upstream_intron_sizes: IntronSizeStats = IntronSizeStats()
+    downstream_intron_sizes: IntronSizeStats = IntronSizeStats()
+    mean_delta_psi: float | None = None
     donor_sites: SiteStats
     acceptor_sites: SiteStats
     ppt: PPTStats

@@ -93,6 +93,11 @@ export interface MANETranscriptResponse {
   skipped_end: number | null;
 }
 
+export interface IntronSizeStats {
+  median: number | null;
+  mean: number | null;
+}
+
 export interface PatternAnalysisResponse {
   analysis_id: string;
   n_se_events: number;
@@ -100,6 +105,9 @@ export interface PatternAnalysisResponse {
   clusters: { n_raw_events: number; n_clusters: number };
   fasta_available: boolean;
   exon_sizes: ExonSizeStats;
+  upstream_intron_sizes: IntronSizeStats;
+  downstream_intron_sizes: IntronSizeStats;
+  mean_delta_psi: number | null;
   donor_sites: SiteStats;
   acceptor_sites: SiteStats;
   ppt: PPTStats;

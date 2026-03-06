@@ -26,6 +26,7 @@ import { getSplicePatterns, computeSpliceFeatures } from "@/lib/api/splice";
 import type { SplicingEvent } from "@/types/event";
 import type { ExonSizeStats } from "@/types/splice";
 import { ConsensusLogoPanel } from "./ConsensusLogoPanel";
+import { ConsensusExonView } from "./ConsensusExonView";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -324,7 +325,12 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
   return (
     <div className="space-y-6 text-xs">
 
-      {/* ── Summary header ── */}
+      {/* ── 2C — Consensus ExonDiagram (figure principale) ── */}
+      <Section title="Exon consensus — vue d'ensemble cohorte">
+        <ConsensusExonView data={data} analysisId={analysisId} />
+      </Section>
+
+      {/* ── Summary chips ── */}
       <div className="flex flex-wrap gap-4">
         <SummaryChip label="Événements SE" value={data.n_se_events} />
         <SummaryChip label="Analysés (seq.)" value={data.n_analyzed} />

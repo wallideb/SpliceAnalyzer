@@ -38,6 +38,7 @@ from app.schemas.splice import (
     SpliceFeatureResponse,
     PatternAnalysisResponse,
     ExonSizeStats,
+    IntronSizeStats,
     SiteStats,
     PPTStats,
     FrameStats,
@@ -366,6 +367,26 @@ async def get_splice_patterns(
         distribution = [{"bin": k, "count": v} for k, v in sorted(size_dist.items())],
     )
 
+    # ── Intron sizes ─────────────────────────────────────────────────────────
+    up_sizes   = [f.upstream_intron_size   for f in all_feats if f.upstream_intron_size   is not None]
+    down_sizes = [f.downstream_intron_size for f in all_feats if f.downstream_intron_size is not None]
+    upstream_intron_stats = IntronSizeStats(
+        median = round(statistics.median(up_sizes),   1) if up_sizes   else None,
+        mean   = round(statistics.mean(up_sizes),     1) if up_sizes   else None,
+    )
+    downstream_intron_stats = IntronSizeStats(
+        median = round(statistics.median(down_sizes), 1) if down_sizes else None,
+        mean   = round(statistics.mean(down_sizes),   1) if down_sizes else None,
+    )
+
+    # ── Mean ΔΨ ──────────────────────────────────────────────────────────────
+    delta_psi_list = [
+        ev.inc_level_difference
+        for ev, _ in rows
+        if ev.inc_level_difference is not None
+    ]
+    mean_delta_psi = round(statistics.mean(delta_psi_list), 3) if delta_psi_list else None
+
     # ── Donor (5'SS) ────────────────────────────────────────────────────────
     donor_seqs = [f.donor_seq for f in feats_with_seq if f.donor_seq and len(f.donor_seq) >= 9]
     donor_9    = [s[:9] for s in donor_seqs]
@@ -419,20 +440,23 @@ async def get_splice_patterns(
     bp_pct   = round(bp_found / bp_total * 100, 1) if bp_total else None
 
     return PatternAnalysisResponse(
-        analysis_id     = str(analysis_id),
-        n_se_events     = len(rows),
-        n_analyzed      = len(feats_with_seq),
-        clusters        = ClusterInfo(
+        analysis_id             = str(analysis_id),
+        n_se_events             = len(rows),
+        n_analyzed              = len(feats_with_seq),
+        clusters                = ClusterInfo(
             n_raw_events = len(rows),
             n_clusters   = len(clusters),
         ),
-        fasta_available = bool(feats_with_seq),
-        exon_sizes      = exon_stats,
-        donor_sites     = donor_stats,
-        acceptor_sites  = acc_stats,
-        ppt             = ppt_stats,
-        frame           = frame_stats,
-        bp_found_pct    = bp_pct,
+        fasta_available         = bool(feats_with_seq),
+        exon_sizes              = exon_stats,
+        upstream_intron_sizes   = upstream_intron_stats,
+        downstream_intron_sizes = downstream_intron_stats,
+        mean_delta_psi          = mean_delta_psi,
+        donor_sites             = donor_stats,
+        acceptor_sites          = acc_stats,
+        ppt                     = ppt_stats,
+        frame                   = frame_stats,
+        bp_found_pct            = bp_pct,
     )
 
 # ---------------------------------------------------------------------------

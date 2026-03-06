@@ -23,6 +23,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getEventSpliceFeature, computeSpliceFeatures } from "@/lib/api/splice";
 import type { SplicingEvent } from "@/types/event";
+import { ExonDiagram } from "./ExonDiagram";
 
 // ---------------------------------------------------------------------------
 // Frame badge
@@ -201,6 +202,21 @@ export function SpliceView({
 
   return (
     <div className="space-y-3 text-xs">
+
+      {/* ── Exon diagram ── */}
+      <div className="overflow-x-auto rounded-lg bg-slate-900/60 dark:bg-slate-900/80 border border-slate-700/50 px-1 py-2">
+        <ExonDiagram
+          exonSize={data.exon_size}
+          upstreamIntronSize={data.upstream_intron_size}
+          downstreamIntronSize={data.downstream_intron_size}
+          incLevelDifference={ev.inc_level_difference ?? null}
+          fdr={ev.fdr ?? null}
+          pValue={ev.p_value ?? null}
+          strand={ev.strand ?? null}
+          donorIsGt={data.donor_is_gt}
+          acceptorIsAg={data.acceptor_is_ag}
+        />
+      </div>
 
       {/* ── Sizes ── */}
       <div className="flex gap-4 justify-between px-2 py-2 rounded-lg bg-muted/30 dark:bg-slate-700/30">

@@ -20,9 +20,11 @@
  * A "Calculer" button triggers POST /api/v1/splice/compute/{analysisId}.
  */
 
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSplicePatterns, computeSpliceFeatures } from "@/lib/api/splice";
 import type { SplicingEvent } from "@/types/event";
+import type { ExonSizeStats } from "@/types/splice";
 import { SpliceSequenceLogo } from "./SpliceSequenceLogo";
 
 // ---------------------------------------------------------------------------
@@ -50,49 +52,183 @@ function Bar({ pct, className = "" }: { pct: number; className?: string }) {
   );
 }
 
-/** SVG exon-size histogram from bin→count pairs. */
-function ExonSizeHistogram({
-  distribution,
-}: {
-  distribution: { bin: number; count: number }[];
-}) {
+/** SVG exon-size histogram — mean & median lines, tooltips, axis labels. */
+function ExonSizeHistogram({ stats }: { stats: ExonSizeStats }) {
+  const { distribution, mean, median } = stats;
+  const [hoveredBin, setHoveredBin] = useState<{ bin: number; count: number; x: number; y: number } | null>(null);
+
   if (!distribution.length) return null;
 
-  const W = 340, H = 80;
-  const maxCount = Math.max(...distribution.map((d) => d.count), 1);
-  const barW = Math.max(4, Math.floor(W / distribution.length) - 1);
+  const W = 340;
+  const H = 100;
+  // bottom margin for x-axis labels + title, top margin for stat line labels
+  const MARGIN_TOP = 14;
+  const MARGIN_BOTTOM = 22;
+  const CHART_H = H; // chart area height (bars)
+  const SVG_H = MARGIN_TOP + CHART_H + MARGIN_BOTTOM;
+
+  const sorted = [...distribution].sort((a, b) => a.bin - b.bin);
+  const maxCount = Math.max(...sorted.map((d) => d.count), 1);
+  const barW = Math.max(4, Math.floor(W / sorted.length) - 1);
+
+  // Convert a nucleotide value to an X coordinate within the chart
+  const valueToX = (val: number): number => {
+    const idx = sorted.findIndex((d) => d.bin >= val);
+    const i = Math.max(0, idx === -1 ? sorted.length - 1 : idx);
+    return i * (barW + 1) + barW / 2;
+  };
+
+  const meanX = mean !== null ? valueToX(mean) : null;
+  const medianX = median !== null ? valueToX(median) : null;
 
   return (
-    <svg
-      viewBox={`0 0 ${W} ${H + 16}`}
-      className="w-full max-w-[340px]"
-      aria-label="Distribution des tailles d'exons sautés"
-    >
-      {distribution.map((d, i) => {
-        const barH = Math.round((d.count / maxCount) * H);
-        const x = i * (barW + 1);
-        const y = H - barH;
-        return (
-          <g key={d.bin}>
-            <rect x={x} y={y} width={barW} height={barH} className="fill-blue-500/70" rx={1} />
-            {/* x-axis label every 5 bins */}
-            {i % 5 === 0 && (
-              <text
-                x={x + barW / 2}
-                y={H + 12}
-                textAnchor="middle"
-                fontSize={7}
-                className="fill-muted-foreground"
-              >
-                {d.bin}
-              </text>
-            )}
+    <div className="relative">
+      <svg
+        viewBox={`0 0 ${W} ${SVG_H}`}
+        className="w-full max-w-[340px]"
+        aria-label="Distribution des tailles d'exons sautés"
+        style={{ overflow: "visible" }}
+      >
+        {/* Bars */}
+        {sorted.map((d, i) => {
+          const barH = Math.max(1, Math.round((d.count / maxCount) * CHART_H));
+          const x = i * (barW + 1);
+          const y = MARGIN_TOP + CHART_H - barH;
+          return (
+            <g key={d.bin}>
+              <rect
+                x={x}
+                y={y}
+                width={barW}
+                height={barH}
+                className="fill-blue-500/70 hover:fill-blue-500 cursor-pointer transition-colors"
+                rx={2}
+                title={`${d.bin}–${d.bin + 25} nt : ${d.count} événements`}
+                onMouseEnter={() =>
+                  setHoveredBin({ bin: d.bin, count: d.count, x: x + barW / 2, y })
+                }
+                onMouseLeave={() => setHoveredBin(null)}
+              />
+              {/* x-axis label every 4 bins */}
+              {i % 4 === 0 && (
+                <text
+                  x={x + barW / 2}
+                  y={MARGIN_TOP + CHART_H + 10}
+                  textAnchor="middle"
+                  fontSize={6.5}
+                  className="fill-muted-foreground"
+                >
+                  {d.bin}
+                </text>
+              )}
+            </g>
+          );
+        })}
+
+        {/* Baseline (x-axis) */}
+        <line
+          x1={0}
+          y1={MARGIN_TOP + CHART_H}
+          x2={W}
+          y2={MARGIN_TOP + CHART_H}
+          strokeWidth={0.5}
+          className="stroke-border"
+        />
+
+        {/* X-axis title */}
+        <text
+          x={W}
+          y={SVG_H - 2}
+          textAnchor="end"
+          fontSize={6.5}
+          className="fill-muted-foreground"
+          fontStyle="italic"
+        >
+          Taille (nt)
+        </text>
+
+        {/* Mean line (red dashed) */}
+        {meanX !== null && mean !== null && (
+          <g>
+            <line
+              x1={meanX}
+              y1={MARGIN_TOP}
+              x2={meanX}
+              y2={MARGIN_TOP + CHART_H}
+              stroke="#ef4444"
+              strokeWidth={1}
+              strokeDasharray="3 2"
+            />
+            <text
+              x={meanX + 2}
+              y={MARGIN_TOP - 2}
+              fontSize={6}
+              fill="#ef4444"
+              textAnchor="start"
+            >
+              Moy. {Math.round(mean)} nt
+            </text>
           </g>
-        );
-      })}
-      {/* x-axis line */}
-      <line x1={0} y1={H} x2={W} y2={H} strokeWidth={0.5} className="stroke-border" />
-    </svg>
+        )}
+
+        {/* Median line (orange dashed) */}
+        {medianX !== null && median !== null && (
+          <g>
+            <line
+              x1={medianX}
+              y1={MARGIN_TOP}
+              x2={medianX}
+              y2={MARGIN_TOP + CHART_H}
+              stroke="#f97316"
+              strokeWidth={1}
+              strokeDasharray="3 2"
+            />
+            <text
+              x={medianX + 2}
+              y={MARGIN_TOP + 8}
+              fontSize={6}
+              fill="#f97316"
+              textAnchor="start"
+            >
+              Méd. {Math.round(median)} nt
+            </text>
+          </g>
+        )}
+
+        {/* Tooltip (SVG foreignObject) */}
+        {hoveredBin && (
+          <foreignObject
+            x={Math.min(hoveredBin.x + 4, W - 90)}
+            y={Math.max(hoveredBin.y - 20, MARGIN_TOP)}
+            width={90}
+            height={24}
+          >
+            <div
+              className="bg-popover text-popover-foreground border border-border rounded px-1.5 py-0.5 text-[9px] shadow-sm whitespace-nowrap"
+              style={{ pointerEvents: "none" }}
+            >
+              {hoveredBin.bin}–{hoveredBin.bin + 25} nt : <strong>{hoveredBin.count}</strong> évén.
+            </div>
+          </foreignObject>
+        )}
+      </svg>
+
+      {/* Legend below the chart */}
+      <div className="flex items-center gap-4 mt-1 text-[9px] text-muted-foreground select-none">
+        <span className="flex items-center gap-1">
+          <svg width="18" height="8" className="inline-block">
+            <line x1="0" y1="4" x2="18" y2="4" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="3 2" />
+          </svg>
+          Moyenne
+        </span>
+        <span className="flex items-center gap-1">
+          <svg width="18" height="8" className="inline-block">
+            <line x1="0" y1="4" x2="18" y2="4" stroke="#f97316" strokeWidth="1.5" strokeDasharray="3 2" />
+          </svg>
+          Médiane
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -211,7 +347,7 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
               <span>Max <strong className="text-foreground">{exon_sizes.max}</strong></span>
             </div>
           )}
-          <ExonSizeHistogram distribution={exon_sizes.distribution} />
+          <ExonSizeHistogram stats={exon_sizes} />
         </Section>
       )}
 

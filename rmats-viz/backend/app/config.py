@@ -7,6 +7,17 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://rmats:rmats@db:5432/rmatsdb"
     CORS_ORIGINS: str = '["http://localhost:3000"]'
 
+    # ── Splice pattern analysis ──────────────────────────────────────────────
+    # Path to the GRCh38 FASTA file (must be indexed with samtools faidx).
+    # For dev: chr19-only FASTA; for prod: full genome.
+    GRCH38_FASTA: str = "/data/GRCh38.fa"
+    # samtools binary (full path or name if in PATH)
+    SAMTOOLS_BIN: str = "samtools"
+    # SQLite cache for MANE transcript lookups (avoids repeated Ensembl calls)
+    MANE_CACHE_DB: str = "/data/mane_cache.db"
+    # Intronic window (nt) to fetch around each splice site
+    SPLICE_WINDOW: int = 50
+
     @property
     def cors_origins_list(self) -> List[str]:
         try:

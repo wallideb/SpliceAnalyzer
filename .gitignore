@@ -3,6 +3,10 @@ data/*.fa
 data/*.fasta
 data/*.fai
 data/*.fa.fai
+rmats-viz/data/*.fa
+rmats-viz/data/*.fasta
+rmats-viz/data/*.fai
+rmats-viz/data/*.fa.fai
 
 # Common ignore patterns
 __pycache__/

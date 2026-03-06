@@ -29,7 +29,7 @@ services:
       MANE_CACHE_DB: /data/mane_cache.db
     volumes:
       - ./backend:/app
-      - /home/user/Test_1/data:/data
+      - ./data:/data
     ports:
       - "8000:8000"
     command: >

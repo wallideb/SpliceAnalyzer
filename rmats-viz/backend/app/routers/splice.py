@@ -85,78 +85,98 @@ def _feat_to_response(feat: EventSpliceFeature, event: SplicingEvent) -> SpliceF
     )
 
 
+# Limit concurrent Ensembl + samtools calls to avoid overwhelming external services
+_COMPUTE_SEM = asyncio.Semaphore(10)
+
+
+async def _fetch_features(
+    event: SplicingEvent,
+    fa_ok: bool,
+) -> tuple[Any, dict]:
+    """Pure-compute step (no DB): extract sequences + call Ensembl.
+
+    Runs under _COMPUTE_SEM so at most 10 events are processed concurrently.
+    Returns (SpliceFeatureResult, mane_dict).
+    """
+    async with _COMPUTE_SEM:
+        windows = None
+        if fa_ok and event.exon_start is not None and event.exon_end is not None:
+            try:
+                windows = await asyncio.to_thread(
+                    get_splice_windows,
+                    event.chr or "",
+                    event.strand or "+",
+                    event.exon_start,
+                    event.exon_end,
+                )
+            except Exception as exc:
+                logger.warning("sequence extraction failed for %s: %s", event.id, exc)
+
+        feat_data = compute_features(event, windows)
+
+        mane: dict = {}
+        if event.gene_id:
+            try:
+                mane = await asyncio.to_thread(
+                    annotate_mane,
+                    event.gene_id,
+                    event.chr or "",
+                    event.strand or "+",
+                    event.exon_start or 0,
+                    event.exon_end or 0,
+                )
+            except Exception as exc:
+                logger.warning("MANE lookup failed for %s: %s", event.gene_id, exc)
+
+        return feat_data, mane
+
+
+async def _upsert_feature(
+    event: SplicingEvent,
+    feat_data: Any,
+    mane: dict,
+    db: AsyncSession,
+) -> EventSpliceFeature:
+    """DB write step (sequential, single session)."""
+    values: dict = dict(
+        event_id               = event.id,
+        exon_size              = feat_data.exon_size,
+        upstream_intron_size   = feat_data.upstream_intron_size,
+        downstream_intron_size = feat_data.downstream_intron_size,
+        donor_seq              = feat_data.donor_seq or None,
+        acceptor_seq           = feat_data.acceptor_seq or None,
+        ppt_seq                = feat_data.ppt_seq or None,
+        donor_is_gt            = feat_data.donor_is_gt,
+        acceptor_is_ag         = feat_data.acceptor_is_ag,
+        ppt_score              = feat_data.ppt_score,
+        ppt_longest_run        = feat_data.ppt_longest_run,
+        bp_motif_found         = feat_data.bp_motif_found,
+        bp_distance            = feat_data.bp_distance,
+        bp_score               = feat_data.bp_score,
+        mane_transcript_id     = mane.get("transcript_id"),
+        exon_rank              = mane.get("exon_rank"),
+        frame_region           = mane.get("frame_region", "unknown"),
+        frame_class            = mane.get("frame_class", "unknown"),
+        cds_exon_length        = mane.get("cds_exon_length"),
+    )
+    stmt = (
+        pg_insert(EventSpliceFeature)
+        .values(id=uuid.uuid4(), **values)
+        .on_conflict_do_update(index_elements=["event_id"], set_=values)
+        .returning(EventSpliceFeature)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one()
+
+
 async def _compute_one(
     event: SplicingEvent,
     db: AsyncSession,
     fa_ok: bool,
 ) -> EventSpliceFeature:
-    """Compute (or recompute) features for a single SE event. DB write included."""
-    # ── Sequence extraction (subprocess — run in thread to avoid blocking event loop) ──
-    windows = None
-    if fa_ok and event.exon_start is not None and event.exon_end is not None:
-        try:
-            windows = await asyncio.to_thread(
-                get_splice_windows,
-                event.chr or "",
-                event.strand or "+",
-                event.exon_start,
-                event.exon_end,
-            )
-        except Exception as exc:
-            logger.warning("sequence extraction failed for %s: %s", event.id, exc)
-
-    feat_data = compute_features(event, windows)
-
-    # ── MANE annotation (synchronous httpx calls — run in thread) ──────────
-    mane: dict = {}
-    if event.gene_id:
-        try:
-            mane = await asyncio.to_thread(
-                annotate_mane,
-                event.gene_id,
-                event.chr or "",
-                event.strand or "+",
-                event.exon_start or 0,
-                event.exon_end or 0,
-            )
-        except Exception as exc:
-            logger.warning("MANE lookup failed for %s: %s", event.gene_id, exc)
-
-    # Atomic upsert — avoids UniqueViolationError when the bulk POST and a
-    # per-event GET run concurrently and both see feat=None before inserting.
-    values: dict = dict(
-        event_id            = event.id,
-        exon_size           = feat_data.exon_size,
-        upstream_intron_size   = feat_data.upstream_intron_size,
-        downstream_intron_size = feat_data.downstream_intron_size,
-        donor_seq           = feat_data.donor_seq or None,
-        acceptor_seq        = feat_data.acceptor_seq or None,
-        ppt_seq             = feat_data.ppt_seq or None,
-        donor_is_gt         = feat_data.donor_is_gt,
-        acceptor_is_ag      = feat_data.acceptor_is_ag,
-        ppt_score           = feat_data.ppt_score,
-        ppt_longest_run     = feat_data.ppt_longest_run,
-        bp_motif_found      = feat_data.bp_motif_found,
-        bp_distance         = feat_data.bp_distance,
-        bp_score            = feat_data.bp_score,
-        mane_transcript_id  = mane.get("transcript_id"),
-        exon_rank           = mane.get("exon_rank"),
-        frame_region        = mane.get("frame_region", "unknown"),
-        frame_class         = mane.get("frame_class", "unknown"),
-        cds_exon_length     = mane.get("cds_exon_length"),
-    )
-    stmt = (
-        pg_insert(EventSpliceFeature)
-        .values(id=uuid.uuid4(), **values)
-        .on_conflict_do_update(
-            index_elements=["event_id"],
-            set_=values,
-        )
-        .returning(EventSpliceFeature)
-    )
-    result = await db.execute(stmt)
-    feat = result.scalar_one()
-    return feat
+    """Compute features for a single SE event (used by the per-event GET endpoint)."""
+    feat_data, mane = await _fetch_features(event, fa_ok)
+    return await _upsert_feature(event, feat_data, mane, db)
 
 
 # ---------------------------------------------------------------------------
@@ -183,14 +203,25 @@ async def compute_splice_features(
 
     fa_ok = fasta_available()
 
-    # 1. Compute per-event features
+    # 1. Fetch all features in parallel (Ensembl + samtools), then write sequentially.
+    #    _fetch_features is capped at _COMPUTE_SEM concurrent tasks; DB writes stay
+    #    on the single AsyncSession to avoid concurrent-session errors.
+    fetch_results = await asyncio.gather(
+        *[_fetch_features(ev, fa_ok) for ev in se_events],
+        return_exceptions=True,
+    )
+
     n_computed = 0
-    for ev in se_events:
+    for ev, res in zip(se_events, fetch_results):
+        if isinstance(res, Exception):
+            logger.error("Feature compute failed for %s: %s", ev.id, res)
+            continue
         try:
-            await _compute_one(ev, db, fa_ok)
+            feat_data, mane = res
+            await _upsert_feature(ev, feat_data, mane, db)
             n_computed += 1
         except Exception as exc:
-            logger.error("Feature compute failed for %s: %s", ev.id, exc)
+            logger.error("DB write failed for %s: %s", ev.id, exc)
 
     # 2. Cluster events
     clusters = cluster_se_events(se_events)

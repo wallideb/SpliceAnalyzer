@@ -104,6 +104,18 @@ export interface EventPermResult {
   null_hist_counts: number[];
 }
 
+export interface MetricPermResult {
+  metric_name: string;
+  label: string;
+  observed_stat: number | null;
+  empirical_p_value: number | null;
+  n_valid: number;
+  n_g1: number;
+  n_g2: number;
+  null_hist_bins: number[];
+  null_hist_counts: number[];
+}
+
 export interface PermutationResponse {
   analysis_id: string;
   n_iterations: number;
@@ -115,6 +127,7 @@ export interface PermutationResponse {
   observed_hist_counts: number[];
   pct_p05: number | null;
   pct_p01: number | null;
+  metric_results: MetricPermResult[];
 }
 
 export interface IntronSizeStats {

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { getAnalysis, listEvents, downloadAnalysisExcel, downloadAnalysisPDF } from "@/lib/api";
 import { EventsTable } from "@/components/events/EventsTable";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
+import { ScienceNote } from "@/components/ScienceNote";
 import { useBasket } from "@/contexts/BasketContext";
 import { useT, useLanguage } from "@/contexts/LanguageContext";
 import type { EventsQuery } from "@/lib/api";
@@ -453,6 +454,13 @@ export default function AnalysisDetailPage() {
           {t("analysisDetail.loading")}
         </div>
       )}
+
+      {/* ── Statistical methodology note ── */}
+      <ScienceNote
+        title={t("scienceNotes.exonDiagram.title")}
+        body={t("scienceNotes.exonDiagram.body")}
+        refs={["rmats", "benjamini_hochberg", "mane_select"]}
+      />
 
       </div>{/* end main content */}
 

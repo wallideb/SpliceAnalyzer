@@ -18,6 +18,9 @@ A web application for visualizing and exploring RNA alternative splicing events 
 - [Quick Start](#quick-start)
 - [GRCh38 FASTA Setup](#grch38-fasta-setup)
 - [Configuration](#configuration)
+- [Internationalisation (i18n)](#internationalisation-i18n)
+- [Scientific References](#scientific-references)
+- [Export](#export)
 - [API](#api)
 - [Assets](#assets)
 
@@ -33,6 +36,7 @@ rMATS-Viz provides a browser-based interface on top of rMATS junction-count outp
 - **Top-10 view** — ranked events by statistical significance or inclusion level difference
 - **Basket** — collect and export genes of interest across analyses
 - **Dark mode** — toggle-able theme with persistent preference
+- **Internationalisation** — full EN / FR language switcher; all UI strings live in `src/lib/i18n/`
 - **Gene search** — Ensembl-backed autocomplete by HUGO symbol
 - **Gene annotations** — PanelApp disease panels, Gene Ontology terms, UniProt protein function
 - **Protein interactions** — STRING-DB evidence scores with Europe PMC PMIDs
@@ -44,6 +48,8 @@ rMATS-Viz provides a browser-based interface on top of rMATS junction-count outp
   - Event clustering to deduplicate near-identical exon boundaries
   - Aggregate pattern analysis with PWM and IUPAC consensus across all SE events
 - **MANE frame annotation** — maps each skipped exon to its MANE Select transcript via Ensembl REST and classifies the frame impact (`in_frame` / `frameshift` / `non_coding` / `partial`)
+- **Scientific references** — collapsible `ScienceNote` widgets embedded in each analytical panel, linking every algorithm and formula to its primary literature via PubMed / DOI
+- **Parameterized Excel export** — modal lets users choose which annotation columns to include (`core`, `panelapp`, `go`, `stringdb`) before downloading; each optional group is fetched in parallel at export time
 
 ---
 
@@ -258,6 +264,89 @@ The MANE cache (`mane_cache.db`) stores successful Ensembl lookups to avoid repe
 
 ---
 
+## Internationalisation (i18n)
+
+All user-visible strings are stored in locale dictionaries under `frontend/src/lib/i18n/`:
+
+| File | Locale |
+|------|--------|
+| `en.ts` | English (default) |
+| `fr.ts` | French |
+
+The active locale is managed by `LanguageContext` (`frontend/src/contexts/LanguageContext.tsx`). A `useT()` hook returns a resolver `t(key, vars?)` that:
+
+- Resolves dot-path keys (e.g. `"sidebarNav.tabs.spliceAnalysis"`) against the active locale object
+- Supports `{{varName}}` interpolation for dynamic values
+- Falls back to the key string if the translation is missing
+
+**Adding a new language:** create a new `xx.ts` in `src/lib/i18n/`, export it from `index.ts`, and add the locale code to the `LanguageProvider` switch.
+
+The language selector is rendered in `AppHeader` and persists the choice in `localStorage`.
+
+---
+
+## Scientific References
+
+Each analytical panel in the Top-10 view embeds a collapsible `ScienceNote` (◈) widget that cites the primary literature behind the algorithm or metric shown. All reference metadata lives in `frontend/src/lib/references.ts`.
+
+### Reference registry
+
+| ID | Authors | Year | Used in |
+|----|---------|------|---------|
+| `rmats` | Shen et al. | 2014 | SpliceView, PermutationPanel, main analysis page |
+| `sequence_logos` | Schneider & Stephens | 1990 | ConsensusLogoPanel, MotifPatternPanel |
+| `shannon` | Shannon | 1948 | ConsensusLogoPanel (IC formula) |
+| `splice_sites` | Shapiro & Senapathy | 1987 | ConsensusLogoPanel, MotifPatternPanel |
+| `maxent` | Yeo & Burge | 2004 | ConsensusLogoPanel (MaxEntScan scoring) |
+| `ppt` | Coolidge et al. | 1997 | PPTTrack, MotifPatternPanel |
+| `branch_point` | Padgett et al. | 1986 | PPTTrack, MotifPatternPanel |
+| `permutation_phipson` | Phipson & Smyth | 2010 | PermutationPanel |
+| `benjamini_hochberg` | Benjamini & Hochberg | 1995 | SpliceView, PermutationPanel, main analysis page |
+| `mane_select` | Morales et al. | 2022 | SpliceView, main analysis page |
+| `gene_ontology` | GO Consortium | 2021 | AnnotatedCard (GO tab) |
+| `stringdb` | Szklarczyk et al. | 2023 | AnnotatedCard (STRING-DB tab) |
+| `panelapp` | Martin et al. | 2019 | AnnotatedCard (PanelApp tab) |
+
+### Key formulas
+
+| Formula | Symbol | Reference |
+|---------|--------|-----------|
+| Information content | IC = 2 − H(**p**) bits, H(**p**) = −Σ pᵢ log₂(pᵢ) | `sequence_logos`, `shannon` |
+| PPT score | fraction of C+T in ~47 nt upstream of 3′SS | `ppt` |
+| Branch-point motif | YNYURAY (Y = C/T, N = any, R = A/G) | `branch_point` |
+| Permutation p-value | p = (k+1)/(N+1) continuity correction | `permutation_phipson` |
+| FDR correction | Benjamini–Hochberg step-up procedure | `benjamini_hochberg` |
+
+---
+
+## Export
+
+The analysis detail page offers two export formats.
+
+### PDF report
+
+A multi-page PDF containing:
+- Analysis summary table
+- Top SE events ranked by FDR and |ΔΨ|
+- Appendix A: Pipeline methodology
+- Appendix B: Bibliographic references
+- Appendix C: Statistical methods applied
+
+### Excel spreadsheet
+
+A parameterized `.xlsx` file. Before downloading, a modal lets the user choose which annotation columns to include:
+
+| Group key | Columns added | Source |
+|-----------|--------------|--------|
+| `core` *(always included)* | Gene, Event type, Strand, Exon size, Intron sizes, FDR, ΔΨ, Read counts, Frame class | local DB |
+| `panelapp` | PanelApp Confidence, PanelApp Panels (top 3) | PanelApp AU REST API |
+| `go` | GO:BP, GO:MF, GO:CC (top 3 terms each) | mygene.info |
+| `stringdb` | STRING Max Score (highest combined score vs. all mutated genes) | STRING-DB v12 |
+
+Optional groups are fetched in parallel with `asyncio.gather` at export time. The `include` query parameter accepts a comma-separated list of group keys (e.g. `?include=core,panelapp,go`).
+
+---
+
 ## API
 
 The backend exposes a versioned REST API under `/api/v1`:
@@ -310,6 +399,13 @@ The compute endpoint is idempotent — re-running overwrites existing feature ro
 | GET    | `/api/v1/genes/lookup/{symbol}` | Exact gene lookup |
 | GET    | `/api/v1/annotations/gene/{symbol}` | PanelApp panels + GO terms + UniProt summary |
 | POST   | `/api/v1/annotations/interactions` | STRING-DB interactions + PMIDs |
+
+### Export
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET    | `/api/v1/export/{id}/pdf` | Download PDF report |
+| GET    | `/api/v1/export/{id}/excel?include=core,panelapp,go,stringdb` | Download Excel spreadsheet; `include` is a comma-separated list of column groups (`core` always added automatically) |
 
 ### Diagnostics
 

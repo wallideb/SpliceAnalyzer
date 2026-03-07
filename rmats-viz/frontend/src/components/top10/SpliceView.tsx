@@ -130,13 +130,12 @@ export function SpliceView({
         exonRank={data.exon_rank ?? null}
       />
 
-      {/* 1B — Splice-site sequence tracks with position axes */}
-      {(data.donor_seq || data.acceptor_seq) && (
-        <SpliceSiteTrack
-          donorSeq={data.donor_seq ?? null}
-          acceptorSeq={data.acceptor_seq ?? null}
-        />
-      )}
+      {/* 1B — Splice-site sequence tracks with position axes (always shown) */}
+      <SpliceSiteTrack
+        donorSeq={data.donor_seq ?? null}
+        acceptorSeq={data.acceptor_seq ?? null}
+        fastaAvailable={data.fasta_available ?? false}
+      />
 
       {/* 1D — PPT per-nucleotide track */}
       {data.ppt_seq && (

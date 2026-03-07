@@ -152,17 +152,31 @@ function NucTrack({
 export function SpliceSiteTrack({
   donorSeq,
   acceptorSeq,
+  fastaAvailable = true,
 }: {
   donorSeq: string | null;
   acceptorSeq: string | null;
+  fastaAvailable?: boolean;
 }) {
-  if (!donorSeq && !acceptorSeq) return null;
-
   return (
     <div className="mt-3 space-y-4 p-3 rounded-lg bg-muted/30 border border-border">
       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-        Sites d&apos;épissage — séquences avec convention de position
+        Sites d&apos;épissage — séquences canoniques proches des exons sautés
       </p>
+
+      {!fastaAvailable && (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300">
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+          <div>
+            <p className="text-xs font-semibold">FASTA non disponible — séquences non calculées</p>
+            <p className="text-[11px] mt-0.5 text-amber-700 dark:text-amber-400">
+              Seules les données de taille (coordonnées) sont affichées. Indexez un génome de référence FASTA pour activer l&apos;analyse des séquences d&apos;épissage (5&apos;SS GT, 3&apos;SS AG, PPT, branchpoint).
+            </p>
+          </div>
+        </div>
+      )}
 
       {donorSeq && donorSeq.length >= 9 && (
         <NucTrack
@@ -182,6 +196,12 @@ export function SpliceSiteTrack({
           boundaryAt={ACCEPTOR_BOUNDARY}
           label="3'SS accepteur  (intron | exon) — AG canonique en −2/−1"
         />
+      )}
+
+      {fastaAvailable && !donorSeq && !acceptorSeq && (
+        <p className="text-xs text-muted-foreground italic">
+          Séquences non disponibles pour cet événement.
+        </p>
       )}
     </div>
   );

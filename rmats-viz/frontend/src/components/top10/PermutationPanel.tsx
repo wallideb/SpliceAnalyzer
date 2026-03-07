@@ -129,8 +129,8 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
 // Top-events table
 // ---------------------------------------------------------------------------
 
-function TopEventsTable({ result }: { result: PermutationResponse }) {
-  const sorted = [...result.events]
+function TopEventsTable({ events }: { events: PermutationResponse["events"] }) {
+  const sorted = [...events]
     .filter((e) => e.empirical_p_value !== null)
     .sort((a, b) => (a.empirical_p_value ?? 1) - (b.empirical_p_value ?? 1))
     .slice(0, 15);
@@ -314,7 +314,7 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
               Top événements les plus significatifs (test de permutation)
             </p>
-            <TopEventsTable result={result} />
+            <TopEventsTable events={result.events} />
           </div>
         </div>
       )}

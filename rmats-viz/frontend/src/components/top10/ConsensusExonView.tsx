@@ -23,7 +23,6 @@ import type { PatternAnalysisResponse } from "@/types/splice";
 
 interface ConsensusExonViewProps {
   data: PatternAnalysisResponse;
-  analysisId: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -44,7 +43,7 @@ function StatChip({ label, value }: { label: string; value: string | number | nu
 // Main component
 // ---------------------------------------------------------------------------
 
-export function ConsensusExonView({ data, analysisId: _analysisId }: ConsensusExonViewProps) {
+export function ConsensusExonView({ data }: ConsensusExonViewProps) {
   const {
     n_se_events,
     n_analyzed,

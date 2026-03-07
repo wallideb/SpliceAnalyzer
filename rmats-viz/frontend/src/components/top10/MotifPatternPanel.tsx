@@ -327,7 +327,7 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
 
       {/* ── 2C — Consensus ExonDiagram (figure principale) ── */}
       <Section title="Exon consensus — vue d'ensemble cohorte">
-        <ConsensusExonView data={data} analysisId={analysisId} />
+        <ConsensusExonView data={data} />
       </Section>
 
       {/* ── Summary chips ── */}

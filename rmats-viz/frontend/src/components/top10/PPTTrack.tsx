@@ -131,7 +131,7 @@ export function PPTTrack({
           {pptLongestRun !== null && pptLongestRun > 0 && (
             <p className="text-[9px] text-muted-foreground">
               Run Y max :{" "}
-              <strong className="text-foreground tabular-nums">{run.length} nt</strong>
+              <strong className="text-foreground tabular-nums">{pptLongestRun} nt</strong>
               {" "}(positions{" "}
               <code className="font-mono">
                 {-(seqLen - run.start)}…{-(seqLen - run.start - run.length + 1)}

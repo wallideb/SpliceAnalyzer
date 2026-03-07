@@ -25,7 +25,7 @@ import uuid
 from collections import Counter
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -317,6 +317,8 @@ async def get_splice_feature(
 @router.get("/patterns/{analysis_id}", response_model=PatternAnalysisResponse)
 async def get_splice_patterns(
     analysis_id: uuid.UUID,
+    fdr_threshold: float = Query(0.05, ge=0.0, le=1.0, description="FDR significance cutoff"),
+    abs_delta_psi_min: float = Query(0.05, ge=0.0, le=1.0, description="Minimum |ΔΨ| for significance"),
     db: AsyncSession = Depends(get_db),
 ):
     """Aggregate splice-signal patterns across all SE events of an analysis."""
@@ -382,6 +384,22 @@ async def get_splice_patterns(
         mean   = round(statistics.mean(down_sizes),   1) if down_sizes else None,
     )
 
+    # ── Significance tagging ─────────────────────────────────────────────────
+    n_significant = 0
+    n_not_significant = 0
+    delta_psi_significant: list[float] = []
+    for ev, _ in rows:
+        fdr_ok  = ev.fdr is not None and ev.fdr <= fdr_threshold
+        dpsi_ok = (
+            ev.inc_level_difference is not None
+            and abs(ev.inc_level_difference) >= abs_delta_psi_min
+        )
+        if fdr_ok and dpsi_ok:
+            n_significant += 1
+            delta_psi_significant.append(ev.inc_level_difference)  # type: ignore[arg-type]
+        else:
+            n_not_significant += 1
+
     # ── Mean ΔΨ ──────────────────────────────────────────────────────────────
     delta_psi_list = [
         ev.inc_level_difference
@@ -389,6 +407,9 @@ async def get_splice_patterns(
         if ev.inc_level_difference is not None
     ]
     mean_delta_psi = round(statistics.mean(delta_psi_list), 3) if delta_psi_list else None
+    mean_delta_psi_significant = (
+        round(statistics.mean(delta_psi_significant), 3) if delta_psi_significant else None
+    )
 
     # ── Donor (5'SS) ────────────────────────────────────────────────────────
     donor_seqs = [f.donor_seq for f in feats_with_seq if f.donor_seq and len(f.donor_seq) >= 9]
@@ -443,23 +464,28 @@ async def get_splice_patterns(
     bp_pct   = round(bp_found / bp_total * 100, 1) if bp_total else None
 
     return PatternAnalysisResponse(
-        analysis_id             = str(analysis_id),
-        n_se_events             = len(rows),
-        n_analyzed              = len(feats_with_seq),
-        clusters                = ClusterInfo(
+        analysis_id                 = str(analysis_id),
+        n_se_events                 = len(rows),
+        n_analyzed                  = len(feats_with_seq),
+        clusters                    = ClusterInfo(
             n_raw_events = len(rows),
             n_clusters   = len(clusters),
         ),
-        fasta_available         = bool(feats_with_seq),
-        exon_sizes              = exon_stats,
-        upstream_intron_sizes   = upstream_intron_stats,
-        downstream_intron_sizes = downstream_intron_stats,
-        mean_delta_psi          = mean_delta_psi,
-        donor_sites             = donor_stats,
-        acceptor_sites          = acc_stats,
-        ppt                     = ppt_stats,
-        frame                   = frame_stats,
-        bp_found_pct            = bp_pct,
+        fasta_available             = bool(feats_with_seq),
+        fdr_threshold               = fdr_threshold,
+        abs_delta_psi_min           = abs_delta_psi_min,
+        n_significant               = n_significant,
+        n_not_significant           = n_not_significant,
+        exon_sizes                  = exon_stats,
+        upstream_intron_sizes       = upstream_intron_stats,
+        downstream_intron_sizes     = downstream_intron_stats,
+        mean_delta_psi              = mean_delta_psi,
+        mean_delta_psi_significant  = mean_delta_psi_significant,
+        donor_sites                 = donor_stats,
+        acceptor_sites              = acc_stats,
+        ppt                         = ppt_stats,
+        frame                       = frame_stats,
+        bp_found_pct                = bp_pct,
     )
 
 # ---------------------------------------------------------------------------

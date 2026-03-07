@@ -141,10 +141,16 @@ export interface PatternAnalysisResponse {
   n_analyzed: number;
   clusters: { n_raw_events: number; n_clusters: number };
   fasta_available: boolean;
+  // Significance thresholds
+  fdr_threshold: number;
+  abs_delta_psi_min: number;
+  n_significant: number;
+  n_not_significant: number;
   exon_sizes: ExonSizeStats;
   upstream_intron_sizes: IntronSizeStats;
   downstream_intron_sizes: IntronSizeStats;
   mean_delta_psi: number | null;
+  mean_delta_psi_significant: number | null;
   donor_sites: SiteStats;
   acceptor_sites: SiteStats;
   ppt: PPTStats;

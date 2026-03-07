@@ -17,8 +17,14 @@ export function computeSpliceFeatures(analysisId: string): Promise<ComputeJobRes
   });
 }
 
-export function getSplicePatterns(analysisId: string): Promise<PatternAnalysisResponse> {
-  return fetchJSON<PatternAnalysisResponse>(`${BASE}/splice/patterns/${analysisId}`);
+export function getSplicePatterns(
+  analysisId: string,
+  fdrThreshold = 0.05,
+  absDeltaPsiMin = 0.05,
+): Promise<PatternAnalysisResponse> {
+  return fetchJSON<PatternAnalysisResponse>(
+    `${BASE}/splice/patterns/${analysisId}?fdr_threshold=${fdrThreshold}&abs_delta_psi_min=${absDeltaPsiMin}`,
+  );
 }
 
 export function getMANETranscript(eventId: string): Promise<MANETranscriptResponse> {

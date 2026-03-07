@@ -151,10 +151,16 @@ class PatternAnalysisResponse(BaseModel):
     n_analyzed: int          # events with FASTA sequences
     clusters: ClusterInfo
     fasta_available: bool
+    # Significance thresholds applied
+    fdr_threshold: float = 0.05
+    abs_delta_psi_min: float = 0.05
+    n_significant: int = 0       # events passing both thresholds
+    n_not_significant: int = 0   # events failing at least one threshold
     exon_sizes: ExonSizeStats
     upstream_intron_sizes: IntronSizeStats = IntronSizeStats()
     downstream_intron_sizes: IntronSizeStats = IntronSizeStats()
     mean_delta_psi: float | None = None
+    mean_delta_psi_significant: float | None = None   # mean ΔΨ for significant events only
     donor_sites: SiteStats
     acceptor_sites: SiteStats
     ppt: PPTStats

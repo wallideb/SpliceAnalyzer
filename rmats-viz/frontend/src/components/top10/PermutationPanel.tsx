@@ -19,6 +19,7 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { runPermutationTest } from "@/lib/api/splice";
 import { useT } from "@/contexts/LanguageContext";
+import { ScienceNote } from "@/components/ScienceNote";
 import type { MetricPermResult, PermutationResponse } from "@/types/splice";
 
 // ---------------------------------------------------------------------------
@@ -596,6 +597,12 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
           <p className="text-[10px] mt-1">{t("permutation.empty.params")}</p>
         </div>
       )}
+
+      <ScienceNote
+        title={t("scienceNotes.permutation.title")}
+        body={t("scienceNotes.permutation.body")}
+        refs={["permutation_phipson", "benjamini_hochberg", "rmats"]}
+      />
     </div>
   );
 }

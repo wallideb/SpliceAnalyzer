@@ -23,6 +23,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSplicePatterns, computeSpliceFeatures } from "@/lib/api/splice";
+import { ScienceNote } from "@/components/ScienceNote";
+import { useT } from "@/contexts/LanguageContext";
 import type { SplicingEvent } from "@/types/event";
 import type { ExonSizeStats } from "@/types/splice";
 import { ConsensusLogoPanel } from "./ConsensusLogoPanel";
@@ -238,6 +240,7 @@ function ExonSizeHistogram({ stats }: { stats: ExonSizeStats }) {
 // ---------------------------------------------------------------------------
 
 export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps) {
+  const t = useT();
   const qc = useQueryClient();
 
   const seCount = events.filter((e) => e.event_type === "SE").length;
@@ -455,16 +458,22 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
 
       {/* ── Branch-point ── */}
       {bp_found_pct !== null && (
-        <Section title="Détection du point de branchement (motif YNYURAY)">
+        <Section title="Branch point detection (YNYURAY motif)">
           <div className="flex items-center gap-3">
             <Bar pct={bp_found_pct} className="bg-green-500" />
             <span className="text-[11px] font-semibold text-foreground tabular-nums">
               {bp_found_pct}%
             </span>
-            <span className="text-[10px] text-muted-foreground">trouvés</span>
+            <span className="text-[10px] text-muted-foreground">detected</span>
           </div>
         </Section>
       )}
+
+      <ScienceNote
+        title={t("scienceNotes.motifPattern.title")}
+        body={t("scienceNotes.motifPattern.body")}
+        refs={["sequence_logos", "splice_sites", "ppt", "branch_point"]}
+      />
     </div>
   );
 }

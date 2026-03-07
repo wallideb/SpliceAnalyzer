@@ -25,6 +25,8 @@
  */
 
 import { useRef, useState } from "react";
+import { ScienceNote } from "@/components/ScienceNote";
+import { useT } from "@/contexts/LanguageContext";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -123,6 +125,7 @@ export function ConsensusLogoPanel({
   canonicalPositions = [],
   id = "logo",
 }: ConsensusLogoPanelProps) {
+  const t = useT();
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoveredCol, setHoveredCol] = useState<number | null>(null);
 
@@ -319,6 +322,11 @@ export function ConsensusLogoPanel({
           })}
         </svg>
       </div>
+      <ScienceNote
+        title={t("scienceNotes.consensusLogo.title")}
+        body={t("scienceNotes.consensusLogo.body")}
+        refs={["sequence_logos", "shannon", "splice_sites"]}
+      />
     </div>
   );
 }

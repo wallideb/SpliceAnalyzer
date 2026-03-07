@@ -310,6 +310,75 @@ export const en = {
       params: "5 parameters tested: ΔΨ · PPT score · exon size · phase · GT-AG sites.",
     },
   },
+  scienceNotes: {
+    consensusLogo: {
+      title: "Method — Sequence logos & information content",
+      body:
+        "Each column of the logo represents a position in the splice-site window. " +
+        "Letter height is proportional to <b>p<sub>i</sub> × IC</b>, where " +
+        "<b>IC = 2 − H(p)</b> bits and H(p) = −Σ p<sub>i</sub> log<sub>2</sub>(p<sub>i</sub>) " +
+        "is the Shannon entropy at that position (Shannon, 1948). " +
+        "The y-axis runs from 0 to 2 bits; a fully conserved position scores 2 bits. " +
+        "The PWM (Position Weight Matrix) is computed from the observed base frequencies " +
+        "at each position across all SE events in the analysis. " +
+        "The canonical GT dinucleotide (positions +1/+2 of the 5′SS donor) and AG " +
+        "(positions −2/−1 of the 3′SS acceptor) are highlighted in amber " +
+        "(Shapiro &amp; Senapathy, 1987).",
+    },
+    pptTrack: {
+      title: "Method — Polypyrimidine tract (PPT) & branch point",
+      body:
+        "The <b>polypyrimidine tract (PPT)</b> is a pyrimidine-rich region (~47 nt) " +
+        "immediately upstream of the 3′ splice site. It is bound by U2AF65, which " +
+        "recruits the spliceosome. The <b>PPT score</b> is the fraction of C or T " +
+        "nucleotides in this window (Coolidge et al., 1997). " +
+        "The longest consecutive pyrimidine run is annotated below the sequence. " +
+        "The <b>branch point</b> is the adenosine involved in the first " +
+        "transesterification step; it is detected by searching for the consensus " +
+        "heptamer <b>YNYURAY</b> (Y=C/T, N=any, R=A/G) within the PPT region " +
+        "(Padgett et al., 1986). Distance is reported as nucleotides upstream of the 3′SS.",
+    },
+    motifPattern: {
+      title: "Method — Aggregate splice-signal analysis",
+      body:
+        "This panel aggregates splice-site signals across all SE events in the analysis. " +
+        "Sequence logos use the WebLogo convention (Schneider &amp; Stephens, 1990): " +
+        "IC = 2 − H(p) bits per position. " +
+        "The exon-size histogram bins exon lengths in 25 nt intervals. " +
+        "<b>Frame classification</b> is based on whether the CDS length of the skipped " +
+        "exon is divisible by 3 (in_frame) or not (frameshift). " +
+        "The PPT score distribution shows the fraction of pyrimidine nucleotides " +
+        "per event in the ~47 nt window upstream of the 3′SS (Coolidge et al., 1997). " +
+        "Branch-point detection uses the YNYURAY heptamer motif (Padgett et al., 1986).",
+    },
+    permutation: {
+      title: "Method — Bilateral permutation test",
+      body:
+        "The empirical p-value is computed as <b>p = (k+1)/(N+1)</b>, where k is the " +
+        "number of permuted statistics equal to or more extreme than the observed " +
+        "statistic, and N is the total number of permutations. The +1 continuity " +
+        "correction ensures that p is never exactly 0 (Phipson &amp; Smyth, 2010). " +
+        "Under H₀, group labels are exchangeable (bilateral test). " +
+        "For the ΔΨ tab, the observed statistic is the absolute mean ΔΨ across events. " +
+        "For auxiliary metrics (PPT, exon size, frame, GT-AG), events are split into " +
+        "G1 (ΔΨ &lt; 0) and G2 (ΔΨ &gt; 0), and the statistic is mean(G2) − mean(G1). " +
+        "rMATS FDR values use the Benjamini-Hochberg correction " +
+        "(Benjamini &amp; Hochberg, 1995).",
+    },
+    exonDiagram: {
+      title: "Method — rMATS SE event definition",
+      body:
+        "A <b>Skipped Exon (SE)</b> event is defined by rMATS as a cassette exon " +
+        "flanked by upstream and downstream constitutive exons. " +
+        "<b>ΔΨ = PSI<sub>G2</sub> − PSI<sub>G1</sub></b>; positive values indicate " +
+        "more inclusion in Group 2. PSI (Percent Spliced In) is estimated from " +
+        "inclusion junction counts (IJC) and skipping junction counts (SJC) using " +
+        "the rMATS probabilistic model (Shen et al., 2014). " +
+        "FDR is the Benjamini-Hochberg-corrected p-value. " +
+        "The MANE Select transcript (Morales et al., 2022) is used for exon mapping " +
+        "and frame classification.",
+    },
+  },
 };
 
 export type Translations = typeof en;

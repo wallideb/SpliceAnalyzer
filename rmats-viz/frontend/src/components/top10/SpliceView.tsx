@@ -10,6 +10,8 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getEventSpliceFeature, computeSpliceFeatures } from "@/lib/api/splice";
+import { ScienceNote } from "@/components/ScienceNote";
+import { useT } from "@/contexts/LanguageContext";
 import type { SplicingEvent } from "@/types/event";
 import { ExonDiagram } from "./ExonDiagram";
 import { SpliceSiteTrack } from "./SpliceSiteTrack";
@@ -37,6 +39,7 @@ export function SpliceView({
   event: SplicingEvent;
   analysisId?: string;
 }) {
+  const t = useT();
   const qc = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
@@ -145,6 +148,12 @@ export function SpliceView({
           bpDistance={data.bp_distance ?? null}
         />
       )}
+
+      <ScienceNote
+        title={t("scienceNotes.exonDiagram.title")}
+        body={t("scienceNotes.exonDiagram.body")}
+        refs={["rmats", "benjamini_hochberg", "mane_select"]}
+      />
     </div>
   );
 }

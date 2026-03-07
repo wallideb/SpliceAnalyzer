@@ -314,4 +314,73 @@ export const fr: Translations = {
         "5 paramètres testés : ΔΨ · score PPT · taille exon · phase · sites GT-AG.",
     },
   },
+  scienceNotes: {
+    consensusLogo: {
+      title: "Méthode — Logos de séquences & contenu informationnel",
+      body:
+        "Chaque colonne du logo représente une position dans la fenêtre du site d'épissage. " +
+        "La hauteur des lettres est proportionnelle à <b>p<sub>i</sub> × IC</b>, où " +
+        "<b>IC = 2 − H(p)</b> bits et H(p) = −Σ p<sub>i</sub> log<sub>2</sub>(p<sub>i</sub>) " +
+        "est l'entropie de Shannon à cette position (Shannon, 1948). " +
+        "L'axe Y va de 0 à 2 bits ; une position entièrement conservée score 2 bits. " +
+        "La PWM (Position Weight Matrix) est calculée à partir des fréquences de bases " +
+        "observées à chaque position sur l'ensemble des événements SE de l'analyse. " +
+        "Le dinucléotide canonique GT (positions +1/+2 du site donneur 5′SS) et AG " +
+        "(positions −2/−1 du site accepteur 3′SS) sont surlignés en ambre " +
+        "(Shapiro &amp; Senapathy, 1987).",
+    },
+    pptTrack: {
+      title: "Méthode — Tract polypyrimidique (PPT) & point de branchement",
+      body:
+        "Le <b>tract polypyrimidique (PPT)</b> est une région riche en pyrimidines (~47 nt) " +
+        "immédiatement en amont du site d'épissage 3′. Il est lié par U2AF65, qui " +
+        "recrute le spliceosome. Le <b>score PPT</b> est la fraction de nucléotides " +
+        "C ou T dans cette fenêtre (Coolidge et al., 1997). " +
+        "La plus longue série consécutive de pyrimidines est annotée sous la séquence. " +
+        "Le <b>point de branchement</b> est l'adénosine impliquée dans la première " +
+        "étape de transestérification ; il est détecté par recherche du motif consensus " +
+        "heptamère <b>YNYURAY</b> (Y=C/T, N=quelconque, R=A/G) dans la région PPT " +
+        "(Padgett et al., 1986). La distance est indiquée en nucléotides en amont du 3′SS.",
+    },
+    motifPattern: {
+      title: "Méthode — Analyse agrégée des signaux d'épissage",
+      body:
+        "Ce panneau agrège les signaux de sites d'épissage sur l'ensemble des événements SE de l'analyse. " +
+        "Les logos de séquences suivent la convention WebLogo (Schneider &amp; Stephens, 1990) : " +
+        "IC = 2 − H(p) bits par position. " +
+        "L'histogramme de taille d'exon regroupe les longueurs en intervalles de 25 nt. " +
+        "La <b>classification du cadre</b> est basée sur la divisibilité par 3 de la longueur " +
+        "CDS de l'exon sauté (in_frame) ou non (frameshift). " +
+        "La distribution du score PPT montre la fraction de nucléotides pyrimidiques " +
+        "par événement dans la fenêtre ~47 nt en amont du 3′SS (Coolidge et al., 1997). " +
+        "La détection du point de branchement utilise le motif heptamère YNYURAY (Padgett et al., 1986).",
+    },
+    permutation: {
+      title: "Méthode — Test de permutation bilatéral",
+      body:
+        "La p-value empirique est calculée comme <b>p = (k+1)/(N+1)</b>, où k est le nombre " +
+        "de statistiques permutées égales ou plus extrêmes que la statistique observée, " +
+        "et N est le nombre total de permutations. La correction de continuité +1 garantit " +
+        "que p n'est jamais exactement 0 (Phipson &amp; Smyth, 2010). " +
+        "Sous H₀, les étiquettes de groupe sont interchangeables (test bilatéral). " +
+        "Pour l'onglet ΔΨ, la statistique observée est la moyenne absolue des ΔΨ sur les événements. " +
+        "Pour les métriques auxiliaires (PPT, taille exon, phase, GT-AG), les événements sont " +
+        "divisés en G1 (ΔΨ &lt; 0) et G2 (ΔΨ &gt; 0), et la statistique est mean(G2) − mean(G1). " +
+        "Les valeurs FDR de rMATS utilisent la correction de Benjamini-Hochberg " +
+        "(Benjamini &amp; Hochberg, 1995).",
+    },
+    exonDiagram: {
+      title: "Méthode — Définition d'un événement SE dans rMATS",
+      body:
+        "Un événement <b>Exon Sauté (SE)</b> est défini par rMATS comme un exon cassette " +
+        "flanqué d'exons constitutifs amont et aval. " +
+        "<b>ΔΨ = PSI<sub>G2</sub> − PSI<sub>G1</sub></b> ; les valeurs positives indiquent " +
+        "une inclusion plus importante dans le Groupe 2. PSI (Percent Spliced In) est estimé " +
+        "à partir des comptages de jonctions d'inclusion (IJC) et d'exclusion (SJC) en utilisant " +
+        "le modèle probabiliste de rMATS (Shen et al., 2014). " +
+        "Le FDR est la p-value corrigée par Benjamini-Hochberg. " +
+        "Le transcrit MANE Select (Morales et al., 2022) est utilisé pour la cartographie " +
+        "des exons et la classification du cadre de lecture.",
+    },
+  },
 };

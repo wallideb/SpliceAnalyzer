@@ -13,6 +13,9 @@
  * • Position numbers count backwards from the 3'SS (e.g. −47 … −1).
  */
 
+import { ScienceNote } from "@/components/ScienceNote";
+import { useT } from "@/contexts/LanguageContext";
+
 const PYRIMIDINE_COLOR = "#3b82f6";  // blue-500
 const PURINE_COLOR     = "#f97316";  // orange-500
 
@@ -51,12 +54,13 @@ export function PPTTrack({
   bpFound,
   bpDistance,
 }: {
-  pptSeq: string | null;
+  pptSeq: string;
   pptScore: number | null;
   pptLongestRun: number | null;
   bpFound: boolean | null;
   bpDistance: number | null;
 }) {
+  const t = useT();
   if (!pptSeq) return null;
 
   const seq      = pptSeq.toUpperCase();
@@ -65,8 +69,8 @@ export function PPTTrack({
 
   const scoreLabel =
     pptScore === null ? null :
-    pptScore >= 0.7   ? "PPT fort"   :
-    pptScore >= 0.5   ? "PPT modéré" : "PPT faible";
+    pptScore >= 0.7   ? "Strong PPT"   :
+    pptScore >= 0.5   ? "Moderate PPT" : "Weak PPT";
 
   const scoreBadgeClass =
     pptScore === null     ? "" :
@@ -146,10 +150,15 @@ export function PPTTrack({
       {bpFound !== null && (
         <p className={`text-[9px] font-medium ${bpFound ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
           {bpFound
-            ? `✓ Point de branchement (YNYURAY) détecté — ~${bpDistance} nt avant 3'SS`
-            : "— Point de branchement (YNYURAY) non détecté dans la région PPT"}
+            ? `✓ Branch point (YNYURAY) detected — ~${bpDistance} nt upstream of 3′SS`
+            : "— Branch point (YNYURAY) not detected in the PPT region"}
         </p>
       )}
+      <ScienceNote
+        title={t("scienceNotes.pptTrack.title")}
+        body={t("scienceNotes.pptTrack.body")}
+        refs={["ppt", "branch_point"]}
+      />
     </div>
   );
 }

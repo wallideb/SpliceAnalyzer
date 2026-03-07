@@ -118,6 +118,19 @@ class EventPermResult(BaseModel):
     null_hist_counts: list[int] = []
 
 
+class MetricPermResult(BaseModel):
+    """Permutation result for a single scalar metric (PPT, exon size, frame, canonical)."""
+    metric_name: str
+    label: str
+    observed_stat: float | None = None
+    empirical_p_value: float | None = None
+    n_valid: int = 0
+    n_g1: int = 0
+    n_g2: int = 0
+    null_hist_bins: list[float] = []
+    null_hist_counts: list[int] = []
+
+
 class PermutationResponse(BaseModel):
     analysis_id: str
     n_iterations: int
@@ -129,6 +142,7 @@ class PermutationResponse(BaseModel):
     observed_hist_counts: list[int] = []
     pct_p05: float | None = None
     pct_p01: float | None = None
+    metric_results: list[MetricPermResult] = []
 
 
 class PatternAnalysisResponse(BaseModel):

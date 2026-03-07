@@ -43,6 +43,7 @@ from app.schemas.splice import (
     PPTStats,
     FrameStats,
     ClusterInfo,
+    MetricPermResult,
     PermutationResponse,
 )
 from app.services.event_cluster import cluster_se_events
@@ -559,8 +560,19 @@ async def run_permutation_test(
     if not se_events:
         raise HTTPException(404, "No SE events found for this analysis")
 
+    # Fetch splice features for metric permutation tests
+    event_ids = [ev.id for ev in se_events]
+    feat_result = await db.execute(
+        select(EventSpliceFeature).where(
+            EventSpliceFeature.event_id.in_(event_ids)
+        )
+    )
+    features_by_id = {str(f.event_id): f for f in feat_result.scalars().all()}
+    # Build parallel list (None if feature not computed for that event)
+    features_list = [features_by_id.get(str(ev.id)) for ev in se_events]
+
     perm_result = await asyncio.to_thread(
-        run_permutation, se_events, n_iterations
+        run_permutation, se_events, features_list, n_iterations
     )
 
     return PermutationResponse(
@@ -586,4 +598,18 @@ async def run_permutation_test(
         observed_hist_counts    = perm_result.observed_hist_counts,
         pct_p05                 = perm_result.pct_p05,
         pct_p01                 = perm_result.pct_p01,
+        metric_results          = [
+            MetricPermResult(
+                metric_name       = r.metric_name,
+                label             = r.label,
+                observed_stat     = r.observed_stat,
+                empirical_p_value = r.empirical_p_value,
+                n_valid           = r.n_valid,
+                n_g1              = r.n_g1,
+                n_g2              = r.n_g2,
+                null_hist_bins    = r.null_hist_bins,
+                null_hist_counts  = r.null_hist_counts,
+            )
+            for r in perm_result.metric_results
+        ],
     )

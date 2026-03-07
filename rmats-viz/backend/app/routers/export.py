@@ -82,24 +82,24 @@ async def export_analysis_excel(
     # ── 4. Build the workbook ─────────────────────────────────────────────────
     wb = openpyxl.Workbook()
 
-    # ── Sheet 1 : Événements ──────────────────────────────────────────────────
+    # ── Sheet 1 : Events ─────────────────────────────────────────────────────
     ws_events = wb.active
-    ws_events.title = "Événements"
+    ws_events.title = "Events"
 
     headers = [
-        "Gène", "Gene ID", "Type", "Chromo", "Brin",
-        "Exon début", "Exon fin", "Taille exon",
+        "Gene", "Gene ID", "Type", "Chromosome", "Strand",
+        "Exon Start", "Exon End", "Exon Size",
         "p-value", "FDR", "ΔΨ", "|ΔΨ|",
-        "PSI groupe 1", "PSI groupe 2",
-        "Rang top",
+        "PSI Group 1", "PSI Group 2",
+        "Top Rank",
         # SE splice features
-        "Site donneur", "Canonique GT",
-        "Site accepteur", "Canonique AG",
-        "Score PPT", "Run Y max",
-        "BP trouvé", "BP distance",
+        "Donor Site", "Canonical GT",
+        "Acceptor Site", "Canonical AG",
+        "PPT Score", "Max Y Run",
+        "BP Found", "BP Distance",
         # Frame / MANE annotations
-        "Phase", "Région", "Longueur CDS",
-        "Transcrit MANE", "Rang exon",
+        "Frame", "Region", "CDS Length",
+        "MANE Transcript", "Exon Rank",
     ]
     ws_events.append(headers)
 
@@ -146,22 +146,22 @@ async def export_analysis_excel(
     ws_events.freeze_panes = "A2"
     ws_events.auto_filter.ref = ws_events.dimensions
 
-    # ── Sheet 2 : Résumé ──────────────────────────────────────────────────────
-    ws_summary = wb.create_sheet("Résumé")
+    # ── Sheet 2 : Summary ────────────────────────────────────────────────────
+    ws_summary = wb.create_sheet("Summary")
 
     # Count events by type
     type_counts: dict[str, int] = {}
     for event in events:
         type_counts[event.event_type] = type_counts.get(event.event_type, 0) + 1
 
-    ws_summary.append(["Type", "Nombre d'événements"])
+    ws_summary.append(["Type", "Event Count"])
     for etype in ["SE", "RI", "A3SS", "A5SS", "MXE"]:
         ws_summary.append([etype, type_counts.get(etype, 0)])
     ws_summary.append(["Total", len(events)])
 
     # SE-specific statistics
     ws_summary.append([])  # blank separator
-    ws_summary.append(["Statistiques SE", ""])
+    ws_summary.append(["SE Statistics", ""])
 
     n_se = type_counts.get("SE", 0)
     if n_se > 0 and features:
@@ -174,13 +174,13 @@ async def export_analysis_excel(
             1 for f in features.values() if f.frame_class == "frameshift"
         )
         n_feat = len(features)
-        ws_summary.append(["SE avec features annotées", n_feat])
-        ws_summary.append(["% GT canonique", f"{n_gt / n_feat * 100:.1f}%" if n_feat else "N/A"])
-        ws_summary.append(["% AG canonique", f"{n_ag / n_feat * 100:.1f}%" if n_feat else "N/A"])
+        ws_summary.append(["SE events with annotated features", n_feat])
+        ws_summary.append(["% canonical GT", f"{n_gt / n_feat * 100:.1f}%" if n_feat else "N/A"])
+        ws_summary.append(["% canonical AG", f"{n_ag / n_feat * 100:.1f}%" if n_feat else "N/A"])
         ws_summary.append(["% in-frame", f"{n_inframe / n_feat * 100:.1f}%" if n_feat else "N/A"])
         ws_summary.append(["% frameshift", f"{n_frameshift / n_feat * 100:.1f}%" if n_feat else "N/A"])
     else:
-        ws_summary.append(["Aucune feature SE annotée", ""])
+        ws_summary.append(["No annotated SE features", ""])
 
     _style_header_row(ws_summary)
     _apply_row_banding(ws_summary)
@@ -293,27 +293,27 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
     def hr() -> HRFlowable:
         return HRFlowable(width="100%", thickness=0.5, color=_colors.HexColor("#e2e8f0"), spaceAfter=6)
 
-    # ── Page de titre ──────────────────────────────────────────────────────
+    # ── Title page ──────────────────────────────────────────────────────────
     story += [
         sp(3),
-        p("Rapport d'analyse rMATS-Viz", "h1"),
+        p("rMATS-Viz Analysis Report", "h1"),
         hr(),
         sp(0.3),
-        p(f"<b>Analyse :</b> {analysis.name}", "body"),
-        p(f"<b>Date de génération :</b> {_date.today().isoformat()}", "body"),
-        p(f"<b>Identifiant :</b> {analysis.id}", "small"),
+        p(f"<b>Analysis:</b> {analysis.name}", "body"),
+        p(f"<b>Generated:</b> {_date.today().isoformat()}", "body"),
+        p(f"<b>Identifier:</b> {analysis.id}", "small"),
         sp(0.5),
         p(
-            "Ce rapport synthétise les événements d'épissage alternatif identifiés "
-            "par rMATS et annotés via rMATS-Viz (sites d'épissage, cadre de lecture, "
-            "transcrit MANE, zones PPT, point de branchement).",
+            "This report summarises the alternative splicing events identified "
+            "by rMATS and annotated via rMATS-Viz (splice sites, reading frame, "
+            "MANE transcript, PPT regions, branch point).",
             "body",
         ),
         PageBreak(),
     ]
 
-    # ── Résumé ──────────────────────────────────────────────────────────────
-    story.append(p("1. Résumé de l'analyse", "h2"))
+    # ── Summary ─────────────────────────────────────────────────────────────
+    story.append(p("1. Analysis Summary", "h2"))
 
     se_events  = [e for e in events if e.event_type == "SE"]
     type_counts: dict[str, int] = {}
@@ -321,17 +321,17 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
         type_counts[ev.event_type] = type_counts.get(ev.event_type, 0) + 1
 
     story += [
-        p(f"Nombre total d'événements : <b>{len(events)}</b>", "body"),
-        p(f"Événements SE : <b>{len(se_events)}</b> · "
-          f"RI : {type_counts.get('RI', 0)} · "
-          f"A3SS : {type_counts.get('A3SS', 0)} · "
-          f"A5SS : {type_counts.get('A5SS', 0)} · "
-          f"MXE : {type_counts.get('MXE', 0)}", "body"),
+        p(f"Total events: <b>{len(events)}</b>", "body"),
+        p(f"SE events: <b>{len(se_events)}</b> · "
+          f"RI: {type_counts.get('RI', 0)} · "
+          f"A3SS: {type_counts.get('A3SS', 0)} · "
+          f"A5SS: {type_counts.get('A5SS', 0)} · "
+          f"MXE: {type_counts.get('MXE', 0)}", "body"),
     ]
 
     # Event-type table
     type_tbl = Table(
-        [["Type", "N événements", "% du total"]] +
+        [["Type", "Event Count", "% of Total"]] +
         [
             [etype,
              type_counts.get(etype, 0),
@@ -356,33 +356,33 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
         exon_sizes = [f.exon_size for f in features.values() if f.exon_size is not None]
 
         story += [
-            p("Statistiques SE (features d'épissage calculées) :", "h3"),
+            p("SE Splice Feature Statistics:", "h3"),
         ]
         stat_tbl = Table([
-            ["Métrique", "Valeur"],
-            ["Events SE avec features", n_feat],
-            ["GT canonique (5'SS)", f"{n_gt / n_feat * 100:.1f}%" if n_feat else "—"],
-            ["AG canonique (3'SS)", f"{n_ag / n_feat * 100:.1f}%" if n_feat else "—"],
+            ["Metric", "Value"],
+            ["SE events with features", n_feat],
+            ["Canonical GT (5'SS)", f"{n_gt / n_feat * 100:.1f}%" if n_feat else "—"],
+            ["Canonical AG (3'SS)", f"{n_ag / n_feat * 100:.1f}%" if n_feat else "—"],
             ["In-frame",   f"{n_if} ({n_if / n_feat * 100:.0f}%)" if n_feat else "—"],
             ["Frameshift", f"{n_fs} ({n_fs / n_feat * 100:.0f}%)" if n_feat else "—"],
-            ["Non-codant", f"{n_nc} ({n_nc / n_feat * 100:.0f}%)" if n_feat else "—"],
-            ["Taille exon (moyenne ± méd.)",
+            ["Non-coding", f"{n_nc} ({n_nc / n_feat * 100:.0f}%)" if n_feat else "—"],
+            ["Exon size (mean ± median)",
              f"{_statistics.mean(exon_sizes):.0f} ± {_statistics.median(exon_sizes):.0f} nt" if exon_sizes else "—"],
-            ["PPT score moyen",
+            ["Mean PPT score",
              f"{_statistics.mean(ppt_scores) * 100:.1f}%" if ppt_scores else "—"],
         ], colWidths=[9 * _cm, 7 * _cm])
         stat_tbl.setStyle(_tbl_style())
         story += [stat_tbl, sp()]
 
-    # ── Top événements SE ───────────────────────────────────────────────────
-    story.append(p("2. Top événements SE (FDR, |ΔΨ|)", "h2"))
+    # ── Top SE events ────────────────────────────────────────────────────────
+    story.append(p("2. Top SE Events (FDR, |ΔΨ|)", "h2"))
     top_se = sorted(
         [e for e in events if e.event_type == "SE" and e.fdr is not None],
         key=lambda e: (e.fdr or 1, -(abs(e.inc_level_difference or 0))),
     )[:20]
 
     if top_se:
-        top_headers = ["Gène", "Chr", "Brin", "Taille\nexon", "FDR", "ΔΨ", "Phase"]
+        top_headers = ["Gene", "Chr", "Strand", "Exon\nSize", "FDR", "ΔΨ", "Frame"]
         top_rows = [top_headers]
         for ev in top_se:
             feat = features.get(ev.id)
@@ -399,46 +399,45 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
         top_tbl.setStyle(_tbl_style())
         story += [top_tbl, sp()]
     else:
-        story.append(p("Aucun événement SE disponible.", "body"))
+        story.append(p("No SE events available.", "body"))
 
     story.append(PageBreak())
 
-    # ── Annexe A — Méthodologie ─────────────────────────────────────────────
+    # ── Appendix A — Methodology ────────────────────────────────────────────
     story += [
-        p("Annexe A — Méthodologie du pipeline", "h2"),
+        p("Appendix A — Pipeline Methodology", "h2"),
         hr(),
-        p("<b>1. Détection des événements d'épissage — rMATS</b>", "h3"),
-        p("Les événements d'épissage alternatif (SE, RI, A3SS, A5SS, MXE) sont "
-          "détectés par <b>rMATS</b> (Shen et al., 2014) à partir de données "
-          "RNA-seq alignées. Les fichiers de sortie utilisés sont les comptages "
-          "de jonctions (<i>.MATS.JC.txt</i>). Les événements sont filtrés selon "
-          "un seuil de FDR et de |ΔΨ| défini lors de l'import.", "body"),
-        p("<b>2. Annotation des sites d'épissage</b>", "h3"),
-        p("Pour chaque événement SE, rMATS-Viz extrait les séquences génomiques "
-          "flanquantes depuis le génome de référence GRCh38 (hg38) indexé avec "
-          "<b>samtools faidx</b>. Les fenêtres extraites sont :", "body"),
-        p("• <b>5'SS donneur :</b> 3 nt exon + 6 nt intron (fenêtre de 9 nt)", "body"),
-        p("• <b>3'SS accepteur :</b> 20 nt intron + 3 nt exon (fenêtre de 23 nt)", "body"),
-        p("• <b>PPT :</b> ~47 nt en amont du site accepteur", "body"),
-        p("La règle GT-AG canonique est vérifiée pour chaque événement. Le score "
-          "PPT est défini comme la fraction de nucléotides pyrimidiques (C, T) "
-          "dans la fenêtre PPT. Le point de branchement est recherché par "
-          "correspondance au motif YNYURAY dans la région PPT.", "body"),
-        p("<b>3. Annotation MANE Select</b>", "h3"),
-        p("Le transcrit <b>MANE Select</b> est identifié via l'API REST d'Ensembl "
-          "(/lookup/id). L'exon sauté est cartographié sur le transcrit et classé "
-          "selon son impact sur le cadre de lecture :", "body"),
-        p("• <b>in_frame :</b> longueur CDS de l'exon divisible par 3", "body"),
-        p("• <b>frameshift :</b> longueur CDS non divisible par 3", "body"),
-        p("• <b>non_coding :</b> exon entièrement dans une région UTR", "body"),
-        p("Les résultats Ensembl sont mis en cache dans une base SQLite locale "
-          "pour éviter les appels répétés.", "body"),
+        p("<b>1. Splicing Event Detection — rMATS</b>", "h3"),
+        p("Alternative splicing events (SE, RI, A3SS, A5SS, MXE) are detected by "
+          "<b>rMATS</b> (Shen et al., 2014) from aligned RNA-seq data. The output "
+          "files used are junction read counts (<i>.MATS.JC.txt</i>). Events are "
+          "filtered according to FDR and |ΔΨ| thresholds set at import.", "body"),
+        p("<b>2. Splice Site Annotation</b>", "h3"),
+        p("For each SE event, rMATS-Viz extracts flanking genomic sequences from "
+          "the GRCh38 (hg38) reference genome indexed with <b>samtools faidx</b>. "
+          "Extracted windows are:", "body"),
+        p("• <b>5'SS donor:</b> 3 nt exon + 6 nt intron (9 nt window)", "body"),
+        p("• <b>3'SS acceptor:</b> 20 nt intron + 3 nt exon (23 nt window)", "body"),
+        p("• <b>PPT:</b> ~47 nt upstream of the acceptor site", "body"),
+        p("The canonical GT-AG rule is verified for each event. The PPT score is "
+          "defined as the fraction of pyrimidine nucleotides (C, T) in the PPT "
+          "window. The branch point is searched by matching the YNYURAY motif in "
+          "the PPT region.", "body"),
+        p("<b>3. MANE Select Annotation</b>", "h3"),
+        p("The <b>MANE Select</b> transcript is identified via the Ensembl REST "
+          "API (/lookup/id). The skipped exon is mapped onto the transcript and "
+          "classified by its reading-frame impact:", "body"),
+        p("• <b>in_frame:</b> CDS length of the exon divisible by 3", "body"),
+        p("• <b>frameshift:</b> CDS length not divisible by 3", "body"),
+        p("• <b>non_coding:</b> exon entirely within a UTR region", "body"),
+        p("Ensembl results are cached in a local SQLite database to avoid "
+          "repeated API calls.", "body"),
         sp(),
     ]
 
-    # ── Annexe B — Références ───────────────────────────────────────────────
+    # ── Appendix B — References ──────────────────────────────────────────────
     story += [
-        p("Annexe B — Références bibliographiques", "h2"),
+        p("Appendix B — Bibliographic References", "h2"),
         hr(),
         p("[1] Shen S et al. <i>rMATS: robust and flexible detection of differential "
           "alternative splicing from replicate RNA-Seq data.</i> PNAS. 2014.", "body"),
@@ -459,27 +458,27 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
         sp(),
     ]
 
-    # ── Annexe C — Tests statistiques ───────────────────────────────────────
+    # ── Appendix C — Statistical Methods ────────────────────────────────────
     story += [
-        p("Annexe C — Tests statistiques appliqués", "h2"),
+        p("Appendix C — Statistical Methods", "h2"),
         hr(),
-        p("<b>Statistique de l'événement d'épissage (rMATS)</b>", "h3"),
-        p("rMATS calcule pour chaque événement :", "body"),
-        p("• <b>ΔΨ (delta-PSI)</b> : différence d'inclusion entre les deux "
-          "conditions (Groupe 2 − Groupe 1). Varie entre −1 et +1.", "body"),
-        p("• <b>p-value</b> : basée sur un test de permutation bayésien ou un "
-          "test t sur les réplicats.", "body"),
-        p("• <b>FDR</b> : correction de Benjamini-Hochberg appliquée sur l'ensemble "
-          "des p-values de l'analyse. Seuil classique : FDR < 0.05.", "body"),
-        p("<b>Analyse de motifs (rMATS-Viz)</b>", "h3"),
-        p("• <b>PWM (Position Weight Matrix)</b> : calculée sur l'ensemble des "
-          "séquences 5'SS (9 nt) et 3'SS (23 nt) des événements SE analysés. "
-          "Chaque position est normalisée en fréquences de bases (A, C, G, T).", "body"),
-        p("• <b>Information content</b> : IC = 2 − H(p) bits par position, "
-          "où H(p) est l'entropie de Shannon. Les logos de séquences suivent "
-          "la convention WebLogo (Schneider & Stephens, 1990).", "body"),
-        p("• <b>Score PPT</b> : fraction de nucléotides pyrimidiques (C, T) "
-          "dans la fenêtre de ~47 nt en amont du site accepteur.", "body"),
+        p("<b>Splicing Event Statistic (rMATS)</b>", "h3"),
+        p("rMATS computes for each event:", "body"),
+        p("• <b>ΔΨ (delta-PSI)</b>: inclusion difference between the two "
+          "conditions (Group 2 − Group 1). Ranges from −1 to +1.", "body"),
+        p("• <b>p-value</b>: based on a Bayesian permutation test or a t-test "
+          "on replicates.", "body"),
+        p("• <b>FDR</b>: Benjamini-Hochberg correction applied across all "
+          "p-values of the analysis. Canonical threshold: FDR < 0.05.", "body"),
+        p("<b>Motif Analysis (rMATS-Viz)</b>", "h3"),
+        p("• <b>PWM (Position Weight Matrix)</b>: computed over all 5'SS (9 nt) "
+          "and 3'SS (23 nt) sequences from analysed SE events. Each position is "
+          "normalised to base frequencies (A, C, G, T).", "body"),
+        p("• <b>Information content</b>: IC = 2 − H(p) bits per position, "
+          "where H(p) is the Shannon entropy. Sequence logos follow the WebLogo "
+          "convention (Schneider &amp; Stephens, 1990).", "body"),
+        p("• <b>PPT score</b>: fraction of pyrimidine nucleotides (C, T) in "
+          "the ~47 nt window upstream of the acceptor site.", "body"),
         sp(),
     ]
 

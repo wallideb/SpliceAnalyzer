@@ -18,6 +18,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { runPermutationTest } from "@/lib/api/splice";
+import { useT } from "@/contexts/LanguageContext";
 import type { MetricPermResult, PermutationResponse } from "@/types/splice";
 
 // ---------------------------------------------------------------------------
@@ -28,40 +29,40 @@ type TabId = "delta_psi" | "ppt_score" | "exon_size" | "frame_in_frame" | "canon
 
 interface TabDef {
   id: TabId;
-  label: string;
+  labelKey: string;
   metricName?: string;  // matches MetricPermResult.metric_name; undefined = ΔΨ tab
-  description: string;
+  descKey: string;
 }
 
 const TABS: TabDef[] = [
   {
     id: "delta_psi",
-    label: "ΔΨ",
-    description: "Différence d'inclusion PSI par événement (test per-event).",
+    labelKey: "permutation.tabs.delta_psi.label",
+    descKey: "permutation.tabs.delta_psi.description",
   },
   {
     id: "ppt_score",
     metricName: "ppt_score",
-    label: "Score PPT",
-    description: "Score polypyrimidique moyen (% C/T dans les 47 nt avant 3'SS).",
+    labelKey: "permutation.tabs.ppt_score.label",
+    descKey: "permutation.tabs.ppt_score.description",
   },
   {
     id: "exon_size",
     metricName: "exon_size",
-    label: "Taille exon",
-    description: "Taille de l'exon sauté (normalisée sur la plage observée).",
+    labelKey: "permutation.tabs.exon_size.label",
+    descKey: "permutation.tabs.exon_size.description",
   },
   {
     id: "frame_in_frame",
     metricName: "frame_in_frame",
-    label: "Phase / In-frame",
-    description: "Fraction d'événements prédits in-frame (saut de 3n nt).",
+    labelKey: "permutation.tabs.frame_in_frame.label",
+    descKey: "permutation.tabs.frame_in_frame.description",
   },
   {
     id: "canonical_sites",
     metricName: "canonical_sites",
-    label: "Sites GT-AG",
-    description: "Score moyen de canonicité des sites d'épissage (GT donor, AG accepteur).",
+    labelKey: "permutation.tabs.canonical_sites.label",
+    descKey: "permutation.tabs.canonical_sites.description",
   },
 ];
 
@@ -131,16 +132,23 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
         <text x={2} y={MARGIN_T - 3} fontSize={6.5} fill="#64748b" fontFamily="sans-serif">N</text>
         <text x={W} y={SVG_H - 2} textAnchor="end" fontSize={6.5} fill="#64748b" fontFamily="sans-serif" fontStyle="italic">ΔΨ</text>
       </svg>
-      <div className="flex items-center gap-4 text-[9px] text-muted-foreground mt-1">
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-4 h-2.5 rounded-sm bg-blue-500/45" />
-          Distribution nulle H₀ (permutations)
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-4 h-2.5 rounded-sm bg-orange-500/70" />
-          ΔΨ observés
-        </span>
-      </div>
+      <DualHistLegend />
+    </div>
+  );
+}
+
+function DualHistLegend() {
+  const t = useT();
+  return (
+    <div className="flex items-center gap-4 text-[9px] text-muted-foreground mt-1">
+      <span className="flex items-center gap-1">
+        <span className="inline-block w-4 h-2.5 rounded-sm bg-blue-500/45" />
+        {t("permutation.results.nullDistribution")} (permutations)
+      </span>
+      <span className="flex items-center gap-1">
+        <span className="inline-block w-4 h-2.5 rounded-sm bg-orange-500/70" />
+        ΔΨ {t("permutation.results.observedDeltaPsi").toLowerCase()}
+      </span>
     </div>
   );
 }
@@ -230,21 +238,28 @@ function MetricHistogram({ metric }: { metric: MetricPermResult }) {
         <line x1={0} y1={MARGIN_T + CHART_H} x2={W} y2={MARGIN_T + CHART_H} stroke="#334155" strokeWidth={0.5} />
         <text x={2} y={MARGIN_T - 3} fontSize={6.5} fill="#64748b" fontFamily="sans-serif">N</text>
       </svg>
-      <div className="flex items-center gap-4 text-[9px] text-muted-foreground mt-1">
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-4 h-2.5 rounded-sm bg-blue-500/50" />
-          Distribution nulle H₀
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-4 h-0.5 rounded-sm" style={{ backgroundColor: obsColor }} />
-          Statistique observée
-          {metric.observed_stat !== null && (
-            <span className="tabular-nums font-mono">
-              {" "}({metric.observed_stat >= 0 ? "+" : ""}{metric.observed_stat.toFixed(3)})
-            </span>
-          )}
-        </span>
-      </div>
+      <MetricHistLegend obsColor={obsColor} observedStat={metric.observed_stat} />
+    </div>
+  );
+}
+
+function MetricHistLegend({ obsColor, observedStat }: { obsColor: string; observedStat: number | null }) {
+  const t = useT();
+  return (
+    <div className="flex items-center gap-4 text-[9px] text-muted-foreground mt-1">
+      <span className="flex items-center gap-1">
+        <span className="inline-block w-4 h-2.5 rounded-sm bg-blue-500/50" />
+        {t("permutation.results.nullDistribution")} H₀
+      </span>
+      <span className="flex items-center gap-1">
+        <span className="inline-block w-4 h-0.5 rounded-sm" style={{ backgroundColor: obsColor }} />
+        {t("permutation.results.observedDelta")}
+        {observedStat !== null && (
+          <span className="tabular-nums font-mono">
+            {" "}({observedStat >= 0 ? "+" : ""}{observedStat.toFixed(3)})
+          </span>
+        )}
+      </span>
     </div>
   );
 }
@@ -254,26 +269,27 @@ function MetricHistogram({ metric }: { metric: MetricPermResult }) {
 // ---------------------------------------------------------------------------
 
 function MetricSummary({ metric }: { metric: MetricPermResult }) {
+  const t = useT();
   const p = metric.empirical_p_value;
   const sig01 = p !== null && p < 0.01;
   const sig05 = p !== null && p < 0.05;
   return (
     <div className="flex flex-wrap gap-3">
       <div className="text-center px-3 py-2 rounded-lg bg-muted/40 border border-border">
-        <p className="text-[9px] text-muted-foreground uppercase tracking-wide">Événements valides</p>
+        <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{t("permutation.results.validEvents")}</p>
         <p className="text-base font-bold tabular-nums">{metric.n_valid}</p>
       </div>
       <div className="text-center px-3 py-2 rounded-lg bg-muted/40 border border-border">
-        <p className="text-[9px] text-muted-foreground uppercase tracking-wide">G1 (ΔΨ&lt;0)</p>
+        <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{t("permutation.results.g1")}</p>
         <p className="text-sm font-bold tabular-nums text-blue-600 dark:text-blue-400">{metric.n_g1}</p>
       </div>
       <div className="text-center px-3 py-2 rounded-lg bg-muted/40 border border-border">
-        <p className="text-[9px] text-muted-foreground uppercase tracking-wide">G2 (ΔΨ&gt;0)</p>
+        <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{t("permutation.results.g2")}</p>
         <p className="text-sm font-bold tabular-nums text-red-600 dark:text-red-400">{metric.n_g2}</p>
       </div>
       {metric.observed_stat !== null && (
         <div className="text-center px-3 py-2 rounded-lg bg-muted/40 border border-border">
-          <p className="text-[9px] text-muted-foreground uppercase tracking-wide">Δ observé</p>
+          <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{t("permutation.results.observedDelta")}</p>
           <p className="text-sm font-bold tabular-nums font-mono">
             {metric.observed_stat >= 0 ? "+" : ""}{metric.observed_stat.toFixed(3)}
           </p>
@@ -285,7 +301,7 @@ function MetricSummary({ metric }: { metric: MetricPermResult }) {
           sig05 ? "bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-700" :
                   "bg-muted/40 border-border"
         }`}>
-          <p className="text-[9px] text-muted-foreground uppercase tracking-wide">p empirique</p>
+          <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{t("permutation.results.empiricalP")}</p>
           <p className={`text-sm font-bold tabular-nums ${
             sig01 ? "text-green-700 dark:text-green-400" :
             sig05 ? "text-amber-700 dark:text-amber-400" : ""
@@ -308,6 +324,7 @@ function MetricSummary({ metric }: { metric: MetricPermResult }) {
 // ---------------------------------------------------------------------------
 
 function TopEventsTable({ events }: { events: PermutationResponse["events"] }) {
+  const t = useT();
   const sorted = [...events]
     .filter((e) => e.empirical_p_value !== null)
     .sort((a, b) => (a.empirical_p_value ?? 1) - (b.empirical_p_value ?? 1))
@@ -320,11 +337,11 @@ function TopEventsTable({ events }: { events: PermutationResponse["events"] }) {
       <table className="w-full text-[10px] border-collapse">
         <thead>
           <tr className="bg-muted/50">
-            <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground border border-border">Gène</th>
-            <th className="text-right px-2 py-1.5 font-semibold text-muted-foreground border border-border">ΔΨ observé</th>
-            <th className="text-right px-2 py-1.5 font-semibold text-muted-foreground border border-border">p empirique</th>
-            <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground border border-border">N groupes</th>
-            <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground border border-border">Significatif</th>
+            <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground border border-border">{t("permutation.results.gene")}</th>
+            <th className="text-right px-2 py-1.5 font-semibold text-muted-foreground border border-border">{t("permutation.results.observedDeltaPsi")}</th>
+            <th className="text-right px-2 py-1.5 font-semibold text-muted-foreground border border-border">{t("permutation.results.empiricalPValue")}</th>
+            <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground border border-border">{t("permutation.results.nGroups")}</th>
+            <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground border border-border">{t("permutation.results.significant")}</th>
           </tr>
         </thead>
         <tbody>
@@ -374,12 +391,10 @@ function TopEventsTable({ events }: { events: PermutationResponse["events"] }) {
 // ---------------------------------------------------------------------------
 
 function MethodLine() {
+  const t = useT();
   return (
     <p className="text-[9px] text-muted-foreground italic mt-1 leading-relaxed">
-      Test de permutation bilatéral — H₀&nbsp;: les étiquettes de groupe sont interchangeables
-      — p empirique&nbsp;= (k+1)/(N+1) avec correction de continuité (Phipson &amp; Smyth 2010).
-      {" "}Pour les métriques auxiliaires, les groupes G1&nbsp;(ΔΨ&nbsp;&lt;&nbsp;0) et G2&nbsp;(ΔΨ&nbsp;&gt;&nbsp;0)
-      sont définis par le signe du ΔΨ observé.
+      {t("permutation.results.method")}
     </p>
   );
 }
@@ -389,6 +404,7 @@ function MethodLine() {
 // ---------------------------------------------------------------------------
 
 export function PermutationPanel({ analysisId }: { analysisId: string }) {
+  const t = useT();
   const [nIterations, setNIterations] = useState(500);
   const [result, setResult] = useState<PermutationResponse | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("delta_psi");
@@ -405,7 +421,7 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
       <div className="flex flex-wrap items-end gap-4">
         <div>
           <label className="block text-[9px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-            Nombre d&apos;itérations
+            {t("permutation.iterations")}
           </label>
           <div className="flex items-center gap-2">
             <input
@@ -422,7 +438,7 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
             </span>
           </div>
           <p className="text-[9px] text-muted-foreground mt-0.5">
-            Plus d&apos;itérations = distribution nulle plus précise.
+            {t("permutation.moreIterations")}
           </p>
         </div>
 
@@ -437,13 +453,13 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
           )}
-          {isPending ? `Calcul en cours (${nIterations} itér.)…` : "Lancer le test de permutation"}
+          {isPending ? t("permutation.running", { n: String(nIterations) }) : t("permutation.launch")}
         </button>
       </div>
 
       {isError && (
         <p className="text-xs text-red-500">
-          Erreur lors du calcul. Vérifiez que les données PSI sont disponibles.
+          {t("permutation.error")}
         </p>
       )}
 
@@ -454,16 +470,16 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
           {/* Summary badges — always from ΔΨ test */}
           <div className="flex flex-wrap gap-3">
             <div className="text-center px-3 py-2 rounded-lg bg-muted/40 border border-border">
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wide">Événements testés</p>
+              <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{t("permutation.results.eventsTested")}</p>
               <p className="text-base font-bold tabular-nums">{result.n_events_tested}</p>
             </div>
             <div className="text-center px-3 py-2 rounded-lg bg-muted/40 border border-border">
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wide">Itérations</p>
+              <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{t("permutation.results.iterations")}</p>
               <p className="text-base font-bold tabular-nums">{result.n_iterations}</p>
             </div>
             {result.pct_p05 !== null && (
               <div className="text-center px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-950/20 dark:border-amber-700">
-                <p className="text-[9px] text-muted-foreground uppercase tracking-wide">Sig. p&lt;0.05</p>
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{t("permutation.results.sig05")}</p>
                 <p className="text-base font-bold tabular-nums text-amber-700 dark:text-amber-400">
                   {result.pct_p05}%
                 </p>
@@ -471,7 +487,7 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
             )}
             {result.pct_p01 !== null && (
               <div className="text-center px-3 py-2 rounded-lg bg-green-50 border border-green-200 dark:bg-green-950/20 dark:border-green-700">
-                <p className="text-[9px] text-muted-foreground uppercase tracking-wide">Sig. p&lt;0.01</p>
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{t("permutation.results.sig01")}</p>
                 <p className="text-base font-bold tabular-nums text-green-700 dark:text-green-400">
                   {result.pct_p01}%
                 </p>
@@ -481,7 +497,7 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
 
           {/* ── Horizontal tab bar ── */}
           <div className="border-b border-border">
-            <nav className="flex gap-1 -mb-px overflow-x-auto" aria-label="Paramètres permutation">
+            <nav className="flex gap-1 -mb-px overflow-x-auto" aria-label={t("permutation.iterations")}>
               {TABS.map((tab) => {
                 const active = activeTab === tab.id;
                 // Check if this metric has data (if it's a metric tab)
@@ -497,7 +513,7 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
                         : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted"
                     }`}
                   >
-                    {tab.label}
+                    {t(tab.labelKey)}
                   </button>
                 );
               })}
@@ -508,7 +524,7 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
           <div className="space-y-4">
             {/* Tab description */}
             <p className="text-[9px] text-muted-foreground">
-              {TABS.find(t => t.id === activeTab)?.description}
+              {TABS.find(tab => tab.id === activeTab)?.descKey ? t(TABS.find(tab => tab.id === activeTab)!.descKey) : ""}
             </p>
 
             {/* ΔΨ tab */}
@@ -516,7 +532,7 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
               <>
                 <div>
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                    Distribution des ΔΨ sous H₀ vs observés
+                    {t("permutation.results.nullDistribution")}
                   </p>
                   <DualHistogram
                     nullBins={result.global_null_hist_bins}
@@ -527,16 +543,14 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
                   <MethodLine />
                 </div>
 
-                <div className="p-3 rounded-lg bg-muted/30 border border-border text-[9px] leading-relaxed text-muted-foreground">
-                  <strong className="text-foreground">Interprétation :</strong>{" "}
-                  La distribution bleue représente la distribution nulle sous H₀ (labels aléatoires).
-                  La distribution orange représente les ΔΨ observés.
-                  Un déplacement vers des valeurs extrêmes (±1) indique un signal biologique réel.
-                </div>
+                <div
+                  className="p-3 rounded-lg bg-muted/30 border border-border text-[9px] leading-relaxed text-muted-foreground"
+                  dangerouslySetInnerHTML={{ __html: t("permutation.results.interpretation") }}
+                />
 
                 <div>
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                    Top événements les plus significatifs
+                    {t("permutation.results.topEvents")}
                   </p>
                   <TopEventsTable events={result.events} />
                 </div>
@@ -545,13 +559,12 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
 
             {/* Metric tabs */}
             {activeTab !== "delta_psi" && (() => {
-              const tab = TABS.find(t => t.id === activeTab)!;
-              const metric = result.metric_results.find(m => m.metric_name === tab.metricName);
+              const activeTabDef = TABS.find(tab => tab.id === activeTab)!;
+              const metric = result.metric_results.find(m => m.metric_name === activeTabDef.metricName);
               if (!metric) {
                 return (
                   <p className="text-[9px] text-muted-foreground italic py-4 text-center">
-                    Calculez le test de permutation pour voir ce paramètre.
-                    Les features de splice doivent être disponibles (FASTA requis pour PPT).
+                    {t("permutation.results.requiresPermutation")}
                   </p>
                 );
               }
@@ -560,19 +573,15 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
                   <MetricSummary metric={metric} />
                   <div>
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                      Distribution nulle — {metric.label}
+                      {t("permutation.results.nullDistLabel", { label: metric.label })}
                     </p>
                     <MetricHistogram metric={metric} />
                     <MethodLine />
                   </div>
-                  <div className="p-3 rounded-lg bg-muted/30 border border-border text-[9px] leading-relaxed text-muted-foreground">
-                    <strong className="text-foreground">Interprétation :</strong>{" "}
-                    Le test compare les événements avec ΔΨ&nbsp;&lt;&nbsp;0 (exon plus sauté en condition 2,
-                    groupe G1) vs ΔΨ&nbsp;&gt;&nbsp;0 (exon plus inclus, groupe G2).
-                    La statistique observée est mean(G2)&nbsp;−&nbsp;mean(G1).
-                    Si la ligne orange est dans la queue de la distribution bleue, la différence
-                    entre les deux groupes est statistiquement significative.
-                  </div>
+                  <div
+                    className="p-3 rounded-lg bg-muted/30 border border-border text-[9px] leading-relaxed text-muted-foreground"
+                    dangerouslySetInnerHTML={{ __html: t("permutation.results.interpretationMetric") }}
+                  />
                 </>
               );
             })()}
@@ -583,13 +592,8 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
       {/* Empty state */}
       {!result && !isPending && (
         <div className="py-8 text-center text-muted-foreground">
-          <p className="text-sm">
-            Lancez le test pour estimer la significativité empirique
-            des ΔΨ et des propriétés de splice signal.
-          </p>
-          <p className="text-[10px] mt-1">
-            5 paramètres testés : ΔΨ · score PPT · taille exon · phase · sites GT-AG.
-          </p>
+          <p className="text-sm">{t("permutation.empty.main")}</p>
+          <p className="text-[10px] mt-1">{t("permutation.empty.params")}</p>
         </div>
       )}
     </div>

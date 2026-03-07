@@ -144,10 +144,12 @@ def extract_region(
 
 @dataclass
 class SpliceWindows:
-    donor_seq: str      # 9 nt  : 3 exon + GT + 4 intron
-    acceptor_seq: str   # 23 nt : 20 intron + AG + 3 exon
-    ppt_seq: str        # 47 nt : upstream of 3'SS
-    source: str = "fasta"  # "fasta" | "ensembl"
+    donor_seq: str               # 9 nt  : 3 exon + GT + 4 intron  (skipped exon 5'SS)
+    acceptor_seq: str            # 23 nt : 20 intron + AG + 3 exon  (skipped exon 3'SS)
+    ppt_seq: str                 # 47 nt : upstream of 3'SS
+    upstream_donor_seq: str = ""    # 9 nt  : upstream flanking exon 5'SS
+    downstream_acceptor_seq: str = ""  # 23 nt : downstream flanking exon 3'SS
+    source: str = "fasta"        # "fasta" | "ensembl"
 
 
 def get_splice_windows(
@@ -156,26 +158,47 @@ def get_splice_windows(
     exon_start: int,
     exon_end: int,
     fasta_path: str | None = None,
+    upstream_ee: int | None = None,
+    downstream_es: int | None = None,
 ) -> SpliceWindows:
-    """Extract the three splice-signal windows for one SE skipped exon."""
+    """Extract splice-signal windows for one SE skipped exon.
+
+    upstream_ee   — end coordinate of the upstream flanking exon (0-based excl)
+    downstream_es — start coordinate of the downstream flanking exon (0-based incl)
+    """
     fp = fasta_path or settings.GRCH38_FASTA
 
     if strand == "+":
-        donor_seq = extract_region(chrom, exon_end - 3, exon_end + 6, "+", fp)
-        acceptor_seq = extract_region(chrom, exon_start - 20, exon_start + 3, "+", fp)
-        ppt_seq = extract_region(chrom, exon_start - 50, exon_start - 3, "+", fp)
+        donor_seq    = extract_region(chrom, exon_end - 3,    exon_end + 6,    "+", fp)
+        acceptor_seq = extract_region(chrom, exon_start - 20, exon_start + 3,  "+", fp)
+        ppt_seq      = extract_region(chrom, exon_start - 50, exon_start - 3,  "+", fp)
+        upstream_donor_seq = (
+            extract_region(chrom, upstream_ee - 3, upstream_ee + 6, "+", fp)
+            if upstream_ee is not None else ""
+        )
+        downstream_acceptor_seq = (
+            extract_region(chrom, downstream_es - 20, downstream_es + 3, "+", fp)
+            if downstream_es is not None else ""
+        )
     else:
-        # − strand: donor is at the exon_start side (genomically lower)
-        donor_seq = extract_region(chrom, exon_start - 6, exon_start + 3, "-", fp)
-        # acceptor is at the exon_end side (genomically higher)
-        acceptor_seq = extract_region(chrom, exon_end - 3, exon_end + 20, "-", fp)
-        # PPT is genomically above exon_end (= upstream in transcript)
-        ppt_seq = extract_region(chrom, exon_end + 3, exon_end + 50, "-", fp)
+        donor_seq    = extract_region(chrom, exon_start - 6,  exon_start + 3,  "-", fp)
+        acceptor_seq = extract_region(chrom, exon_end - 3,    exon_end + 20,   "-", fp)
+        ppt_seq      = extract_region(chrom, exon_end + 3,    exon_end + 50,   "-", fp)
+        upstream_donor_seq = (
+            extract_region(chrom, upstream_ee - 6, upstream_ee + 3, "-", fp)
+            if upstream_ee is not None else ""
+        )
+        downstream_acceptor_seq = (
+            extract_region(chrom, downstream_es - 3, downstream_es + 20, "-", fp)
+            if downstream_es is not None else ""
+        )
 
     return SpliceWindows(
         donor_seq=donor_seq,
         acceptor_seq=acceptor_seq,
         ppt_seq=ppt_seq,
+        upstream_donor_seq=upstream_donor_seq,
+        downstream_acceptor_seq=downstream_acceptor_seq,
         source="fasta",
     )
 
@@ -220,25 +243,45 @@ def get_splice_windows_from_ensembl(
     strand: str,
     exon_start: int,
     exon_end: int,
+    upstream_ee: int | None = None,
+    downstream_es: int | None = None,
 ) -> SpliceWindows:
     """Identical window definitions to get_splice_windows() via Ensembl REST API.
 
     Used as a fallback when no local FASTA/samtools is available.
-    Makes 3 sequential HTTP calls (donor, acceptor, PPT).
+    Makes up to 5 sequential HTTP calls (donor, acceptor, PPT, upstream donor, downstream acceptor).
     """
     if strand == "+":
         donor_seq    = _fetch_ensembl_seq(chrom, exon_end - 3,    exon_end + 6)
         acceptor_seq = _fetch_ensembl_seq(chrom, exon_start - 20, exon_start + 3)
         ppt_seq      = _fetch_ensembl_seq(chrom, exon_start - 50, exon_start - 3)
+        upstream_donor_seq = (
+            _fetch_ensembl_seq(chrom, upstream_ee - 3, upstream_ee + 6)
+            if upstream_ee is not None else ""
+        )
+        downstream_acceptor_seq = (
+            _fetch_ensembl_seq(chrom, downstream_es - 20, downstream_es + 3)
+            if downstream_es is not None else ""
+        )
     else:
         donor_seq    = reverse_complement(_fetch_ensembl_seq(chrom, exon_start - 6, exon_start + 3))
         acceptor_seq = reverse_complement(_fetch_ensembl_seq(chrom, exon_end - 3,   exon_end + 20))
         ppt_seq      = reverse_complement(_fetch_ensembl_seq(chrom, exon_end + 3,   exon_end + 50))
+        upstream_donor_seq = (
+            reverse_complement(_fetch_ensembl_seq(chrom, upstream_ee - 6, upstream_ee + 3))
+            if upstream_ee is not None else ""
+        )
+        downstream_acceptor_seq = (
+            reverse_complement(_fetch_ensembl_seq(chrom, downstream_es - 3, downstream_es + 20))
+            if downstream_es is not None else ""
+        )
 
     return SpliceWindows(
         donor_seq=donor_seq,
         acceptor_seq=acceptor_seq,
         ppt_seq=ppt_seq,
+        upstream_donor_seq=upstream_donor_seq,
+        downstream_acceptor_seq=downstream_acceptor_seq,
         source="ensembl",
     )
 

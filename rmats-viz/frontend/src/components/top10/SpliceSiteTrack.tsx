@@ -3,8 +3,13 @@
 /**
  * SpliceSiteTrack
  * ================
- * Displays donor (5'SS) and acceptor (3'SS) splice-site sequences as
+ * Displays all four splice-site sequences around the skipped exon as
  * per-nucleotide coloured blocks with position axes.
+ *
+ * SE event topology (+ strand):
+ *
+ *  [upstream exon]─5'SS─intron─3'SS─[skipped exon]─5'SS─intron─3'SS─[downstream exon]
+ *       Site 1 ↑                  ↑ Site 2     Site 3 ↑               ↑ Site 4
  *
  * Convention (Shapiro & Senapathy 1987, Burge & Karlin 1997):
  *  • 5'SS donor   — 9 nt: positions -3,-2,-1 (exon) | +1,+2 (GT) +3..+6 (intron)
@@ -146,27 +151,48 @@ function NucTrack({
 }
 
 // ---------------------------------------------------------------------------
+// Section separator
+// ---------------------------------------------------------------------------
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 mt-1">
+      <div className="flex-1 h-px bg-border" />
+      <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest whitespace-nowrap">
+        {children}
+      </span>
+      <div className="flex-1 h-px bg-border" />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Public component
 // ---------------------------------------------------------------------------
 
 export function SpliceSiteTrack({
   donorSeq,
   acceptorSeq,
+  upstreamDonorSeq,
+  downstreamAcceptorSeq,
   sequenceSource = null,
 }: {
   donorSeq: string | null;
   acceptorSeq: string | null;
+  upstreamDonorSeq?: string | null;
+  downstreamAcceptorSeq?: string | null;
   /** "fasta" | "ensembl" | null (null = no sequences computed). */
   sequenceSource?: string | null;
 }) {
-  const hasSeqs = !!(donorSeq || acceptorSeq);
+  const hasAnySeq = !!(donorSeq || acceptorSeq || upstreamDonorSeq || downstreamAcceptorSeq);
+  const hasFlankingSeqs = !!(upstreamDonorSeq || downstreamAcceptorSeq);
 
   return (
     <div className="mt-3 space-y-4 p-3 rounded-lg bg-muted/30 border border-border">
       {/* Header row with source badge */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-          Sites d&apos;épissage — séquences canoniques proches des exons sautés
+          Sites d&apos;épissage — 4 jonctions de l&apos;exon sauté
         </p>
         {sequenceSource === "ensembl" && (
           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300">
@@ -187,7 +213,7 @@ export function SpliceSiteTrack({
       </div>
 
       {/* No sequences available */}
-      {!hasSeqs && sequenceSource === null && (
+      {!hasAnySeq && sequenceSource === null && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300">
           <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
@@ -202,14 +228,9 @@ export function SpliceSiteTrack({
         </div>
       )}
 
-      {donorSeq && donorSeq.length >= 9 && (
-        <NucTrack
-          seq={donorSeq.slice(0, 9)}
-          positions={DONOR_POSITIONS}
-          canonicalIdx={DONOR_CANONICAL_IDX}
-          boundaryAt={DONOR_BOUNDARY}
-          label="5'SS donneur  (exon | intron) — GT canonique en +1/+2"
-        />
+      {/* ── Skipped exon splice sites ─────────────────────────────────────── */}
+      {(donorSeq || acceptorSeq) && (
+        <SectionLabel>Exon sauté</SectionLabel>
       )}
 
       {acceptorSeq && acceptorSeq.length >= 23 && (
@@ -218,11 +239,46 @@ export function SpliceSiteTrack({
           positions={ACCEPTOR_POSITIONS}
           canonicalIdx={ACCEPTOR_CANONICAL_IDX}
           boundaryAt={ACCEPTOR_BOUNDARY}
-          label="3'SS accepteur  (intron | exon) — AG canonique en −2/−1"
+          label="3'SS accepteur — intron → exon sauté  (AG canonique en −2/−1)"
         />
       )}
 
-      {hasSeqs && !donorSeq && !acceptorSeq && (
+      {donorSeq && donorSeq.length >= 9 && (
+        <NucTrack
+          seq={donorSeq.slice(0, 9)}
+          positions={DONOR_POSITIONS}
+          canonicalIdx={DONOR_CANONICAL_IDX}
+          boundaryAt={DONOR_BOUNDARY}
+          label="5'SS donneur — exon sauté → intron  (GT canonique en +1/+2)"
+        />
+      )}
+
+      {/* ── Flanking exon splice sites ────────────────────────────────────── */}
+      {hasFlankingSeqs && (
+        <SectionLabel>Exons flanquants</SectionLabel>
+      )}
+
+      {upstreamDonorSeq && upstreamDonorSeq.length >= 9 && (
+        <NucTrack
+          seq={upstreamDonorSeq.slice(0, 9)}
+          positions={DONOR_POSITIONS}
+          canonicalIdx={DONOR_CANONICAL_IDX}
+          boundaryAt={DONOR_BOUNDARY}
+          label="5'SS donneur — exon amont → intron  (GT canonique en +1/+2)"
+        />
+      )}
+
+      {downstreamAcceptorSeq && downstreamAcceptorSeq.length >= 23 && (
+        <NucTrack
+          seq={downstreamAcceptorSeq.slice(-23)}
+          positions={ACCEPTOR_POSITIONS}
+          canonicalIdx={ACCEPTOR_CANONICAL_IDX}
+          boundaryAt={ACCEPTOR_BOUNDARY}
+          label="3'SS accepteur — intron → exon aval  (AG canonique en −2/−1)"
+        />
+      )}
+
+      {hasAnySeq && !donorSeq && !acceptorSeq && !upstreamDonorSeq && !downstreamAcceptorSeq && (
         <p className="text-xs text-muted-foreground italic">
           Séquences non disponibles pour cet événement.
         </p>

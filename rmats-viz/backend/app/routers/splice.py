@@ -73,6 +73,8 @@ def _feat_to_response(feat: EventSpliceFeature, event: SplicingEvent) -> SpliceF
         donor_seq=feat.donor_seq,
         acceptor_seq=feat.acceptor_seq,
         ppt_seq=feat.ppt_seq,
+        upstream_donor_seq=feat.upstream_donor_seq,
+        downstream_acceptor_seq=feat.downstream_acceptor_seq,
         donor_is_gt=feat.donor_is_gt,
         acceptor_is_ag=feat.acceptor_is_ag,
         ppt_score=feat.ppt_score,
@@ -116,6 +118,9 @@ async def _fetch_features(
                     event.strand or "+",
                     event.exon_start,
                     event.exon_end,
+                    None,
+                    event.upstream_ee,
+                    event.downstream_es,
                 )
             except Exception as exc:
                 logger.warning("FASTA extraction failed for %s: %s", event.id, exc)
@@ -129,6 +134,8 @@ async def _fetch_features(
                     event.strand or "+",
                     event.exon_start,
                     event.exon_end,
+                    event.upstream_ee,
+                    event.downstream_es,
                 )
                 if not windows.donor_seq:   # empty → Ensembl also failed
                     windows = None
@@ -175,9 +182,11 @@ async def _upsert_feature(
         exon_size              = feat_data.exon_size,
         upstream_intron_size   = feat_data.upstream_intron_size,
         downstream_intron_size = feat_data.downstream_intron_size,
-        donor_seq              = feat_data.donor_seq or None,
-        acceptor_seq           = feat_data.acceptor_seq or None,
-        ppt_seq                = feat_data.ppt_seq or None,
+        donor_seq               = feat_data.donor_seq or None,
+        acceptor_seq            = feat_data.acceptor_seq or None,
+        ppt_seq                 = feat_data.ppt_seq or None,
+        upstream_donor_seq      = feat_data.upstream_donor_seq or None,
+        downstream_acceptor_seq = feat_data.downstream_acceptor_seq or None,
         donor_is_gt            = feat_data.donor_is_gt,
         acceptor_is_ag         = feat_data.acceptor_is_ag,
         ppt_score              = feat_data.ppt_score,

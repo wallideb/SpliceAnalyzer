@@ -23,10 +23,13 @@ class SpliceFeatureResponse(BaseModel):
     exon_size: int | None = None
     upstream_intron_size: int | None = None
     downstream_intron_size: int | None = None
-    # sequences
+    # sequences (skipped exon splice sites)
     donor_seq: str | None = None
     acceptor_seq: str | None = None
     ppt_seq: str | None = None
+    # sequences (flanking exon splice sites)
+    upstream_donor_seq: str | None = None
+    downstream_acceptor_seq: str | None = None
     # GT-AG
     donor_is_gt: bool | None = None
     acceptor_is_ag: bool | None = None

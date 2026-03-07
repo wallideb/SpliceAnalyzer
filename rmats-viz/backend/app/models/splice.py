@@ -65,10 +65,13 @@ class EventSpliceFeature(Base):
     upstream_intron_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     downstream_intron_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Raw sequences
-    donor_seq: Mapped[str | None] = mapped_column(Text, nullable=True)    # 9 nt
-    acceptor_seq: Mapped[str | None] = mapped_column(Text, nullable=True)  # 23 nt
-    ppt_seq: Mapped[str | None] = mapped_column(Text, nullable=True)        # ~47 nt
+    # Raw sequences (skipped exon)
+    donor_seq: Mapped[str | None] = mapped_column(Text, nullable=True)           # 9 nt  skipped exon 5'SS
+    acceptor_seq: Mapped[str | None] = mapped_column(Text, nullable=True)        # 23 nt skipped exon 3'SS
+    ppt_seq: Mapped[str | None] = mapped_column(Text, nullable=True)             # ~47 nt
+    # Raw sequences (flanking exons)
+    upstream_donor_seq: Mapped[str | None] = mapped_column(Text, nullable=True)       # 9 nt  upstream exon 5'SS
+    downstream_acceptor_seq: Mapped[str | None] = mapped_column(Text, nullable=True)  # 23 nt downstream exon 3'SS
 
     # GT-AG rule
     donor_is_gt: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

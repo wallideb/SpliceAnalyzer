@@ -142,6 +142,8 @@ export function SpliceView({
       <SpliceSiteTrack
         donorSeq={data.donor_seq ?? null}
         acceptorSeq={data.acceptor_seq ?? null}
+        upstreamDonorSeq={data.upstream_donor_seq ?? null}
+        downstreamAcceptorSeq={data.downstream_acceptor_seq ?? null}
         sequenceSource={data.sequence_source ?? null}
       />
 

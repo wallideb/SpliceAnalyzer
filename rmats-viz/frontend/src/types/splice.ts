@@ -13,10 +13,13 @@ export interface SpliceFeatureResponse {
   exon_size: number | null;
   upstream_intron_size: number | null;
   downstream_intron_size: number | null;
-  // sequences
+  // sequences (skipped exon splice sites)
   donor_seq: string | null;
   acceptor_seq: string | null;
   ppt_seq: string | null;
+  // sequences (flanking exon splice sites)
+  upstream_donor_seq: string | null;
+  downstream_acceptor_seq: string | null;
   // GT-AG
   donor_is_gt: boolean | null;
   acceptor_is_ag: boolean | null;

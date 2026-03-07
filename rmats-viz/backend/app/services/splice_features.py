@@ -114,10 +114,13 @@ class SpliceFeatureResult:
     exon_size: int | None = None
     upstream_intron_size: int | None = None
     downstream_intron_size: int | None = None
-    # sequences
+    # sequences (skipped exon splice sites)
     donor_seq: str = ""
     acceptor_seq: str = ""
     ppt_seq: str = ""
+    # sequences (flanking exon splice sites)
+    upstream_donor_seq: str = ""
+    downstream_acceptor_seq: str = ""
     # GT-AG
     donor_is_gt: bool | None = None
     acceptor_is_ag: bool | None = None
@@ -175,9 +178,11 @@ def compute_features(
         return res
 
     # Sequences
-    res.donor_seq    = windows.donor_seq
-    res.acceptor_seq = windows.acceptor_seq
-    res.ppt_seq      = windows.ppt_seq
+    res.donor_seq               = windows.donor_seq
+    res.acceptor_seq            = windows.acceptor_seq
+    res.ppt_seq                 = windows.ppt_seq
+    res.upstream_donor_seq      = windows.upstream_donor_seq
+    res.downstream_acceptor_seq = windows.downstream_acceptor_seq
 
     # GT-AG
     d = windows.donor_seq.upper()

@@ -152,27 +152,51 @@ function NucTrack({
 export function SpliceSiteTrack({
   donorSeq,
   acceptorSeq,
-  fastaAvailable = true,
+  sequenceSource = null,
 }: {
   donorSeq: string | null;
   acceptorSeq: string | null;
-  fastaAvailable?: boolean;
+  /** "fasta" | "ensembl" | null (null = no sequences computed). */
+  sequenceSource?: string | null;
 }) {
+  const hasSeqs = !!(donorSeq || acceptorSeq);
+
   return (
     <div className="mt-3 space-y-4 p-3 rounded-lg bg-muted/30 border border-border">
-      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-        Sites d&apos;épissage — séquences canoniques proches des exons sautés
-      </p>
+      {/* Header row with source badge */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+          Sites d&apos;épissage — séquences canoniques proches des exons sautés
+        </p>
+        {sequenceSource === "ensembl" && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" />
+            </svg>
+            via Ensembl REST
+          </span>
+        )}
+        {sequenceSource === "fasta" && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
+            </svg>
+            FASTA local
+          </span>
+        )}
+      </div>
 
-      {!fastaAvailable && (
+      {/* No sequences available */}
+      {!hasSeqs && sequenceSource === null && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300">
           <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
           </svg>
           <div>
-            <p className="text-xs font-semibold">FASTA non disponible — séquences non calculées</p>
+            <p className="text-xs font-semibold">Séquences non disponibles</p>
             <p className="text-[11px] mt-0.5 text-amber-700 dark:text-amber-400">
-              Seules les données de taille (coordonnées) sont affichées. Indexez un génome de référence FASTA pour activer l&apos;analyse des séquences d&apos;épissage (5&apos;SS GT, 3&apos;SS AG, PPT, branchpoint).
+              Ni FASTA local ni Ensembl REST n&apos;ont retourné de séquences pour cet événement.
+              Vérifiez la connexion réseau ou indexez un génome de référence local.
             </p>
           </div>
         </div>
@@ -198,7 +222,7 @@ export function SpliceSiteTrack({
         />
       )}
 
-      {fastaAvailable && !donorSeq && !acceptorSeq && (
+      {hasSeqs && !donorSeq && !acceptorSeq && (
         <p className="text-xs text-muted-foreground italic">
           Séquences non disponibles pour cet événement.
         </p>

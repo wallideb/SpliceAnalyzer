@@ -142,7 +142,7 @@ export function SpliceView({
       <SpliceSiteTrack
         donorSeq={data.donor_seq ?? null}
         acceptorSeq={data.acceptor_seq ?? null}
-        fastaAvailable={data.fasta_available ?? false}
+        sequenceSource={data.sequence_source ?? null}
       />
 
       {/* 1D — PPT per-nucleotide track */}

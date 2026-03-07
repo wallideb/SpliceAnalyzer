@@ -35,6 +35,7 @@ export interface SpliceFeatureResponse {
   cds_exon_length: number | null;
   // meta
   fasta_available: boolean;
+  sequence_source: string | null;  // "fasta" | "ensembl" | null
   error: string | null;
 }
 

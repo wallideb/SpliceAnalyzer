@@ -53,7 +53,7 @@ function interpolate(str: string, vars?: Record<string, string | number>): strin
 }
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLangState] = useState<Language>("en");
+  const [lang, setLangState] = useState<Language>("fr");
 
   // Restore persisted language on mount; also update the html lang attribute.
   useEffect(() => {
@@ -62,8 +62,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       setLangState(stored);
       document.documentElement.setAttribute("lang", stored);
     } else {
-      // Default to English; set attribute explicitly in case layout.tsx left "fr".
-      document.documentElement.setAttribute("lang", "en");
+      // Default to French.
+      document.documentElement.setAttribute("lang", "fr");
     }
   }, []);
 

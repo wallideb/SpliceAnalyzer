@@ -96,16 +96,11 @@ export function makeEventsColumns(
         if (val === null || val === undefined || val === 0)
           return <span className="text-muted-foreground/30">—</span>;
         if (isSE) {
-          // For SE: ΔΨ < 0 → more skipping in group1; ΔΨ > 0 → less skipping in group1
-          if (val < 0)
-            return (
-              <span className="inline-flex items-center gap-0.5 text-xs font-medium text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded whitespace-nowrap">
-                ↑ Saut chez {group1Label}
-              </span>
-            );
+          // ΔΨ < 0 → more skipping in group1; ΔΨ > 0 → more skipping in group2
+          const moreSkippingLabel = val < 0 ? group1Label : group2Label;
           return (
-            <span className="inline-flex items-center gap-0.5 text-xs font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 px-1.5 py-0.5 rounded whitespace-nowrap">
-              ↓ Saut chez {group1Label}
+            <span className="inline-flex items-center gap-0.5 text-xs font-medium text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded whitespace-nowrap">
+              ↑ Saut chez {moreSkippingLabel}
             </span>
           );
         }

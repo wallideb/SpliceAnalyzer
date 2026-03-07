@@ -653,7 +653,10 @@ function GeneSymbolWithTooltip({
 // Main card component
 // ---------------------------------------------------------------------------
 
-/** Returns a direction badge for SE exon-skipping events based on ΔΨ sign. */
+/** Returns a direction badge for SE exon-skipping events based on ΔΨ sign.
+ *  Always names the group that has MORE skipping (↑) so the label always
+ *  reads "↑ Saut chez patients" regardless of which group is group1/group2.
+ */
 function SEDirectionBadge({
   delta,
   group1Label = "Groupe 1",
@@ -666,15 +669,11 @@ function SEDirectionBadge({
   eventType: string | null | undefined;
 }) {
   if (eventType !== "SE" || delta === null || delta === undefined || delta === 0) return null;
-  if (delta < 0)
-    return (
-      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded-md whitespace-nowrap leading-none">
-        ↑ Saut chez {group1Label}
-      </span>
-    );
+  // ΔΨ < 0 → more skipping in group1; ΔΨ > 0 → more skipping in group2
+  const moreSkippingLabel = delta < 0 ? group1Label : group2Label;
   return (
-    <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 px-1.5 py-0.5 rounded-md whitespace-nowrap leading-none">
-      ↓ Saut chez {group1Label}
+    <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded-md whitespace-nowrap leading-none">
+      ↑ Saut chez {moreSkippingLabel}
     </span>
   );
 }

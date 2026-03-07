@@ -7,6 +7,7 @@ import { getAnalysis, listEvents, downloadAnalysisExcel, downloadAnalysisPDF } f
 import { EventsTable } from "@/components/events/EventsTable";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
 import { ScienceNote } from "@/components/ScienceNote";
+import { ExcelExportModal, type ExcelColumnGroup } from "@/components/ExcelExportModal";
 import { useBasket } from "@/contexts/BasketContext";
 import { useT, useLanguage } from "@/contexts/LanguageContext";
 import type { EventsQuery } from "@/lib/api";
@@ -46,6 +47,7 @@ export default function AnalysisDetailPage() {
 
   const [isExporting, setIsExporting] = useState(false);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [showExcelModal, setShowExcelModal] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [highlightTop10, setHighlightTop10] = useState(true);
   const [hideTop10, setHideTop10] = useState(false);
@@ -126,16 +128,17 @@ export default function AnalysisDetailPage() {
     setSelectedIds(new Set());
   }, [eventsPage, selectedIds, addItems, id, analysisName]);
 
-  const handleExport = useCallback(async () => {
+  const handleExport = useCallback(async (groups: ExcelColumnGroup[] = ["core"]) => {
     setIsExporting(true);
+    setShowExcelModal(false);
     try {
-      await downloadAnalysisExcel(id);
+      await downloadAnalysisExcel(id, groups);
     } catch {
       alert(t("analysisDetail.excelError"));
     } finally {
       setIsExporting(false);
     }
-  }, [id]);
+  }, [id, t]);
 
   const handleExportPDF = useCallback(async () => {
     setIsExportingPDF(true);
@@ -265,7 +268,7 @@ export default function AnalysisDetailPage() {
             {hideTop10 ? t("analysisDetail.top10Hidden") : t("analysisDetail.hideTop10")}
           </button>
           <button
-            onClick={handleExport}
+            onClick={() => setShowExcelModal(true)}
             disabled={isExporting}
             className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50 transition-colors"
           >
@@ -500,6 +503,14 @@ export default function AnalysisDetailPage() {
           </div>
         </div>
       )}
+
+      {/* ══ EXCEL EXPORT MODAL ══════════════════════════════════════════════ */}
+      <ExcelExportModal
+        isOpen={showExcelModal}
+        onClose={() => setShowExcelModal(false)}
+        onDownload={handleExport}
+        isDownloading={isExporting}
+      />
 
     </div>
   );

@@ -81,6 +81,23 @@ export const fr: Translations = {
     top10: "Top 10",
     excelError: "Erreur lors de l'export Excel. Veuillez réessayer.",
     pdfError: "Erreur lors de la génération du PDF. Veuillez réessayer.",
+    excelModal: {
+      title: "Export Excel",
+      description: "Sélectionnez les groupes de colonnes à inclure dans le tableur. Les détails de l'analyse d'épissage sont disponibles dans le rapport PDF.",
+      groups: {
+        core: "Données de base",
+        coreDesc: "Gène, coordonnées, statistiques rMATS (FDR, ΔΨ, PSI), features d'épissage (GT-AG, PPT, point de branchement), transcrit MANE, cadre de lecture",
+        panelapp: "PanelApp",
+        panelappDesc: "Confiance du panel de maladie et noms des panels depuis PanelApp Australia (Martin et al., 2019)",
+        go: "Gene Ontology",
+        goDesc: "Termes GO principaux (Processus biologique / Fonction moléculaire / Composant cellulaire) via mygene.info (GO Consortium, 2021)",
+        stringdb: "STRING-DB",
+        stringdbDesc: "Score d'interaction protéique maximal vs gènes mutés de l'analyse (Szklarczyk et al., 2023)",
+      },
+      spliceNote: "Les logos de sites d'épissage, les tracks PPT et les tests de permutation sont disponibles dans le rapport PDF — ils ne peuvent pas être exportés en Excel.",
+      download: "Télécharger Excel",
+      cancel: "Annuler",
+    },
     loading: "Chargement des événements…",
     filters: {
       allTypes: "Tous les types",

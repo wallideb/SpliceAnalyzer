@@ -80,6 +80,23 @@ export const en = {
     top10: "Top 10",
     excelError: "Error during Excel export. Please try again.",
     pdfError: "Error generating PDF. Please try again.",
+    excelModal: {
+      title: "Export Excel",
+      description: "Select column groups to include in the spreadsheet. Splice analysis details are available in the PDF report.",
+      groups: {
+        core: "Core data",
+        coreDesc: "Gene, coordinates, rMATS statistics (FDR, ΔΨ, PSI), splice features (GT-AG, PPT, branch point), MANE transcript, reading frame",
+        panelapp: "PanelApp",
+        panelappDesc: "Disease panel confidence and panel names from PanelApp Australia (Martin et al., 2019)",
+        go: "Gene Ontology",
+        goDesc: "Top GO terms (Biological Process / Molecular Function / Cellular Component) via mygene.info (GO Consortium, 2021)",
+        stringdb: "STRING-DB",
+        stringdbDesc: "Highest protein interaction score vs analysis mutated genes (Szklarczyk et al., 2023)",
+      },
+      spliceNote: "Splice-site logos, PPT tracks, and permutation test results are available in the PDF report — they cannot be exported to Excel.",
+      download: "Download Excel",
+      cancel: "Cancel",
+    },
     loading: "Loading events…",
     filters: {
       allTypes: "All types",

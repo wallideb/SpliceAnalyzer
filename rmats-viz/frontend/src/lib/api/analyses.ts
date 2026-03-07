@@ -45,8 +45,12 @@ export async function deleteAnalysis(id: string): Promise<void> {
   await fetch(`${BASE}/analyses/${id}`, { method: "DELETE" });
 }
 
-export async function downloadAnalysisExcel(analysisId: string): Promise<void> {
-  const url = `${BASE}/export/${analysisId}/excel`;
+export async function downloadAnalysisExcel(
+  analysisId: string,
+  include: string[] = ["core"],
+): Promise<void> {
+  const includeParam = include.join(",");
+  const url = `${BASE}/export/${analysisId}/excel?include=${encodeURIComponent(includeParam)}`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error("Export failed");
   const blob = await resp.blob();

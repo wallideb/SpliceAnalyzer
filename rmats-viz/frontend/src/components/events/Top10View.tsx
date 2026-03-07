@@ -31,9 +31,12 @@ interface Top10ViewProps {
   activeModules?: Set<string>;
   /** Analysis UUID — passed to AnnotatedCard (splice view) and MotifPatternPanel. */
   analysisId?: string;
+  /** Group labels for direction-of-effect badges (e.g. "Patients" / "Contrôles"). */
+  group1Label?: string;
+  group2Label?: string;
 }
 
-export function Top10View({ events, mutatedGenes = [], activeModules, analysisId }: Top10ViewProps) {
+export function Top10View({ events, mutatedGenes = [], activeModules, analysisId, group1Label, group2Label }: Top10ViewProps) {
   const [mode, setMode] = useState<ViewMode>("gene");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -100,6 +103,8 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
                   ensemblIdHint={ensemblHints[symKey] ?? ev.gene_id}
                   mutatedGenes={mutatedGenes}
                   analysisId={analysisId}
+                  group1Label={group1Label}
+                  group2Label={group2Label}
                 />
               );
             })}

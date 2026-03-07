@@ -45,6 +45,9 @@ interface AnnotatedCardProps {
   mutatedGenes: GeneEntry[];
   /** Analysis UUID — needed by SpliceView to trigger bulk feature computation. */
   analysisId?: string;
+  /** Group labels (e.g. "Patients" / "Contrôles") for direction-of-effect badges. */
+  group1Label?: string;
+  group2Label?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -650,7 +653,33 @@ function GeneSymbolWithTooltip({
 // Main card component
 // ---------------------------------------------------------------------------
 
-export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, analysisId }: AnnotatedCardProps) {
+/** Returns a direction badge for SE exon-skipping events based on ΔΨ sign. */
+function SEDirectionBadge({
+  delta,
+  group1Label = "Groupe 1",
+  group2Label = "Groupe 2",
+  eventType,
+}: {
+  delta: number | null | undefined;
+  group1Label?: string;
+  group2Label?: string;
+  eventType: string | null | undefined;
+}) {
+  if (eventType !== "SE" || delta === null || delta === undefined || delta === 0) return null;
+  if (delta < 0)
+    return (
+      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded-md whitespace-nowrap leading-none">
+        ↑ Saut chez {group1Label}
+      </span>
+    );
+  return (
+    <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 px-1.5 py-0.5 rounded-md whitespace-nowrap leading-none">
+      ↓ Saut chez {group1Label}
+    </span>
+  );
+}
+
+export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, analysisId, group1Label, group2Label }: AnnotatedCardProps) {
   const t = useT();
   const symbol = ev.gene_symbol ?? ev.gene_id ?? "";
 
@@ -681,7 +710,7 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
             </span>
           )}
           <GeneSymbolWithTooltip symbol={symbol || "—"} annotation={annotation} />
-          <div className="flex items-center gap-1.5 ml-auto shrink-0">
+          <div className="flex items-center gap-1.5 ml-auto shrink-0 flex-wrap">
             <PanelAppBadge annotation={annotation} />
             <EventTypeBadge type={ev.event_type} />
             <span className="text-[10px] text-muted-foreground font-mono">
@@ -694,6 +723,12 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
             }`}>
               ΔΨ {formatDeltaPSI(ev.inc_level_difference)}
             </span>
+            <SEDirectionBadge
+              delta={ev.inc_level_difference}
+              eventType={ev.event_type}
+              group1Label={group1Label}
+              group2Label={group2Label}
+            />
           </div>
         </div>
         {/* Diagramme plein format */}
@@ -732,7 +767,7 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
       </div>
 
       {/* ── Quick stats ── */}
-      <div className="flex gap-4 px-4 py-2 border-b border-border dark:border-slate-600/60 bg-muted/20 dark:bg-slate-700/30">
+      <div className="flex flex-wrap items-center gap-4 px-4 py-2 border-b border-border dark:border-slate-600/60 bg-muted/20 dark:bg-slate-700/30">
         <div>
           <dt className="text-[10px] text-muted-foreground">FDR</dt>
           <dd className="text-xs font-bold text-foreground">{formatFDR(ev.fdr)}</dd>
@@ -751,6 +786,12 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
           <dt className="text-[10px] text-muted-foreground">|ΔPSI|</dt>
           <dd className="text-xs font-semibold text-foreground">{ev.abs_inc_level_diff?.toFixed(3) ?? "—"}</dd>
         </div>
+        <SEDirectionBadge
+          delta={ev.inc_level_difference}
+          eventType={ev.event_type}
+          group1Label={group1Label}
+          group2Label={group2Label}
+        />
       </div>
 
       {/* ── Dynamic content ── */}

@@ -249,6 +249,8 @@ export default function DeepAnalysisPage() {
           mutatedGenes={mutatedGenes}
           activeModules={activeModules}
           analysisId={id}
+          group1Label={group1?.group_label ?? "Groupe 1"}
+          group2Label={group2?.group_label ?? "Groupe 2"}
         />
       )}
 

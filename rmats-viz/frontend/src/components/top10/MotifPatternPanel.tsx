@@ -254,6 +254,7 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
   const [showThresholds, setShowThresholds] = useState(false);
 
   const seCount = events.filter((e) => e.event_type === "SE").length;
+  const nonSeCount = events.length - seCount;
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["splice-patterns", analysisId, fdrThreshold, absDeltaPsiMin],
@@ -458,6 +459,11 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
         {!data.fasta_available && (
           <span className="self-center text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded px-2 py-1">
             FASTA non disponible — tailles depuis coords uniquement
+          </span>
+        )}
+        {nonSeCount > 0 && (
+          <span className="self-center text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded px-2 py-1">
+            {nonSeCount} événement{nonSeCount > 1 ? "s" : ""} non-SE exclu{nonSeCount > 1 ? "s" : ""} — motifs séquences SE uniquement
           </span>
         )}
       </div>

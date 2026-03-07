@@ -231,6 +231,36 @@ export default function DeepAnalysisPage() {
         )}
       </div>
 
+      {/* ── Event type breakdown (multi-file context) ── */}
+      {!loadingTop10 && allEvents.length > 0 && (() => {
+        const typeCounts: Record<string, number> = {};
+        for (const ev of allEvents) {
+          const t = ev.event_type ?? "?";
+          typeCounts[t] = (typeCounts[t] ?? 0) + 1;
+        }
+        const types = Object.entries(typeCounts).sort(([a], [b]) => a.localeCompare(b));
+        const hasMultipleTypes = types.length > 1;
+        return (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] text-muted-foreground font-medium">Types d&apos;événements :</span>
+            {types.map(([type, count]) => (
+              <span
+                key={type}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-card"
+              >
+                <span className="font-bold text-foreground">{type}</span>
+                <span className="text-muted-foreground">×{count}</span>
+              </span>
+            ))}
+            {hasMultipleTypes && (
+              <span className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded px-2 py-0.5">
+                Analyse séquences (motifs, logos, PPT) — SE uniquement
+              </span>
+            )}
+          </div>
+        );
+      })()}
+
       {/* ── Mutated gene annotation panel ── */}
       <MutatedGenePanel mutatedGenes={mutatedGenes} analysisId={id} />
 

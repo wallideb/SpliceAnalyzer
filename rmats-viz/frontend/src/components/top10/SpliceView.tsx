@@ -57,9 +57,17 @@ export function SpliceView({
 
   if (ev.event_type !== "SE") {
     return (
-      <p className="text-xs text-muted-foreground italic">
-        Analyse de sites d&apos;épissage disponible pour les évènements SE uniquement.
-      </p>
+      <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-muted/40 border border-border text-xs text-muted-foreground">
+        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div>
+          <span className="font-semibold text-foreground">Événement {ev.event_type}</span>
+          {" — "}L&apos;analyse de sites canoniques (5&apos;SS GT, 3&apos;SS AG, PPT, branchpoint) est
+          restreinte aux événements <span className="font-semibold">SE (exon skipping)</span>.
+          Les données statistiques (FDR, ΔΨ) restent disponibles dans les autres onglets.
+        </div>
+      </div>
     );
   }
 

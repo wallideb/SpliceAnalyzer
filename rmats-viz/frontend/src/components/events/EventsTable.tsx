@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-table";
 import type { SplicingEvent } from "@/types/event";
 import { makeEventsColumns } from "./EventsTableColumns";
+import { useT } from "@/contexts/LanguageContext";
 
 interface EventsTableProps {
   data: SplicingEvent[];
@@ -45,6 +46,7 @@ export function EventsTable({
   showIncLevel = false,
 }: EventsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
+  const t = useT();
 
   const pageIds = data.map((e) => e.id);
   const allPageSelected =
@@ -79,7 +81,7 @@ export function EventsTable({
     size: 40,
   };
 
-  const columns = [checkboxCol, ...makeEventsColumns(group1Label, group2Label, showIncLevel)];
+  const columns = [checkboxCol, ...makeEventsColumns(group1Label, group2Label, showIncLevel, t)];
 
   const table = useReactTable({
     data,

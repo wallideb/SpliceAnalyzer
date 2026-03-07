@@ -5,14 +5,16 @@ import { FileUploadZone } from "@/components/upload/FileUploadZone";
 import { GroupMappingDialog } from "@/components/upload/GroupMappingDialog";
 import { GeneAutocomplete } from "@/components/genes/GeneAutocomplete";
 import { uploadAnalysis } from "@/lib/api/analyses";
+import { useT } from "@/contexts/LanguageContext";
 import type { GeneEntry } from "@/types/gene";
 
 export default function NewAnalysisPage() {
   const router = useRouter();
+  const t = useT();
   const [name, setName] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [group1Label, setGroup1Label] = useState("Patients");
-  const [group2Label, setGroup2Label] = useState("Contrôles");
+  const [group2Label, setGroup2Label] = useState("Controls");
   const [mutatedGenes, setMutatedGenes] = useState<GeneEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,15 +50,15 @@ export default function NewAnalysisPage() {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-extrabold tracking-tight text-foreground">Nouvelle analyse</h1>
-        <p className="text-sm text-muted-foreground mt-1">Importez vos fichiers rMATS et configurez votre analyse</p>
+        <h1 className="text-2xl font-extrabold tracking-tight text-foreground">{t("newAnalysis.title")}</h1>
+        <p className="text-sm text-muted-foreground mt-1">{t("newAnalysis.subtitle")}</p>
       </div>
 
       {/* Step indicators */}
       <div className="flex items-center gap-2 mb-8">
-        <StepDot n={1} active={step === 1} done={step > 1} label="Fichiers & gènes" />
+        <StepDot n={1} active={step === 1} done={step > 1} label={t("newAnalysis.steps.filesGenes")} />
         <div className="flex-1 h-0.5 bg-border rounded" />
-        <StepDot n={2} active={step === 2} done={false} label="Groupes" />
+        <StepDot n={2} active={step === 2} done={false} label={t("newAnalysis.steps.groups")} />
       </div>
 
       <div className="bg-card border border-border rounded-xl p-6 space-y-5 shadow-sm">
@@ -65,27 +67,25 @@ export default function NewAnalysisPage() {
             {/* Analysis name */}
             <div>
               <label className="block text-sm font-semibold text-foreground mb-1.5">
-                Nom de l&apos;analyse
+                {t("newAnalysis.form.analysisName")}
               </label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Ex: PCBP1 cohort 2024"
+                placeholder={t("newAnalysis.form.analysisNamePlaceholder")}
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 transition-shadow"
               />
             </div>
 
-            {/* Mutated genes – Ensembl autocomplete */}
+            {/* Mutated genes */}
             <div>
               <label className="block text-sm font-semibold text-foreground mb-1">
-                Gène(s) muté(s) dans la cohorte{" "}
-                <span className="text-muted-foreground font-normal">(nomenclature HUGO)</span>
+                {t("newAnalysis.form.mutatedGenes")}{" "}
+                <span className="text-muted-foreground font-normal">{t("newAnalysis.form.mutatedGenesNomenclature")}</span>
               </label>
               <p className="text-xs text-muted-foreground mb-2">
-                Ces gènes seront affichés dans l&apos;analyse même s&apos;ils n&apos;apparaissent pas
-                dans les anomalies d&apos;épissage détectées. L&apos;identifiant Ensembl (ENSG) est
-                récupéré automatiquement.
+                {t("newAnalysis.form.mutatedGenesDescription")}
               </p>
               <GeneAutocomplete value={mutatedGenes} onChange={setMutatedGenes} />
             </div>
@@ -93,7 +93,7 @@ export default function NewAnalysisPage() {
             {/* File upload */}
             <div>
               <label className="block text-sm font-semibold text-foreground mb-2">
-                Fichiers rMATS
+                {t("newAnalysis.form.rMATSFiles")}
               </label>
               <FileUploadZone files={files} onChange={setFiles} />
             </div>
@@ -104,7 +104,7 @@ export default function NewAnalysisPage() {
                 onClick={() => setStep(2)}
                 className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm"
               >
-                Suivant
+                {t("newAnalysis.form.next")}
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
@@ -116,9 +116,9 @@ export default function NewAnalysisPage() {
         {step === 2 && (
           <>
             <div>
-              <h2 className="text-base font-semibold text-foreground mb-1">Labels des groupes</h2>
+              <h2 className="text-base font-semibold text-foreground mb-1">{t("newAnalysis.form.groupLabels")}</h2>
               <p className="text-sm text-muted-foreground mb-4">
-                Ces labels apparaîtront dans les colonnes IncLevel1 / IncLevel2.
+                {t("newAnalysis.form.groupLabelsDescription")}
               </p>
               <GroupMappingDialog
                 group1Label={group1Label}
@@ -128,11 +128,10 @@ export default function NewAnalysisPage() {
               />
             </div>
 
-            {/* Summary of selected genes */}
             {mutatedGenes.length > 0 && (
               <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3">
                 <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1.5">
-                  Gène(s) muté(s) sélectionné(s)
+                  {t("newAnalysis.form.selectedGenes")}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {mutatedGenes.map((g) => (
@@ -161,7 +160,7 @@ export default function NewAnalysisPage() {
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                 </svg>
-                Retour
+                {t("newAnalysis.form.back")}
               </button>
               <button
                 onClick={handleSubmit}
@@ -170,7 +169,7 @@ export default function NewAnalysisPage() {
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                Lancer l&apos;analyse
+                {t("newAnalysis.form.launchAnalysis")}
               </button>
             </div>
           </>
@@ -181,24 +180,18 @@ export default function NewAnalysisPage() {
 }
 
 function DnaLoadingScreen() {
+  const t = useT();
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-8">
       <div className="relative w-24 h-24 flex items-center justify-center">
-        <img
-          src="/logo.svg"
-          alt="SpliceAnalyzer"
-          className="w-20 h-20 dna-strand"
-          draggable={false}
-        />
+        <img src="/logo.svg" alt="SpliceAnalyzer" className="w-20 h-20 dna-strand" draggable={false} />
       </div>
-
       <div className="text-center space-y-2">
-        <p className="text-lg font-semibold text-foreground">Analyse en cours…</p>
+        <p className="text-lg font-semibold text-foreground">{t("newAnalysis.loading.title")}</p>
         <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
-          Veuillez patienter, suppression des duplicats et priorisation des événements d&apos;épissage…
+          {t("newAnalysis.loading.subtitle")}
         </p>
       </div>
-
       <div className="flex gap-2">
         {[0, 1, 2].map((i) => (
           <span

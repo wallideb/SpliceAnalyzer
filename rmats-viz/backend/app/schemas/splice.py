@@ -45,6 +45,7 @@ class SpliceFeatureResponse(BaseModel):
     cds_exon_length: int | None = None
     # status
     fasta_available: bool = False
+    sequence_source: str | None = None   # "fasta" | "ensembl" | None
     error: str | None = None
 
     model_config = {"from_attributes": True}

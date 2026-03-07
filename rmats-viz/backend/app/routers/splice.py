@@ -49,7 +49,7 @@ from app.schemas.splice import (
 from app.services.event_cluster import cluster_se_events
 from app.services.mane import annotate_mane, get_transcript_exons
 from app.services.permutation import run_permutation
-from app.services.sequence import fasta_available, get_splice_windows
+from app.services.sequence import fasta_available, get_splice_windows, get_splice_windows_from_ensembl
 from app.services.splice_features import compute_features, compute_pwm, iupac_consensus
 
 logger = logging.getLogger(__name__)
@@ -86,6 +86,7 @@ def _feat_to_response(feat: EventSpliceFeature, event: SplicingEvent) -> SpliceF
         frame_class=feat.frame_class,
         cds_exon_length=feat.cds_exon_length,
         fasta_available=bool(feat.donor_seq),
+        sequence_source=feat.sequence_source,
     )
 
 
@@ -104,7 +105,10 @@ async def _fetch_features(
     """
     async with _COMPUTE_SEM:
         windows = None
-        if fa_ok and event.exon_start is not None and event.exon_end is not None:
+        coords_ok = event.exon_start is not None and event.exon_end is not None
+
+        # 1. Try local FASTA (fast, offline)
+        if fa_ok and coords_ok:
             try:
                 windows = await asyncio.to_thread(
                     get_splice_windows,
@@ -114,9 +118,25 @@ async def _fetch_features(
                     event.exon_end,
                 )
             except Exception as exc:
-                logger.warning("sequence extraction failed for %s: %s", event.id, exc)
+                logger.warning("FASTA extraction failed for %s: %s", event.id, exc)
+
+        # 2. Fallback: Ensembl REST API (network, no local files required)
+        if windows is None and coords_ok:
+            try:
+                windows = await asyncio.to_thread(
+                    get_splice_windows_from_ensembl,
+                    event.chr or "",
+                    event.strand or "+",
+                    event.exon_start,
+                    event.exon_end,
+                )
+                if not windows.donor_seq:   # empty → Ensembl also failed
+                    windows = None
+            except Exception as exc:
+                logger.warning("Ensembl REST fallback failed for %s: %s", event.id, exc)
 
         feat_data = compute_features(event, windows)
+        seq_source: str | None = windows.source if windows is not None else None
 
         mane: dict = {}
         if event.gene_id:
@@ -132,7 +152,7 @@ async def _fetch_features(
             except Exception as exc:
                 logger.warning("MANE lookup failed for %s: %s", event.gene_id, exc)
 
-        return feat_data, mane
+        return feat_data, mane, seq_source
 
 
 async def _upsert_feature(
@@ -140,6 +160,7 @@ async def _upsert_feature(
     feat_data: Any,
     mane: dict,
     db: AsyncSession,
+    seq_source: str | None = None,
 ) -> EventSpliceFeature:
     """DB write step (sequential, single session)."""
     # Determine frame_class: prefer MANE-based result; fall back to exon-size
@@ -169,6 +190,7 @@ async def _upsert_feature(
         frame_region           = mane.get("frame_region", "unknown"),
         frame_class            = mane_frame_class,
         cds_exon_length        = mane.get("cds_exon_length"),
+        sequence_source        = seq_source,
     )
     stmt = (
         pg_insert(EventSpliceFeature)
@@ -186,8 +208,8 @@ async def _compute_one(
     fa_ok: bool,
 ) -> EventSpliceFeature:
     """Compute features for a single SE event (used by the per-event GET endpoint)."""
-    feat_data, mane = await _fetch_features(event, fa_ok)
-    return await _upsert_feature(event, feat_data, mane, db)
+    feat_data, mane, seq_source = await _fetch_features(event, fa_ok)
+    return await _upsert_feature(event, feat_data, mane, db, seq_source)
 
 
 # ---------------------------------------------------------------------------
@@ -228,8 +250,8 @@ async def compute_splice_features(
             logger.error("Feature compute failed for %s: %s", ev.id, res)
             continue
         try:
-            feat_data, mane = res
-            await _upsert_feature(ev, feat_data, mane, db)
+            feat_data, mane, seq_source = res
+            await _upsert_feature(ev, feat_data, mane, db, seq_source)
             n_computed += 1
         except Exception as exc:
             logger.error("DB write failed for %s: %s", ev.id, exc)

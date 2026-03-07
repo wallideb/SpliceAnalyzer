@@ -147,6 +147,7 @@ class SpliceWindows:
     donor_seq: str      # 9 nt  : 3 exon + GT + 4 intron
     acceptor_seq: str   # 23 nt : 20 intron + AG + 3 exon
     ppt_seq: str        # 47 nt : upstream of 3'SS
+    source: str = "fasta"  # "fasta" | "ensembl"
 
 
 def get_splice_windows(
@@ -175,6 +176,70 @@ def get_splice_windows(
         donor_seq=donor_seq,
         acceptor_seq=acceptor_seq,
         ppt_seq=ppt_seq,
+        source="fasta",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Ensembl REST API fallback (no local FASTA required)
+# ---------------------------------------------------------------------------
+
+def _fetch_ensembl_seq(chrom: str, start: int, end: int) -> str:
+    """Fetch a genomic sequence from Ensembl REST API (0-based BED → 1-based inclusive).
+
+    Returns empty string on any error (network, quota, region out of bounds).
+    """
+    import json
+    import urllib.request
+
+    if end <= start:
+        return ""
+
+    # Convert UCSC-style chr names to Ensembl (strip 'chr', map M → MT)
+    ens = chrom[3:] if chrom.startswith("chr") else chrom
+    if ens == "M":
+        ens = "MT"
+
+    region = f"{ens}:{start + 1}..{end}"
+    url = (
+        f"https://rest.ensembl.org/sequence/region/human/{region}"
+        "?content-type=application/json"
+    )
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "rmats-viz/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+            return data.get("seq", "").upper()
+    except Exception as exc:
+        logger.debug("Ensembl REST %s: %s", region, exc)
+        return ""
+
+
+def get_splice_windows_from_ensembl(
+    chrom: str,
+    strand: str,
+    exon_start: int,
+    exon_end: int,
+) -> SpliceWindows:
+    """Identical window definitions to get_splice_windows() via Ensembl REST API.
+
+    Used as a fallback when no local FASTA/samtools is available.
+    Makes 3 sequential HTTP calls (donor, acceptor, PPT).
+    """
+    if strand == "+":
+        donor_seq    = _fetch_ensembl_seq(chrom, exon_end - 3,    exon_end + 6)
+        acceptor_seq = _fetch_ensembl_seq(chrom, exon_start - 20, exon_start + 3)
+        ppt_seq      = _fetch_ensembl_seq(chrom, exon_start - 50, exon_start - 3)
+    else:
+        donor_seq    = reverse_complement(_fetch_ensembl_seq(chrom, exon_start - 6, exon_start + 3))
+        acceptor_seq = reverse_complement(_fetch_ensembl_seq(chrom, exon_end - 3,   exon_end + 20))
+        ppt_seq      = reverse_complement(_fetch_ensembl_seq(chrom, exon_end + 3,   exon_end + 50))
+
+    return SpliceWindows(
+        donor_seq=donor_seq,
+        acceptor_seq=acceptor_seq,
+        ppt_seq=ppt_seq,
+        source="ensembl",
     )
 
 

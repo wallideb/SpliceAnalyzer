@@ -90,4 +90,7 @@ class EventSpliceFeature(Base):
     frame_class: Mapped[str | None] = mapped_column(Text, nullable=True)
     cds_exon_length: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Source of sequence data: "fasta" | "ensembl" | None (sizes-only, no sequences)
+    sequence_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     computed_at: Mapped[datetime] = mapped_column(server_default=func.now())

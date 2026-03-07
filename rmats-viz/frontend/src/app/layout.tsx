@@ -6,12 +6,12 @@ import { AppHeader } from "@/components/layout/AppHeader";
 
 export const metadata: Metadata = {
   title: "SpliceAnalyzer",
-  description: "Exploration d'événements d'épissage différentiel",
+  description: "Differential splicing event explorer",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="fr" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen bg-background font-sans antialiased transition-colors duration-200">
         <Providers>
           <AppHeader />

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from io import BytesIO
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +17,13 @@ from app.database import get_db
 from app.models.analysis import Analysis
 from app.models.event import SplicingEvent
 from app.models.splice import EventSpliceFeature
+from app.services.panelapp import get_panels_for_gene
+from app.services.gene_ontology import get_go_terms
+from app.services.stringdb import get_interaction
+
+# ── Column group identifiers ──────────────────────────────────────────────────
+ColumnGroup = Literal["core", "panelapp", "go", "stringdb"]
+ALL_GROUPS: tuple[ColumnGroup, ...] = ("core", "panelapp", "go", "stringdb")
 
 router = APIRouter(prefix="/export", tags=["export"])
 
@@ -54,9 +63,38 @@ def _apply_row_banding(ws) -> None:
 @router.get("/{analysis_id}/excel")
 async def export_analysis_excel(
     analysis_id: uuid.UUID,
+    include: str = Query(
+        "core",
+        description=(
+            "Comma-separated list of column groups to include. "
+            "Allowed values: core, panelapp, go, stringdb. "
+            "Example: ?include=core,panelapp,go"
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    """Export all splicing events for *analysis_id* as an Excel .xlsx file."""
+    """Export all splicing events for *analysis_id* as an Excel .xlsx file.
+
+    Column groups
+    -------------
+    core      – gene, coordinates, rMATS statistics, splice features, MANE (always included)
+    panelapp  – top PanelApp disease panel confidence and panel names per gene
+    go        – top GO terms (BP / MF / CC) per gene via mygene.info
+    stringdb  – highest STRING-DB combined score vs each analysis mutated gene
+    """
+
+    # ── Parse include groups ──────────────────────────────────────────────────
+    requested: set[str] = {g.strip().lower() for g in include.split(",")}
+    valid: set[str] = set(ALL_GROUPS)
+    unknown = requested - valid
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown column group(s): {', '.join(sorted(unknown))}. "
+                   f"Allowed: {', '.join(ALL_GROUPS)}",
+        )
+    # core is always included
+    groups: set[str] = requested | {"core"}
 
     # ── 1. Verify analysis exists ─────────────────────────────────────────────
     analysis = await db.get(Analysis, analysis_id)
@@ -79,7 +117,84 @@ async def export_analysis_excel(
         for feat in feat_result.scalars().all():
             features[feat.event_id] = feat
 
-    # ── 4. Build the workbook ─────────────────────────────────────────────────
+    # ── 4. Fetch external annotations (per unique gene symbol) ───────────────
+    unique_symbols: list[str] = list({
+        e.gene_symbol for e in events if e.gene_symbol
+    })
+
+    # PanelApp columns
+    panelapp_data: dict[str, dict] = {}
+    if "panelapp" in groups and unique_symbols:
+        pa_results = await asyncio.gather(
+            *[get_panels_for_gene(sym) for sym in unique_symbols],
+            return_exceptions=True,
+        )
+        for sym, res in zip(unique_symbols, pa_results):
+            if isinstance(res, list) and res:
+                # Pick top confidence level: green > amber > red
+                conf_order = {"green": 0, "amber": 1, "red": 2}
+                top = min(res, key=lambda p: conf_order.get(p.get("confidence_label", ""), 3))
+                panel_names = ", ".join(p.get("panel_name", "") for p in res[:3])
+                panelapp_data[sym] = {
+                    "confidence": top.get("confidence_label", ""),
+                    "panels": panel_names,
+                }
+            else:
+                panelapp_data[sym] = {"confidence": "", "panels": ""}
+
+    # GO columns
+    go_data: dict[str, dict] = {}
+    if "go" in groups and unique_symbols:
+        go_results = await asyncio.gather(
+            *[get_go_terms(sym, None) for sym in unique_symbols],
+            return_exceptions=True,
+        )
+        for sym, res in zip(unique_symbols, go_results):
+            if isinstance(res, list):
+                by_cat: dict[str, list[str]] = {"BP": [], "MF": [], "CC": []}
+                for term in res:
+                    cat = term.get("category", "")
+                    if cat in by_cat:
+                        by_cat[cat].append(term.get("term", ""))
+                go_data[sym] = {
+                    "BP": "; ".join(by_cat["BP"][:3]),
+                    "MF": "; ".join(by_cat["MF"][:3]),
+                    "CC": "; ".join(by_cat["CC"][:3]),
+                }
+            else:
+                go_data[sym] = {"BP": "", "MF": "", "CC": ""}
+
+    # STRING-DB columns — highest combined score vs any analysis mutated gene
+    stringdb_data: dict[str, float | None] = {}
+    if "stringdb" in groups and unique_symbols:
+        mutated_genes: list[str] = [
+            g.get("symbol", "") for g in (analysis.mutated_genes or [])
+            if g.get("symbol")
+        ]
+        if mutated_genes:
+            # Build all (event_gene, mutated_gene) pairs, skip self-pairs
+            pairs = [
+                (sym, mut)
+                for sym in unique_symbols
+                for mut in mutated_genes
+                if sym.upper() != mut.upper()
+            ]
+            if pairs:
+                interaction_results = await asyncio.gather(
+                    *[get_interaction(sym, mut) for sym, mut in pairs],
+                    return_exceptions=True,
+                )
+                # For each event gene, keep the highest combined_score across mutated genes
+                for (sym, _mut), res in zip(pairs, interaction_results):
+                    if isinstance(res, dict) and res.get("has_interaction"):
+                        score = res.get("combined_score", 0.0) or 0.0
+                        current = stringdb_data.get(sym)
+                        if current is None or score > current:
+                            stringdb_data[sym] = score
+                    elif sym not in stringdb_data:
+                        stringdb_data[sym] = None
+
+    # ── 5. Build the workbook ─────────────────────────────────────────────────
     wb = openpyxl.Workbook()
 
     # ── Sheet 1 : Events ─────────────────────────────────────────────────────
@@ -101,10 +216,18 @@ async def export_analysis_excel(
         "Frame", "Region", "CDS Length",
         "MANE Transcript", "Exon Rank",
     ]
+    if "panelapp" in groups:
+        headers += ["PanelApp Confidence", "PanelApp Panels"]
+    if "go" in groups:
+        headers += ["GO:BP", "GO:MF", "GO:CC"]
+    if "stringdb" in groups:
+        headers += ["STRING Max Score"]
+
     ws_events.append(headers)
 
     for event in events:
         feat = features.get(event.id) if event.event_type == "SE" else None
+        sym = event.gene_symbol or ""
 
         row = [
             event.gene_symbol,
@@ -138,6 +261,16 @@ async def export_analysis_excel(
             feat.mane_transcript_id if feat else None,
             feat.exon_rank if feat else None,
         ]
+        if "panelapp" in groups:
+            pa = panelapp_data.get(sym, {"confidence": "", "panels": ""})
+            row += [pa["confidence"], pa["panels"]]
+        if "go" in groups:
+            go = go_data.get(sym, {"BP": "", "MF": "", "CC": ""})
+            row += [go["BP"], go["MF"], go["CC"]]
+        if "stringdb" in groups:
+            score = stringdb_data.get(sym)
+            row += [round(score, 3) if score is not None else None]
+
         ws_events.append(row)
 
     _style_header_row(ws_events)
@@ -148,6 +281,8 @@ async def export_analysis_excel(
 
     # ── Sheet 2 : Summary ────────────────────────────────────────────────────
     ws_summary = wb.create_sheet("Summary")
+    ws_summary.append(["Column groups included", ", ".join(sorted(groups))])
+    ws_summary.append([])
 
     # Count events by type
     type_counts: dict[str, int] = {}

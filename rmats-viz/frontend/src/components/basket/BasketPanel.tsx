@@ -4,17 +4,11 @@
  * BasketPanel
  * ============
  * Floating basket button + slide-in drawer.
- *
- * Features:
- *  - Persists across pages (rendered in the root layout)
- *  - Items grouped by analysis; each group has its own "Poursuivre" action
- *  - Top-10 always-included notice per group
- *  - Opens AnalysisOptionsModal before navigating to the deep-analysis page
- *  - Full dark-mode support (design tokens only)
  */
 
 import { useState } from "react";
 import { useBasket } from "@/contexts/BasketContext";
+import { useT } from "@/contexts/LanguageContext";
 import { AnalysisOptionsModal } from "./AnalysisOptionsModal";
 import { EventTypeBadge } from "@/components/events/EventTypeBadge";
 import type { EventType } from "@/types/event";
@@ -28,6 +22,7 @@ interface ModalTarget {
 
 export function BasketPanel() {
   const { items, removeItem, clearBasket, count } = useBasket();
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [modalTarget, setModalTarget] = useState<ModalTarget | null>(null);
 
@@ -53,7 +48,7 @@ export function BasketPanel() {
       {/* ── Floating trigger button ── */}
       <button
         onClick={() => setOpen(true)}
-        title="Ouvrir le panier"
+        title={t("basket.openBasket")}
         className="fixed bottom-6 right-6 z-40 flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-full shadow-lg transition-colors"
       >
         <svg
@@ -70,7 +65,7 @@ export function BasketPanel() {
             d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z"
           />
         </svg>
-        <span className="text-sm font-semibold">Panier</span>
+        <span className="text-sm font-semibold">{t("basket.title")}</span>
         {count > 0 && (
           <span className="bg-white text-blue-700 text-xs font-bold rounded-full px-2 py-0.5 min-w-[1.25rem] text-center">
             {count}
@@ -96,16 +91,16 @@ export function BasketPanel() {
         <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/40">
           <div>
             <h2 className="text-base font-semibold text-foreground">
-              Panier — {count} événement{count !== 1 ? "s" : ""}
+              {count !== 1 ? t("basket.headerPlural", { n: count }) : t("basket.header", { n: count })}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Sélectionnez des événements puis lancez l&apos;analyse approfondie.
+              {t("basket.subtitle")}
             </p>
           </div>
           <button
             onClick={() => setOpen(false)}
             className="text-muted-foreground hover:text-foreground p-1.5 rounded transition-colors"
-            aria-label="Fermer"
+            aria-label={t("basket.close")}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -115,11 +110,7 @@ export function BasketPanel() {
               stroke="currentColor"
               strokeWidth={2}
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M6 18L18 6M6 6l12 12"
-              />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
@@ -134,16 +125,9 @@ export function BasketPanel() {
             stroke="currentColor"
             strokeWidth={2}
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <span>
-            Les <strong>Top 10 événements</strong> seront toujours inclus dans
-            la poursuite de l&apos;analyse, quels que soient les événements du panier.
-          </span>
+          <span dangerouslySetInnerHTML={{ __html: t("basket.top10Notice") }} />
         </div>
 
         {/* Content */}
@@ -165,10 +149,9 @@ export function BasketPanel() {
                 />
               </svg>
               <p className="text-sm text-muted-foreground">
-                Le panier est vide.
+                {t("basket.empty.title")}
                 <br />
-                Sélectionnez des événements dans la liste puis cliquez sur{" "}
-                <strong>Ajouter au panier</strong>.
+                <span dangerouslySetInnerHTML={{ __html: t("basket.empty.subtitle") }} />
               </p>
             </div>
           ) : (
@@ -180,8 +163,8 @@ export function BasketPanel() {
                     {group.analysisName}
                   </p>
                   <span className="text-[11px] text-muted-foreground">
-                    {group.events.length} événement
-                    {group.events.length > 1 ? "s" : ""}
+                    {group.events.length}{" "}
+                    {group.events.length > 1 ? t("basket.eventPlural") : t("basket.event")}
                   </span>
                 </div>
 
@@ -194,9 +177,7 @@ export function BasketPanel() {
                     >
                       <div className="flex flex-col gap-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <EventTypeBadge
-                            type={item.event.event_type as EventType}
-                          />
+                          <EventTypeBadge type={item.event.event_type as EventType} />
                           <span className="font-semibold text-sm text-foreground truncate">
                             {item.event.gene_symbol ?? "—"}
                           </span>
@@ -221,15 +202,14 @@ export function BasketPanel() {
                                   : "text-blue-600 dark:text-blue-400"
                               }`}
                             >
-                              {item.event.inc_level_difference?.toFixed(3) ??
-                                "—"}
+                              {item.event.inc_level_difference?.toFixed(3) ?? "—"}
                             </span>
                           </span>
                         </div>
                       </div>
                       <button
                         onClick={() => removeItem(item.event.id)}
-                        title="Retirer du panier"
+                        title={t("basket.remove")}
                         className="shrink-0 text-muted-foreground/50 hover:text-destructive transition-colors p-0.5 mt-0.5"
                       >
                         <svg
@@ -240,18 +220,14 @@ export function BasketPanel() {
                           stroke="currentColor"
                           strokeWidth={2}
                         >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M6 18L18 6M6 6l12 12"
-                          />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
                     </div>
                   ))}
                 </div>
 
-                {/* Per-group "Poursuivre" button */}
+                {/* Per-group continue button */}
                 <button
                   onClick={() =>
                     setModalTarget({
@@ -270,13 +246,9 @@ export function BasketPanel() {
                     stroke="currentColor"
                     strokeWidth={2}
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M9 5l7 7-7 7"
-                    />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
-                  Poursuivre l&apos;analyse
+                  {t("basket.continueAnalysis")}
                 </button>
               </div>
             ))
@@ -290,7 +262,7 @@ export function BasketPanel() {
               onClick={clearBasket}
               className="text-sm text-destructive hover:text-destructive/80 underline transition-colors"
             >
-              Vider le panier
+              {t("basket.clearBasket")}
             </button>
           </div>
         )}

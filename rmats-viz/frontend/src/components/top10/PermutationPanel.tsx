@@ -79,6 +79,7 @@ interface DualHistProps {
 }
 
 function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistProps) {
+  const t = useT();
   if (!nullBins.length) return null;
 
   const W = 500;
@@ -96,7 +97,7 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
       <svg
         viewBox={`0 0 ${W} ${SVG_H}`}
         style={{ width: W, height: SVG_H, display: "block" }}
-        aria-label="Distribution des ΔΨ sous H₀ (permutation)"
+        aria-label={t("permutation.results.nullDistribution")}
       >
         {nullBins.map((bin, i) => {
           const nullH  = Math.round((nullCounts[i]  / maxCount) * CHART_H);
@@ -104,7 +105,7 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
           const x = i * (barW + 1);
           return (
             <g key={i}>
-              <title>{`ΔΨ ≈ ${bin.toFixed(2)} — H₀: ${nullCounts[i]}, observé: ${obsCounts[i] ?? 0}`}</title>
+              <title>{`ΔΨ ≈ ${bin.toFixed(2)} — H₀: ${nullCounts[i]}, obs: ${obsCounts[i] ?? 0}`}</title>
               <rect
                 x={x} y={MARGIN_T + CHART_H - nullH}
                 width={barW} height={nullH}
@@ -159,10 +160,11 @@ function DualHistLegend() {
 // ---------------------------------------------------------------------------
 
 function MetricHistogram({ metric }: { metric: MetricPermResult }) {
+  const t = useT();
   if (!metric.null_hist_bins.length) {
     return (
       <p className="text-[9px] text-muted-foreground italic py-4 text-center">
-        Données insuffisantes pour ce paramètre (n={metric.n_valid} événements avec valeur).
+        {t("permutation.results.insufficientData", { n: metric.n_valid })}
       </p>
     );
   }
@@ -193,7 +195,7 @@ function MetricHistogram({ metric }: { metric: MetricPermResult }) {
       <svg
         viewBox={`0 0 ${W} ${SVG_H}`}
         style={{ width: W, height: SVG_H, display: "block" }}
-        aria-label={`Distribution nulle — ${metric.label}`}
+        aria-label={t("permutation.results.nullDistLabel", { label: metric.label })}
       >
         {metric.null_hist_bins.map((bin, i) => {
           const h = Math.round((metric.null_hist_counts[i] / maxCount) * CHART_H);

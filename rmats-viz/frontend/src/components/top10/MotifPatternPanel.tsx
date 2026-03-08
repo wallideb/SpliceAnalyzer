@@ -57,6 +57,7 @@ function Bar({ pct, className = "" }: { pct: number; className?: string }) {
 
 /** SVG exon-size histogram — mean & median lines, tooltips, axis labels. */
 function ExonSizeHistogram({ stats }: { stats: ExonSizeStats }) {
+  const t = useT();
   const { distribution, mean, median } = stats;
   const [hoveredBin, setHoveredBin] = useState<{ bin: number; count: number; x: number; y: number } | null>(null);
 
@@ -89,7 +90,7 @@ function ExonSizeHistogram({ stats }: { stats: ExonSizeStats }) {
       <svg
         viewBox={`0 0 ${W} ${SVG_H}`}
         className="w-full max-w-[340px]"
-        aria-label="Distribution des tailles d'exons sautés"
+        aria-label={t("motifPanel.histogramAriaLabel")}
         style={{ overflow: "visible" }}
       >
         {/* Bars */}
@@ -106,7 +107,7 @@ function ExonSizeHistogram({ stats }: { stats: ExonSizeStats }) {
                 height={barH}
                 className="fill-blue-500/70 hover:fill-blue-500 cursor-pointer transition-colors"
                 rx={2}
-                title={`${d.bin}–${d.bin + 25} nt : ${d.count} événements`}
+                title={t("motifPanel.histogramBinTitle", { start: d.bin, end: d.bin + 25, count: d.count })}
                 onMouseEnter={() =>
                   setHoveredBin({ bin: d.bin, count: d.count, x: x + barW / 2, y })
                 }
@@ -147,7 +148,7 @@ function ExonSizeHistogram({ stats }: { stats: ExonSizeStats }) {
           className="fill-muted-foreground"
           fontStyle="italic"
         >
-          Taille (nt)
+          {t("motifPanel.histogramAxisTitle")}
         </text>
 
         {/* Mean line (red dashed) */}
@@ -169,7 +170,7 @@ function ExonSizeHistogram({ stats }: { stats: ExonSizeStats }) {
               fill="#ef4444"
               textAnchor="start"
             >
-              Moy. {Math.round(mean)} nt
+              {t("motifPanel.histogramMeanLabel", { n: Math.round(mean) })}
             </text>
           </g>
         )}
@@ -193,7 +194,7 @@ function ExonSizeHistogram({ stats }: { stats: ExonSizeStats }) {
               fill="#f97316"
               textAnchor="start"
             >
-              Méd. {Math.round(median)} nt
+              {t("motifPanel.histogramMedianLabel", { n: Math.round(median) })}
             </text>
           </g>
         )}
@@ -210,7 +211,7 @@ function ExonSizeHistogram({ stats }: { stats: ExonSizeStats }) {
               className="bg-popover text-popover-foreground border border-border rounded px-1.5 py-0.5 text-[9px] shadow-sm whitespace-nowrap"
               style={{ pointerEvents: "none" }}
             >
-              {hoveredBin.bin}–{hoveredBin.bin + 25} nt : <strong>{hoveredBin.count}</strong> évén.
+              {hoveredBin.bin}–{hoveredBin.bin + 25} nt : <strong>{hoveredBin.count}</strong> {t("motifPanel.histogramTooltipEvents")}
             </div>
           </foreignObject>
         )}
@@ -222,13 +223,13 @@ function ExonSizeHistogram({ stats }: { stats: ExonSizeStats }) {
           <svg width="18" height="8" className="inline-block">
             <line x1="0" y1="4" x2="18" y2="4" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="3 2" />
           </svg>
-          Moyenne
+          {t("motifPanel.histogramLegendMean")}
         </span>
         <span className="flex items-center gap-1">
           <svg width="18" height="8" className="inline-block">
             <line x1="0" y1="4" x2="18" y2="4" stroke="#f97316" strokeWidth="1.5" strokeDasharray="3 2" />
           </svg>
-          Médiane
+          {t("motifPanel.histogramLegendMedian")}
         </span>
       </div>
     </div>
@@ -359,10 +360,10 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
   // Frame totals for bar widths
   const frameTotal = (frame.in_frame + frame.frameshift + frame.non_coding + frame.unknown) || 1;
   const frameBars = [
-    { label: "In-frame",   value: frame.in_frame,   pct: (frame.in_frame / frameTotal) * 100,   color: "bg-green-500" },
-    { label: "Frameshift", value: frame.frameshift,  pct: (frame.frameshift / frameTotal) * 100,  color: "bg-red-500" },
-    { label: "Non-codant", value: frame.non_coding,  pct: (frame.non_coding / frameTotal) * 100,  color: "bg-slate-400" },
-    { label: "Inconnu",    value: frame.unknown,     pct: (frame.unknown / frameTotal) * 100,     color: "bg-muted-foreground/30" },
+    { label: "In-frame",                              value: frame.in_frame,   pct: (frame.in_frame / frameTotal) * 100,   color: "bg-green-500" },
+    { label: "Frameshift",                            value: frame.frameshift,  pct: (frame.frameshift / frameTotal) * 100,  color: "bg-red-500" },
+    { label: t("motifPanel.frameLabelNonCoding"),     value: frame.non_coding,  pct: (frame.non_coding / frameTotal) * 100,  color: "bg-slate-400" },
+    { label: t("motifPanel.frameLabelUnknown"),       value: frame.unknown,     pct: (frame.unknown / frameTotal) * 100,     color: "bg-muted-foreground/30" },
   ];
 
   const sigPct = data.n_se_events > 0
@@ -456,21 +457,21 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
             onClick={() => setShowThresholds(false)}
             className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
           >
-            Fermer ×
+            {t("motifPanel.close")}
           </button>
         </div>
       )}
 
       {/* ── 2C — Consensus ExonDiagram (figure principale) ── */}
-      <Section title="Exon consensus — vue d'ensemble cohorte">
+      <Section title={t("motifPanel.sectionConsensus")}>
         <ConsensusExonView data={data} />
       </Section>
 
       {/* ── Summary chips ── */}
       <div className="flex flex-wrap gap-3 items-start">
-        <SummaryChip label="Événements SE" value={data.n_se_events} />
-        <SummaryChip label="Analysés (seq.)" value={data.n_analyzed} />
-        <SummaryChip label="Clusters" value={data.clusters.n_clusters} />
+        <SummaryChip label={t("motifPanel.summarySeEvents")} value={data.n_se_events} />
+        <SummaryChip label={t("motifPanel.summaryAnalyzed")} value={data.n_analyzed} />
+        <SummaryChip label={t("motifPanel.summaryClusters")} value={data.clusters.n_clusters} />
         {/* Significance breakdown */}
         <div className="text-center px-3 py-2 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
           <p className="text-[9px] text-green-700 dark:text-green-400 uppercase tracking-wide font-semibold">{t("motifPanel.significantChip")}</p>
@@ -485,7 +486,7 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
         </div>
         {!data.fasta_available && (
           <span className="self-center text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded px-2 py-1">
-            FASTA non disponible — tailles depuis coords uniquement
+            {t("motifPanel.fastaNotAvailable")}
           </span>
         )}
         {nonSeCount > 0 && (
@@ -497,11 +498,11 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
 
       {/* ── Exon size distribution ── */}
       {exon_sizes && (
-        <Section title="Distribution des tailles d'exons sautés (nt)">
+        <Section title={t("motifPanel.sectionExonSizes")}>
           {exon_sizes.mean !== null && (
             <div className="flex gap-4 mb-2 text-[10px] text-muted-foreground">
-              <span>Moy. <strong className="text-foreground">{exon_sizes.mean} nt</strong></span>
-              <span>Méd. <strong className="text-foreground">{exon_sizes.median} nt</strong></span>
+              <span>{t("motifPanel.statMean")} <strong className="text-foreground">{exon_sizes.mean} nt</strong></span>
+              <span>{t("motifPanel.statMedian")} <strong className="text-foreground">{exon_sizes.median} nt</strong></span>
               <span>Min <strong className="text-foreground">{exon_sizes.min}</strong></span>
               <span>Max <strong className="text-foreground">{exon_sizes.max}</strong></span>
             </div>
@@ -512,10 +513,10 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
 
       {/* ── 5'SS donor logo ── */}
       {donor_sites && donor_sites.pwm.length > 0 && (
-        <Section title={`Site donneur 5'SS — ${donor_sites.n_sequences} séquences · ${donor_sites.pct_canonical}% GT canonique`}>
+        <Section title={t("motifPanel.sectionDonor", { n: donor_sites.n_sequences, pct: donor_sites.pct_canonical })}>
           {donor_sites.consensus && (
             <p className="text-[10px] text-muted-foreground mb-1">
-              Consensus IUPAC : <code className="font-mono font-bold text-foreground">{donor_sites.consensus}</code>
+              {t("motifPanel.iupacConsensus")} <code className="font-mono font-bold text-foreground">{donor_sites.consensus}</code>
             </p>
           )}
           <ConsensusLogoPanel
@@ -531,10 +532,10 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
 
       {/* ── 3'SS acceptor logo ── */}
       {acceptor_sites && acceptor_sites.pwm.length > 0 && (
-        <Section title={`Site accepteur 3'SS — ${acceptor_sites.n_sequences} séquences · ${acceptor_sites.pct_canonical}% AG canonique`}>
+        <Section title={t("motifPanel.sectionAcceptor", { n: acceptor_sites.n_sequences, pct: acceptor_sites.pct_canonical })}>
           {acceptor_sites.consensus && (
             <p className="text-[10px] text-muted-foreground mb-1">
-              Consensus IUPAC : <code className="font-mono font-bold text-foreground">{acceptor_sites.consensus}</code>
+              {t("motifPanel.iupacConsensus")} <code className="font-mono font-bold text-foreground">{acceptor_sites.consensus}</code>
             </p>
           )}
           <ConsensusLogoPanel
@@ -550,7 +551,7 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
 
       {/* ── PPT score distribution ── */}
       {ppt && ppt.scores.length > 0 && (
-        <Section title={`Zone PPT — score moyen ${ppt.mean_score !== null ? Math.round(ppt.mean_score * 100) + "%" : "—"} · run Y le plus long : ${ppt.mean_longest_run ?? "—"} nt`}>
+        <Section title={t("motifPanel.sectionPpt", { pct: ppt.mean_score !== null ? Math.round(ppt.mean_score * 100) : "—", run: ppt.mean_longest_run ?? "—" })}>
           <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
             {ppt.scores.slice(0, 50).map((s, i) => (
               <div key={i} className="flex items-center gap-1 w-14">
@@ -570,7 +571,7 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
       )}
 
       {/* ── Frame breakdown ── */}
-      <Section title="Classe de cadre de lecture (exon sauté)">
+      <Section title={t("motifPanel.sectionFrame")}>
         {/* Prominent summary badges */}
         <div className="flex flex-wrap gap-2 mb-3">
           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-700">
@@ -583,12 +584,12 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
           </span>
           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-slate-50 border-slate-200 dark:bg-slate-700/30 dark:border-slate-600">
             <span className="text-slate-600 dark:text-slate-300 text-base font-bold tabular-nums">{frame.non_coding}</span>
-            <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">non-codant</span>
+            <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">{t("motifPanel.frameLabelNonCoding")}</span>
           </span>
           {frame.unknown > 0 && (
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-muted border-border">
               <span className="text-muted-foreground text-base font-bold tabular-nums">{frame.unknown}</span>
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">inconnu</span>
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{t("motifPanel.frameLabelUnknown")}</span>
             </span>
           )}
         </div>
@@ -608,13 +609,13 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
 
       {/* ── Branch-point ── */}
       {bp_found_pct !== null && (
-        <Section title="Branch point detection (YNYURAY motif)">
+        <Section title={t("motifPanel.sectionBp")}>
           <div className="flex items-center gap-3">
             <Bar pct={bp_found_pct} className="bg-green-500" />
             <span className="text-[11px] font-semibold text-foreground tabular-nums">
               {bp_found_pct}%
             </span>
-            <span className="text-[10px] text-muted-foreground">detected</span>
+            <span className="text-[10px] text-muted-foreground">{t("motifPanel.bpDetected")}</span>
           </div>
         </Section>
       )}

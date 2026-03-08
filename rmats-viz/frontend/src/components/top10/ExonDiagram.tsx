@@ -17,6 +17,7 @@
  */
 
 import { useState } from "react";
+import { useT } from "@/contexts/LanguageContext";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -283,6 +284,7 @@ export function ExonDiagram({
   bpFound,
   bpDistance,
 }: ExonDiagramProps) {
+  const t = useT();
 
   // Hover state: which annotation element is expanded
   const [hoveredEl, setHoveredEl] = useState<"donor" | "acceptor" | "ppt" | "bp" | null>(null);
@@ -305,71 +307,71 @@ export function ExonDiagram({
   // ── Tooltips ──────────────────────────────────────────────────────────────
 
   const arcTooltip = [
-    fdr !== null              ? `FDR: ${fmtPval(fdr)}`                               : null,
-    incLevelDifference !== null ? `ΔΨ: ${fmtDelta(incLevelDifference)}`              : null,
-    pValue !== null           ? `p-value: ${fmtPval(pValue)}`                        : null,
-    psi1 != null              ? `PSI groupe 1 (moy.): ${psi1.toFixed(3)}`            : null,
-    psi2 != null              ? `PSI groupe 2 (moy.): ${psi2.toFixed(3)}`            : null,
+    fdr !== null              ? `FDR: ${fmtPval(fdr)}`                                                    : null,
+    incLevelDifference !== null ? `ΔΨ: ${fmtDelta(incLevelDifference)}`                                   : null,
+    pValue !== null           ? `p-value: ${fmtPval(pValue)}`                                             : null,
+    psi1 != null              ? t("exonDiagram.psiGroup1", { v: psi1.toFixed(3) })                        : null,
+    psi2 != null              ? t("exonDiagram.psiGroup2", { v: psi2.toFixed(3) })                        : null,
   ].filter(Boolean).join("\n");
 
   const skipTooltip = [
-    exonSize !== null         ? `Taille: ${fmtSize(exonSize)} nt`                    : null,
+    exonSize !== null         ? t("exonDiagram.size", { n: fmtSize(exonSize) })                           : null,
     exonStart != null && exonEnd != null
-      ? `Coordonnées: ${fmtCoord(exonStart)}–${fmtCoord(exonEnd)}`                  : null,
-    frameClass                ? `Frame: ${FRAME_LABELS[frameClass] ?? frameClass}`   : null,
-    maneTranscriptId          ? `MANE: ${maneTranscriptId}`                          : null,
-    exonRank != null          ? `Rang exon: ${exonRank}`                             : null,
+      ? t("exonDiagram.coords", { start: fmtCoord(exonStart), end: fmtCoord(exonEnd) })                  : null,
+    frameClass                ? `Frame: ${FRAME_LABELS[frameClass] ?? frameClass}`                        : null,
+    maneTranscriptId          ? `MANE: ${maneTranscriptId}`                                               : null,
+    exonRank != null          ? t("exonDiagram.exonRank", { n: exonRank })                                : null,
   ].filter(Boolean).join("\n");
 
   const upstreamTooltip = [
-    "Exon flanquant amont",
+    t("exonDiagram.upstreamFlankingExon"),
     upstreamExonStart != null && upstreamExonEnd != null
-      ? `Coordonnées: ${fmtCoord(upstreamExonStart)}–${fmtCoord(upstreamExonEnd)}`  : null,
+      ? t("exonDiagram.coords", { start: fmtCoord(upstreamExonStart), end: fmtCoord(upstreamExonEnd) })  : null,
   ].filter(Boolean).join("\n");
 
   const downstreamTooltip = [
-    "Exon flanquant aval",
+    t("exonDiagram.downstreamFlankingExon"),
     downstreamExonStart != null && downstreamExonEnd != null
-      ? `Coordonnées: ${fmtCoord(downstreamExonStart)}–${fmtCoord(downstreamExonEnd)}` : null,
+      ? t("exonDiagram.coords", { start: fmtCoord(downstreamExonStart), end: fmtCoord(downstreamExonEnd) }) : null,
   ].filter(Boolean).join("\n");
 
   const donorTooltip = donorSeq
     ? [
-        `Site donneur 5'SS${donorIsGt === false ? " ⚠ non-GT" : " — GT canonique"}`,
-        `Séquence 9 nt: ${donorSeq.slice(0, 3)}[GT]${donorSeq.slice(5)}`,
-        "Survolez pour voir la séquence complète",
+        donorIsGt === false ? t("exonDiagram.donor5ssNonGt") : t("exonDiagram.donor5ssCanonical"),
+        t("exonDiagram.seq9nt", { seq: `${donorSeq.slice(0, 3)}[GT]${donorSeq.slice(5)}` }),
+        t("exonDiagram.hoverForSeq"),
       ].join("\n")
-    : `Site donneur 5'SS${donorIsGt === false ? " ⚠ non-GT" : ""}`;
+    : (donorIsGt === false ? t("exonDiagram.donor5ssNonGt") : t("exonDiagram.donor5ss"));
 
   const acceptorTooltip = acceptorSeq
     ? [
-        `Site accepteur 3'SS${acceptorIsAg === false ? " ⚠ non-AG" : " — AG canonique"}`,
-        `Séquence 23 nt: …${acceptorSeq.slice(14, 19)}[AG]${acceptorSeq.slice(19)}`,
-        "Survolez pour voir la séquence complète",
+        acceptorIsAg === false ? t("exonDiagram.acceptor3ssNonAg") : t("exonDiagram.acceptor3ssCanonical"),
+        t("exonDiagram.seq23nt", { seq: `…${acceptorSeq.slice(14, 19)}[AG]${acceptorSeq.slice(19)}` }),
+        t("exonDiagram.hoverForSeq"),
       ].join("\n")
-    : `Site accepteur 3'SS${acceptorIsAg === false ? " ⚠ non-AG" : ""}`;
+    : (acceptorIsAg === false ? t("exonDiagram.acceptor3ssNonAg") : t("exonDiagram.acceptor3ss"));
 
   const pptInterpret =
-    (pptScore ?? 0) >= 0.7 ? "PPT fort" :
-    (pptScore ?? 0) >= 0.5 ? "PPT modéré" : "PPT faible";
+    (pptScore ?? 0) >= 0.7 ? t("exonDiagram.pptStrong") :
+    (pptScore ?? 0) >= 0.5 ? t("exonDiagram.pptModerate") : t("exonDiagram.pptWeak");
   const pptTooltip = [
-    "Zone polypyrimidine (PPT — 47 nt avant 3'SS)",
-    pptScore != null ? `Score Y: ${Math.round((pptScore) * 100)}% — ${pptInterpret}` : null,
-    pptSeq   ? `Séquence: ${pptSeq.slice(0, 24)}…` : null,
-    "Survolez pour voir la composition nucléotidique",
+    t("exonDiagram.pptZone"),
+    pptScore != null ? t("exonDiagram.pptScore", { pct: Math.round(pptScore * 100), interp: pptInterpret }) : null,
+    pptSeq   ? t("exonDiagram.pptSeq", { seq: `${pptSeq.slice(0, 24)}…` }) : null,
+    t("exonDiagram.hoverForNuc"),
   ].filter(Boolean).join("\n");
 
   const bpTooltip = bpFound
-    ? `Point de branchement (YNYURAY)\nTrouvé — ~${bpDistance} nt avant 3'SS\nSurvolez pour voir le détail`
-    : "Point de branchement (YNYURAY)\nNon détecté dans la région PPT";
+    ? `${t("exonDiagram.bp")}\n${t("exonDiagram.bpFound", { dist: bpDistance ?? "?" })}\n${t("exonDiagram.bpHoverDetail")}`
+    : `${t("exonDiagram.bp")}\n${t("exonDiagram.bpNotFound")}`;
 
   const fc           = frameClass ?? "unknown";
   const frameColors  = FRAME_COLORS[fc] ?? FRAME_COLORS.unknown;
   const frameLabel   = FRAME_LABELS[fc] ?? fc;
   const frameBadgeTooltip = [
     `Frame: ${frameLabel}`,
-    maneTranscriptId ? `Transcrit MANE: ${maneTranscriptId}` : "MANE: non trouvé",
-    exonRank != null ? `Rang exon: ${exonRank}` : null,
+    maneTranscriptId ? t("exonDiagram.maneTranscript", { id: maneTranscriptId }) : t("exonDiagram.maneNotFound"),
+    exonRank != null ? t("exonDiagram.exonRank", { n: exonRank }) : null,
   ].filter(Boolean).join("\n");
 
   const warnDonor    = donorIsGt    === false;
@@ -399,7 +401,7 @@ export function ExonDiagram({
       <svg
         viewBox={`0 0 ${W} ${H}`}
         style={{ width: "100%", display: "block" }}
-        aria-label="Diagramme exon sauté"
+        aria-label={t("exonDiagram.ariaLabel")}
         role="img"
       >
         {/* ── Arc de saut ── */}

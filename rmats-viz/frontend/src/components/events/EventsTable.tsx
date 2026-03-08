@@ -188,7 +188,7 @@ export function EventsTable({
             ) : table.getRowModel().rows.length === 0 ? (
               <tr>
                 <td colSpan={totalCols} className="text-center py-10 text-muted-foreground text-sm">
-                  Aucun résultat
+                  {t("eventTable.noResults")}
                 </td>
               </tr>
             ) : (

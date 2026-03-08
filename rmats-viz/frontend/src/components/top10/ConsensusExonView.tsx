@@ -19,6 +19,7 @@
  */
 
 import { ExonDiagram } from "./ExonDiagram";
+import { useT } from "@/contexts/LanguageContext";
 import type { PatternAnalysisResponse } from "@/types/splice";
 
 interface ConsensusExonViewProps {
@@ -44,6 +45,7 @@ function StatChip({ label, value }: { label: string; value: string | number | nu
 // ---------------------------------------------------------------------------
 
 export function ConsensusExonView({ data }: ConsensusExonViewProps) {
+  const t = useT();
   const {
     n_se_events,
     n_analyzed,
@@ -71,35 +73,35 @@ export function ConsensusExonView({ data }: ConsensusExonViewProps) {
 
       {/* ── Header stats ── */}
       <div className="flex flex-wrap gap-2">
-        <StatChip label="Évén. SE" value={n_se_events} />
-        <StatChip label="Analysés" value={n_analyzed} />
+        <StatChip label={t("consensusExon.seEvents")} value={n_se_events} />
+        <StatChip label={t("consensusExon.analyzed")} value={n_analyzed} />
         {exon_sizes.mean !== null && (
-          <StatChip label="Exon moy." value={`${Math.round(exon_sizes.mean)} nt`} />
+          <StatChip label={t("consensusExon.meanExon")} value={`${Math.round(exon_sizes.mean)} nt`} />
         )}
         {upstream_intron_sizes.median !== null && (
-          <StatChip label="Intron ↑ méd." value={`${Math.round(upstream_intron_sizes.median)} nt`} />
+          <StatChip label={t("consensusExon.upstreamMedian")} value={`${Math.round(upstream_intron_sizes.median)} nt`} />
         )}
         {downstream_intron_sizes.median !== null && (
-          <StatChip label="Intron ↓ méd." value={`${Math.round(downstream_intron_sizes.median)} nt`} />
+          <StatChip label={t("consensusExon.downstreamMedian")} value={`${Math.round(downstream_intron_sizes.median)} nt`} />
         )}
         {mean_delta_psi !== null && (
           <StatChip
-            label="ΔΨ moyen"
+            label={t("consensusExon.meanDeltaPsi")}
             value={mean_delta_psi >= 0 ? `+${mean_delta_psi.toFixed(2)}` : mean_delta_psi.toFixed(2)}
           />
         )}
         {ppt.mean_score !== null && (
-          <StatChip label="PPT moyen" value={`${Math.round(ppt.mean_score * 100)}%`} />
+          <StatChip label={t("consensusExon.meanPpt")} value={`${Math.round(ppt.mean_score * 100)}%`} />
         )}
       </div>
 
       {/* ── Consensus diagram ── */}
       <div>
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-          Exon fictif consensus
+          {t("consensusExon.consensusExonLabel")}
           {!hasConsensus && (
             <span className="ml-2 text-amber-600 dark:text-amber-400 normal-case">
-              (séquences non disponibles — FASTA requis)
+              {t("consensusExon.noSeq")}
             </span>
           )}
         </p>
@@ -130,9 +132,9 @@ export function ConsensusExonView({ data }: ConsensusExonViewProps) {
       {/* ── Frame breakdown summary ── */}
       <div className="flex flex-wrap gap-3 text-[10px]">
         {[
-          { label: "In-frame",   val: frame.in_frame,   color: "text-green-600 dark:text-green-400" },
-          { label: "Frameshift", val: frame.frameshift,  color: "text-red-600 dark:text-red-400" },
-          { label: "Non-codant", val: frame.non_coding,  color: "text-slate-500" },
+          { label: "In-frame",                               val: frame.in_frame,   color: "text-green-600 dark:text-green-400" },
+          { label: "Frameshift",                             val: frame.frameshift,  color: "text-red-600 dark:text-red-400" },
+          { label: t("consensusExon.frameLabelNonCoding"),   val: frame.non_coding,  color: "text-slate-500" },
         ].map((f) => (
           <span key={f.label} className={`${f.color} font-semibold`}>
             {f.label} : <span className="tabular-nums">{f.val}</span>
@@ -140,14 +142,13 @@ export function ConsensusExonView({ data }: ConsensusExonViewProps) {
         ))}
         {exon_sizes.min !== null && exon_sizes.max !== null && (
           <span className="text-muted-foreground">
-            Tailles : {exon_sizes.min}–{exon_sizes.max} nt
+            {t("consensusExon.sizeRange", { min: exon_sizes.min!, max: exon_sizes.max! })}
           </span>
         )}
       </div>
 
       <p className="text-[9px] text-muted-foreground italic">
-        L&apos;exon fictif consensus représente la taille moyenne des {n_se_events} événements SE ·
-        introns = médiane · ΔΨ = moyenne · séquences = consensus IUPAC de la PWM cohorte.
+        {t("consensusExon.description", { n: n_se_events })}
       </p>
     </div>
   );

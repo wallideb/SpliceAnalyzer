@@ -23,6 +23,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getGeneAnnotation } from "@/lib/api/annotations";
 import { listEvents } from "@/lib/api/events";
+import { useT } from "@/contexts/LanguageContext";
 import type { GeneEntry } from "@/types/gene";
 import type { GeneAnnotation, PanelConfidence } from "@/types/annotation";
 
@@ -31,13 +32,6 @@ import type { GeneAnnotation, PanelConfidence } from "@/types/annotation";
 // ---------------------------------------------------------------------------
 
 type GeneTab = "gene" | "go" | "panelapp" | "scores";
-
-const TAB_LABELS: Record<GeneTab, string> = {
-  gene:     "Gène",
-  go:       "GO",
-  panelapp: "PanelApp",
-  scores:   "Scores rMATS",
-};
 
 // ---------------------------------------------------------------------------
 // Style helpers
@@ -68,6 +62,7 @@ const GO_COLOR: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 function GeneTabView({ gene, annotation }: { gene: GeneEntry; annotation?: GeneAnnotation }) {
+  const t = useT();
   const ensg = gene.ensembl_id || annotation?.ensembl_id;
   const ensemblUrl = ensg
     ? `https://www.ensembl.org/Homo_sapiens/Gene/Summary?g=${ensg}`
@@ -96,7 +91,7 @@ function GeneTabView({ gene, annotation }: { gene: GeneEntry; annotation?: GeneA
       {ensemblUrl && (
         <a href={ensemblUrl} target="_blank" rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline">
-          <ExternalIcon /> Voir sur Ensembl
+          <ExternalIcon /> {t("mutatedGenePanel.viewOnEnsembl")}
         </a>
       )}
     </div>
@@ -104,9 +99,10 @@ function GeneTabView({ gene, annotation }: { gene: GeneEntry; annotation?: GeneA
 }
 
 function GOTabView({ annotation, isLoading }: { annotation?: GeneAnnotation; isLoading: boolean }) {
+  const t = useT();
   if (isLoading) return <Skeleton rows={3} />;
   const terms = annotation?.go_terms ?? [];
-  if (!terms.length) return <Empty text="Aucun terme GO disponible." />;
+  if (!terms.length) return <Empty text={t("mutatedGenePanel.noGoTerms")} />;
 
   const grouped = terms.reduce<Record<string, typeof terms>>((acc, t) => {
     (acc[t.category] ||= []).push(t);
@@ -121,7 +117,7 @@ function GOTabView({ annotation, isLoading }: { annotation?: GeneAnnotation; isL
         return (
           <div key={cat}>
             <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-1">
-              {cat === "BP" ? "Processus biol." : cat === "MF" ? "Fonction mol." : "Composant cell."}
+              {t(`mutatedGenePanel.goCategories.${cat}`)}
             </p>
             <div className="flex flex-wrap gap-1">
               {catTerms.slice(0, 3).map((t) => (
@@ -140,9 +136,10 @@ function GOTabView({ annotation, isLoading }: { annotation?: GeneAnnotation; isL
 }
 
 function PanelAppTabView({ annotation, isLoading }: { annotation?: GeneAnnotation; isLoading: boolean }) {
+  const t = useT();
   if (isLoading) return <Skeleton rows={2} />;
   const panels = annotation?.panels ?? [];
-  if (!panels.length) return <Empty text="Aucun panel PanelApp trouvé." />;
+  if (!panels.length) return <Empty text={t("mutatedGenePanel.noPanelApp")} />;
 
   return (
     <div className="space-y-1.5">
@@ -189,28 +186,29 @@ function ScoresTabView({
     staleTime: 5 * 60 * 1000,
   });
 
-  if (!analysisId) return <Empty text="Contexte d'analyse non disponible." />;
+  const t = useT();
+  if (!analysisId) return <Empty text={t("mutatedGenePanel.noContext")} />;
 
   return (
     <div className="space-y-2 text-xs">
       <div className="grid grid-cols-2 gap-2">
         <div className="bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-600 rounded-lg px-2.5 py-2 text-center">
-          <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">Évén. significatifs</p>
+          <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">{t("mutatedGenePanel.sigEvents")}</p>
           <p className="text-lg font-extrabold text-amber-800 dark:text-amber-300 tabular-nums">
-            {isLoading ? "…" : (data?.total.toLocaleString("fr-FR") ?? "—")}
+            {isLoading ? "…" : (data?.total.toLocaleString() ?? "—")}
           </p>
           <p className="text-[10px] text-amber-600 dark:text-amber-500">FDR &lt; 0.05</p>
         </div>
         <div className="bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-600 rounded-lg px-2.5 py-2 text-center">
-          <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">Total événements</p>
+          <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">{t("mutatedGenePanel.totalEvents")}</p>
           <p className="text-lg font-extrabold text-amber-800 dark:text-amber-300 tabular-nums">
-            {loadingAll ? "…" : (allData?.total.toLocaleString("fr-FR") ?? "—")}
+            {loadingAll ? "…" : (allData?.total.toLocaleString() ?? "—")}
           </p>
-          <p className="text-[10px] text-amber-600 dark:text-amber-500">toutes catégories</p>
+          <p className="text-[10px] text-amber-600 dark:text-amber-500">{t("mutatedGenePanel.allCategories")}</p>
         </div>
       </div>
       <p className="text-[10px] text-muted-foreground italic">
-        Scores détaillés disponibles dans le tableau des événements.
+        {t("mutatedGenePanel.detailedScores")}
       </p>
     </div>
   );
@@ -255,7 +253,15 @@ function GeneCard({
   analysisId?: string;
   fullWidth?: boolean;
 }) {
+  const t = useT();
   const [tab, setTab] = useState<GeneTab>("gene");
+
+  const TAB_LABELS: Record<GeneTab, string> = {
+    gene:     t("mutatedGenePanel.tabs.gene"),
+    go:       t("mutatedGenePanel.tabs.go"),
+    panelapp: t("mutatedGenePanel.tabs.panelapp"),
+    scores:   t("mutatedGenePanel.tabs.scores"),
+  };
 
   const { data: annotation, isLoading } = useQuery({
     queryKey: ["annotation", gene.symbol, gene.ensembl_id],
@@ -317,6 +323,7 @@ function GeneCard({
 // ---------------------------------------------------------------------------
 
 function NoGeneCard() {
+  const t = useT();
   return (
     <div className="flex items-center gap-4 border-2 border-dashed border-muted rounded-xl bg-muted/10 dark:bg-muted/5 px-6 py-4">
       <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7 text-muted-foreground/30 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -324,11 +331,10 @@ function NoGeneCard() {
       </svg>
       <div>
         <p className="text-sm font-semibold text-muted-foreground">
-          Aucun gène candidat sélectionné lors de l&apos;analyse
+          {t("mutatedGenePanel.noGeneSelected")}
         </p>
         <p className="text-[11px] text-muted-foreground/60 mt-0.5">
-          Ajoutez un gène muté lors de la création ou modification de l&apos;analyse
-          pour activer les annotations et l&apos;onglet Interactions STRING-DB.
+          {t("mutatedGenePanel.noGeneSubtext")}
         </p>
       </div>
     </div>
@@ -353,6 +359,7 @@ interface MutatedGenePanelProps {
 }
 
 export function MutatedGenePanel({ mutatedGenes, analysisId, layout = "horizontal" }: MutatedGenePanelProps) {
+  const t = useT();
   // ── Vertical sidebar mode ────────────────────────────────────────────────
   if (layout === "vertical") {
     return (
@@ -370,15 +377,15 @@ export function MutatedGenePanel({ mutatedGenes, analysisId, layout = "horizonta
 
   // ── Horizontal strip mode (default) ─────────────────────────────────────
   return (
-    <section aria-label="Gènes candidats" className="bg-amber-50/30 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-700/60 rounded-xl p-4">
+    <section aria-label={t("mutatedGenePanel.sectionLabel")} className="bg-amber-50/30 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-700/60 rounded-xl p-4">
       <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
         <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
         </svg>
-        Gène{mutatedGenes.length !== 1 ? "s" : ""} candidat{mutatedGenes.length !== 1 ? "s" : ""}
+        {mutatedGenes.length !== 1 ? t("mutatedGenePanel.candidateGenes") : t("mutatedGenePanel.candidateGene")}
         {mutatedGenes.length > 0 && (
           <span className="ml-1 font-normal normal-case text-amber-600 dark:text-amber-500">
-            — cliquez sur un onglet pour explorer les annotations
+            {t("mutatedGenePanel.clickTabToExplore")}
           </span>
         )}
       </p>

@@ -62,10 +62,8 @@ export function SpliceView({
           <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <div>
-          <span className="font-semibold text-foreground">Événement {ev.event_type}</span>
-          {" — "}L&apos;analyse de sites canoniques (5&apos;SS GT, 3&apos;SS AG, PPT, branchpoint) est
-          restreinte aux événements <span className="font-semibold">SE (exon skipping)</span>.
-          Les données statistiques (FDR, ΔΨ) restent disponibles dans les autres onglets.
+          <span className="font-semibold text-foreground">{t("spliceView.nonSeEventTitle", { type: ev.event_type })}</span>
+          {" — "}{t("spliceView.nonSeEventDesc")}
         </div>
       </div>
     );
@@ -85,7 +83,7 @@ export function SpliceView({
     return (
       <div className="flex flex-col items-center gap-3 py-4 text-center">
         <p className="text-xs text-muted-foreground">
-          Features non calculées pour cet événement.
+          {t("spliceView.notComputed")}
         </p>
         {analysisId && (
           <button
@@ -93,7 +91,7 @@ export function SpliceView({
             disabled={compute.isPending}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors"
           >
-            {compute.isPending ? "Calcul…" : "Calculer les features"}
+            {compute.isPending ? t("spliceView.computing") : t("spliceView.computeBtn")}
           </button>
         )}
       </div>

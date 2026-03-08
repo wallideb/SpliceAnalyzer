@@ -144,7 +144,7 @@ export function ConsensusLogoPanel({
         <button
           onClick={() => svgRef.current && exportSVG(svgRef.current, `${id}.svg`)}
           className="text-[9px] text-muted-foreground hover:text-foreground border border-border rounded px-1.5 py-0.5 transition-colors"
-          title="Télécharger le logo en SVG"
+          title={t("eventTable.downloadSvg")}
         >
           ↓ SVG
         </button>

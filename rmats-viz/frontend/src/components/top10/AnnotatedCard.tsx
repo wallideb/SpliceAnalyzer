@@ -792,6 +792,7 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
           eventType={ev.event_type}
           group1Label={group1Label}
           group2Label={group2Label}
+          t={t}
         />
       </div>
 

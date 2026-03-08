@@ -230,7 +230,7 @@ def _fetch_ensembl_seq(chrom: str, start: int, end: int) -> str:
     )
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "rmats-viz/1.0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=4) as resp:
             data = json.loads(resp.read())
             return data.get("seq", "").upper()
     except Exception as exc:

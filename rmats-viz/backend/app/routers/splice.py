@@ -25,12 +25,12 @@ import uuid
 from collections import Counter
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select, delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import AsyncSessionLocal, get_db
 from app.models.event import SplicingEvent
 from app.models.splice import EventCluster, EventSpliceFeature
 from app.schemas.splice import (
@@ -225,81 +225,94 @@ async def _compute_one(
 # POST /splice/compute/{analysis_id}
 # ---------------------------------------------------------------------------
 
-@router.post("/compute/{analysis_id}", response_model=ComputeJobResponse)
+async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
+    """Background task: compute splice features for all SE events.
+
+    Creates its own DB session so it can run after the HTTP response is sent.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(SplicingEvent).where(
+                    SplicingEvent.analysis_id == analysis_id,
+                    SplicingEvent.event_type == "SE",
+                )
+            )
+            se_events = result.scalars().all()
+            if not se_events:
+                return
+
+            fetch_results = await asyncio.gather(
+                *[_fetch_features(ev, fa_ok) for ev in se_events],
+                return_exceptions=True,
+            )
+            n_computed = 0
+            for ev, res in zip(se_events, fetch_results):
+                if isinstance(res, Exception):
+                    logger.error("Feature compute failed for %s: %s", ev.id, res)
+                    continue
+                try:
+                    feat_data, mane, seq_source = res
+                    await _upsert_feature(ev, feat_data, mane, db, seq_source)
+                    n_computed += 1
+                except Exception as exc:
+                    logger.error("DB write failed for %s: %s", ev.id, exc)
+
+            clusters = cluster_se_events(se_events)
+            await db.execute(
+                delete(EventCluster).where(EventCluster.analysis_id == analysis_id)
+            )
+            for cl in clusters:
+                rep_id = uuid.UUID(cl.rep_event_id) if cl.rep_event_id else None
+                db.add(EventCluster(
+                    id=cl.cluster_id,
+                    analysis_id=analysis_id,
+                    gene_symbol=cl.gene_symbol,
+                    chr=cl.chr,
+                    strand=cl.strand,
+                    exon_start=cl.exon_start,
+                    exon_end=cl.exon_end,
+                    n_events=cl.n_events,
+                    source_ids=[str(i) for i in cl.source_ids],
+                    rep_event_id=rep_id,
+                ))
+            await db.commit()
+            logger.info("Background compute done: %d/%d SE events for %s", n_computed, len(se_events), analysis_id)
+    except Exception as exc:
+        logger.error("Background compute task crashed for %s: %s", analysis_id, exc)
+
+
+@router.post("/compute/{analysis_id}", response_model=ComputeJobResponse, status_code=202)
 async def compute_splice_features(
     analysis_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Compute splice features + clusters for all SE events of an analysis."""
-    # Fetch all SE events
-    result = await db.execute(
+    """Trigger background computation of splice features + clusters.
+
+    Returns 202 Accepted immediately; the actual work runs in the background.
+    Poll GET /splice/patterns/{analysis_id} to know when data is available.
+    """
+    # Quick validation — check SE events exist
+    count_res = await db.execute(
         select(SplicingEvent).where(
             SplicingEvent.analysis_id == analysis_id,
             SplicingEvent.event_type == "SE",
-        )
+        ).limit(1)
     )
-    se_events = result.scalars().all()
-
-    if not se_events:
+    if not count_res.scalar_one_or_none():
         raise HTTPException(404, "No SE events found for this analysis")
 
     fa_ok = fasta_available()
-
-    # 1. Fetch all features in parallel (Ensembl + samtools), then write sequentially.
-    #    _fetch_features is capped at _COMPUTE_SEM concurrent tasks; DB writes stay
-    #    on the single AsyncSession to avoid concurrent-session errors.
-    fetch_results = await asyncio.gather(
-        *[_fetch_features(ev, fa_ok) for ev in se_events],
-        return_exceptions=True,
-    )
-
-    n_computed = 0
-    for ev, res in zip(se_events, fetch_results):
-        if isinstance(res, Exception):
-            logger.error("Feature compute failed for %s: %s", ev.id, res)
-            continue
-        try:
-            feat_data, mane, seq_source = res
-            await _upsert_feature(ev, feat_data, mane, db, seq_source)
-            n_computed += 1
-        except Exception as exc:
-            logger.error("DB write failed for %s: %s", ev.id, exc)
-
-    # 2. Cluster events
-    clusters = cluster_se_events(se_events)
-
-    # 3. Persist clusters (delete previous, re-insert)
-    await db.execute(
-        delete(EventCluster).where(EventCluster.analysis_id == analysis_id)
-    )
-    for cl in clusters:
-        rep_id = uuid.UUID(cl.rep_event_id) if cl.rep_event_id else None
-        db.add(EventCluster(
-            id=cl.cluster_id,
-            analysis_id=analysis_id,
-            gene_symbol=cl.gene_symbol,
-            chr=cl.chr,
-            strand=cl.strand,
-            exon_start=cl.exon_start,
-            exon_end=cl.exon_end,
-            n_events=cl.n_events,
-            source_ids=[str(i) for i in cl.source_ids],
-            rep_event_id=rep_id,
-        ))
-
-    await db.commit()
+    background_tasks.add_task(_run_compute_background, analysis_id, fa_ok)
 
     return ComputeJobResponse(
         analysis_id=str(analysis_id),
-        n_se_events=len(se_events),
-        n_computed=n_computed,
-        n_clusters=len(clusters),
+        n_se_events=0,   # unknown at this point — computation is async
+        n_computed=0,
+        n_clusters=0,
         fasta_available=fa_ok,
-        message=(
-            f"Computed features for {n_computed}/{len(se_events)} SE events "
-            f"→ {len(clusters)} canonical clusters."
-            + (" (FASTA not available — sizes only)" if not fa_ok else "")
-        ),
+        message="Computation started in background. Poll /splice/patterns/{id} for progress.",
     )
 
 
@@ -327,16 +340,30 @@ async def get_splice_feature(
             error="Splice site analysis only available for SE events",
         )
 
-    # Check cache
+    # Return cached features only (never auto-compute to avoid long blocking calls).
+    # Use POST /splice/compute/{analysis_id} to trigger background computation first.
     feat_res = await db.execute(
         select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
     )
     feat = feat_res.scalar_one_or_none()
 
     if feat is None:
-        fa_ok = fasta_available()
-        feat = await _compute_one(event, db, fa_ok)
-        await db.commit()
+        # Sizes only — return a lightweight placeholder so the card renders
+        from app.services.splice_features import compute_features
+        result_data = compute_features(event, None)
+        return SpliceFeatureResponse(
+            event_id=str(event_id),
+            event_type=event.event_type,
+            gene_symbol=event.gene_symbol,
+            chr=event.chr,
+            strand=event.strand,
+            exon_size=result_data.exon_size,
+            upstream_intron_size=result_data.upstream_intron_size,
+            downstream_intron_size=result_data.downstream_intron_size,
+            fasta_available=False,
+            sequence_source=None,
+            error="Not yet computed — run POST /splice/compute/{analysis_id}",
+        )
 
     return _feat_to_response(feat, event)
 

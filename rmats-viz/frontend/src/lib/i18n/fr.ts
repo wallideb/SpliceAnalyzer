@@ -192,11 +192,12 @@ export const fr: Translations = {
       motifs: {
         label: "Motifs récurrents",
         description:
-          "Analyse de motifs d'épissage récurrents dans la sélection — module à venir",
+          "Sites GT-AG canoniques, score PPT, point de branchement, cadre de lecture — événements SE uniquement",
       },
       splice: {
         label: "Sites consensus d'épissage",
-        description: "Force des sites 5′/3′ et branchement — module à venir",
+        description:
+          "Séquences 5′/3′ par événement, track PPT & diagramme transcrit MANE",
       },
     },
     basketEventsPrefix: "{{n}} événement du panier +",
@@ -264,6 +265,36 @@ export const fr: Translations = {
     comingSoonModule:
       "Le module <strong>{{label}}</strong> est en cours de développement.",
     basketEvent: "Événement du panier",
+    direction: {
+      skippingUp: "↑ Saut chez {{group}}",
+    },
+  },
+  motifPanel: {
+    notComputed: "Analyse de patterns non calculée",
+    notComputedDesc: "Calculez les features d'épissage pour les {{n}} événements SE de cette analyse afin de visualiser les patterns récurrents (sites GT-AG, PPT, point de branchement, classe de cadre de lecture).",
+    computeBtn: "Calculer les features",
+    computing: "Calcul en cours…",
+    computingDesc: "Requêtes aux sites d'épissage via Ensembl REST — cette opération peut prendre quelques dizaines de secondes.",
+    computeError: "Erreur lors du calcul. Réessayez.",
+    thresholds: "Seuils de significativité :",
+    modify: "Modifier",
+    thresholdsTitle: "Seuils de significativité — analyse approfondie",
+    thresholdsDesc: "Ces seuils définissent quels événements SE sont considérés comme significatifs (Y=1) vs non-significatifs (Y=0). Ils permettront de comparer les patterns moléculaires entre les deux groupes pour identifier des signatures d'épissage.",
+    significantChip: "Significatifs (Y=1)",
+    notSignificantChip: "Non-sig. (Y=0)",
+    nonSeNotice: "{{n}} événement(s) non-SE exclus de l'analyse motifs/logos (SE uniquement)",
+  },
+  spliceSiteTrack: {
+    header: "Sites d'épissage — 4 jonctions de l'exon sauté",
+    skippedExon: "Exon sauté",
+    flankingExons: "Exons flanquants",
+    notAvailable: "Séquences non disponibles",
+    notAvailableDesc: "Ni FASTA local ni Ensembl REST n'ont retourné de séquences pour cet événement. Vérifiez la connexion réseau ou indexez un génome de référence local.",
+    donor5ss: "5'SS donneur — {{label}} → intron  (GT canonique en +1/+2)",
+    acceptor3ss: "3'SS accepteur — intron → {{label}}  (AG canonique en −2/−1)",
+    skippedExonLabel: "exon sauté",
+    upstreamExonLabel: "exon amont",
+    downstreamExonLabel: "exon aval",
   },
   permutation: {
     iterations: "Nombre d'itérations",

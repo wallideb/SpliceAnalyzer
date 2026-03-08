@@ -654,26 +654,27 @@ function GeneSymbolWithTooltip({
 // ---------------------------------------------------------------------------
 
 /** Returns a direction badge for SE exon-skipping events based on ΔΨ sign.
- *  Always names the group that has MORE skipping (↑) so the label always
- *  reads "↑ Saut chez patients" regardless of which group is group1/group2.
+ *  Always names the group that has MORE skipping so the label reads
+ *  "↑ Exon skipping in patients" (en) / "↑ Saut chez patients" (fr).
  */
 function SEDirectionBadge({
   delta,
   group1Label = "Groupe 1",
   group2Label = "Groupe 2",
   eventType,
+  t,
 }: {
   delta: number | null | undefined;
   group1Label?: string;
   group2Label?: string;
   eventType: string | null | undefined;
+  t: (key: string, vars?: Record<string, string | number>) => string;
 }) {
   if (eventType !== "SE" || delta === null || delta === undefined || delta === 0) return null;
-  // ΔΨ < 0 → more skipping in group1; ΔΨ > 0 → more skipping in group2
   const moreSkippingLabel = delta < 0 ? group1Label : group2Label;
   return (
     <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded-md whitespace-nowrap leading-none">
-      ↑ Saut chez {moreSkippingLabel}
+      {t("annotatedCard.direction.skippingUp", { group: moreSkippingLabel })}
     </span>
   );
 }
@@ -727,6 +728,7 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
               eventType={ev.event_type}
               group1Label={group1Label}
               group2Label={group2Label}
+              t={t}
             />
           </div>
         </div>

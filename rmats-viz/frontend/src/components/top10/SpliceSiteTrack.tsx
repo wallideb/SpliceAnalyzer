@@ -1,5 +1,7 @@
 "use client";
 
+import { useT } from "@/contexts/LanguageContext";
+
 /**
  * SpliceSiteTrack
  * ================
@@ -184,6 +186,7 @@ export function SpliceSiteTrack({
   /** "fasta" | "ensembl" | null (null = no sequences computed). */
   sequenceSource?: string | null;
 }) {
+  const t = useT();
   const hasAnySeq = !!(donorSeq || acceptorSeq || upstreamDonorSeq || downstreamAcceptorSeq);
   const hasFlankingSeqs = !!(upstreamDonorSeq || downstreamAcceptorSeq);
 
@@ -192,7 +195,7 @@ export function SpliceSiteTrack({
       {/* Header row with source badge */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-          Sites d&apos;épissage — 4 jonctions de l&apos;exon sauté
+          {t("spliceSiteTrack.header")}
         </p>
         {sequenceSource === "ensembl" && (
           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300">
@@ -219,10 +222,9 @@ export function SpliceSiteTrack({
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
           </svg>
           <div>
-            <p className="text-xs font-semibold">Séquences non disponibles</p>
+            <p className="text-xs font-semibold">{t("spliceSiteTrack.notAvailable")}</p>
             <p className="text-[11px] mt-0.5 text-amber-700 dark:text-amber-400">
-              Ni FASTA local ni Ensembl REST n&apos;ont retourné de séquences pour cet événement.
-              Vérifiez la connexion réseau ou indexez un génome de référence local.
+              {t("spliceSiteTrack.notAvailableDesc")}
             </p>
           </div>
         </div>
@@ -230,7 +232,7 @@ export function SpliceSiteTrack({
 
       {/* ── Skipped exon splice sites ─────────────────────────────────────── */}
       {(donorSeq || acceptorSeq) && (
-        <SectionLabel>Exon sauté</SectionLabel>
+        <SectionLabel>{t("spliceSiteTrack.skippedExon")}</SectionLabel>
       )}
 
       {acceptorSeq && acceptorSeq.length >= 23 && (
@@ -239,7 +241,7 @@ export function SpliceSiteTrack({
           positions={ACCEPTOR_POSITIONS}
           canonicalIdx={ACCEPTOR_CANONICAL_IDX}
           boundaryAt={ACCEPTOR_BOUNDARY}
-          label="3'SS accepteur — intron → exon sauté  (AG canonique en −2/−1)"
+          label={t("spliceSiteTrack.acceptor3ss", { label: t("spliceSiteTrack.skippedExonLabel") })}
         />
       )}
 
@@ -249,13 +251,13 @@ export function SpliceSiteTrack({
           positions={DONOR_POSITIONS}
           canonicalIdx={DONOR_CANONICAL_IDX}
           boundaryAt={DONOR_BOUNDARY}
-          label="5'SS donneur — exon sauté → intron  (GT canonique en +1/+2)"
+          label={t("spliceSiteTrack.donor5ss", { label: t("spliceSiteTrack.skippedExonLabel") })}
         />
       )}
 
       {/* ── Flanking exon splice sites ────────────────────────────────────── */}
       {hasFlankingSeqs && (
-        <SectionLabel>Exons flanquants</SectionLabel>
+        <SectionLabel>{t("spliceSiteTrack.flankingExons")}</SectionLabel>
       )}
 
       {upstreamDonorSeq && upstreamDonorSeq.length >= 9 && (
@@ -264,7 +266,7 @@ export function SpliceSiteTrack({
           positions={DONOR_POSITIONS}
           canonicalIdx={DONOR_CANONICAL_IDX}
           boundaryAt={DONOR_BOUNDARY}
-          label="5'SS donneur — exon amont → intron  (GT canonique en +1/+2)"
+          label={t("spliceSiteTrack.donor5ss", { label: t("spliceSiteTrack.upstreamExonLabel") })}
         />
       )}
 
@@ -274,14 +276,8 @@ export function SpliceSiteTrack({
           positions={ACCEPTOR_POSITIONS}
           canonicalIdx={ACCEPTOR_CANONICAL_IDX}
           boundaryAt={ACCEPTOR_BOUNDARY}
-          label="3'SS accepteur — intron → exon aval  (AG canonique en −2/−1)"
+          label={t("spliceSiteTrack.acceptor3ss", { label: t("spliceSiteTrack.downstreamExonLabel") })}
         />
-      )}
-
-      {hasAnySeq && !donorSeq && !acceptorSeq && !upstreamDonorSeq && !downstreamAcceptorSeq && (
-        <p className="text-xs text-muted-foreground italic">
-          Séquences non disponibles pour cet événement.
-        </p>
       )}
     </div>
   );

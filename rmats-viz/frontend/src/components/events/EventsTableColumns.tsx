@@ -12,7 +12,7 @@ export function makeEventsColumns(
   group1Label: string,
   group2Label: string,
   showIncLevel = false,
-  t: (key: string) => string = (k) => k,
+  t: (key: string, vars?: Record<string, string | number>) => string = (k) => k,
 ) {
   const baseColumns = [
     helper.accessor("top_rank", {
@@ -100,7 +100,7 @@ export function makeEventsColumns(
           const moreSkippingLabel = val < 0 ? group1Label : group2Label;
           return (
             <span className="inline-flex items-center gap-0.5 text-xs font-medium text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded whitespace-nowrap">
-              ↑ Saut chez {moreSkippingLabel}
+              {t("annotatedCard.direction.skippingUp", { group: moreSkippingLabel })}
             </span>
           );
         }

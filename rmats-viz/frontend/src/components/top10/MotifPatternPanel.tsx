@@ -256,18 +256,49 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
   const seCount = events.filter((e) => e.event_type === "SE").length;
   const nonSeCount = events.length - seCount;
 
+  // After triggering compute (which returns 202 immediately), poll until data appears.
+  const [isPolling, setIsPolling] = useState(false);
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ["splice-patterns", analysisId, fdrThreshold, absDeltaPsiMin],
     queryFn: () => getSplicePatterns(analysisId, fdrThreshold, absDeltaPsiMin),
     enabled: !!analysisId,
     staleTime: 10 * 60 * 1000,
     retry: false,
+    // Poll every 4 s while waiting for background computation to finish
+    refetchInterval: isPolling ? 4_000 : false,
+    // Stop polling once data arrives
+    refetchIntervalInBackground: false,
   });
+
+  // Stop polling once we have data
+  if (isPolling && data) {
+    setIsPolling(false);
+  }
 
   const compute = useMutation({
     mutationFn: () => computeSpliceFeatures(analysisId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["splice-patterns", analysisId] }),
+    onSuccess: () => {
+      // Compute now returns 202 immediately; poll until background task finishes
+      setIsPolling(true);
+    },
   });
+
+  // ── Polling (background compute running) ─────────────────────────────────
+  if (isPolling && !data) {
+    return (
+      <div className="flex flex-col items-center gap-4 py-10 text-center">
+        <svg className="animate-spin w-10 h-10 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        <div>
+          <p className="text-sm font-semibold text-foreground">{t("motifPanel.computing")}</p>
+          <p className="text-xs text-muted-foreground mt-1">{t("motifPanel.computingDesc")}</p>
+        </div>
+      </div>
+    );
+  }
 
   // ── Loading ──────────────────────────────────────────────────────────────
   if (isLoading) {
@@ -296,12 +327,10 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
         </svg>
         <div>
           <p className="text-sm font-semibold text-foreground mb-1">
-            Analyse de patterns non calculée
+            {t("motifPanel.notComputed")}
           </p>
           <p className="text-xs text-muted-foreground max-w-xs leading-relaxed">
-            Calculez les features d&apos;épissage pour les {seCount} événements SE de cette analyse
-            afin de visualiser les patterns récurrents (sites GT-AG, PPT, point de branchement,
-            classe de cadre de lecture).
+            {t("motifPanel.notComputedDesc", { n: seCount })}
           </p>
         </div>
         <button
@@ -315,10 +344,10 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
           )}
-          {compute.isPending ? "Calcul en cours…" : "Calculer les features"}
+          {compute.isPending ? t("motifPanel.computing") : t("motifPanel.computeBtn")}
         </button>
         {compute.isError && (
-          <p className="text-xs text-red-500">Erreur lors du calcul. Réessayez.</p>
+          <p className="text-xs text-red-500">{t("motifPanel.computeError")}</p>
         )}
       </div>
     );
@@ -347,7 +376,7 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
       <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-muted/30 border border-border">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-            Seuils de significativité :
+            {t("motifPanel.thresholds")}
           </span>
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-[11px] font-semibold">
             FDR ≤ {fdrThreshold}
@@ -365,7 +394,7 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
             <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
-          Modifier
+          {t("motifPanel.modify")}
         </button>
       </div>
 
@@ -373,12 +402,10 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
       {showThresholds && (
         <div className="p-4 rounded-xl border border-border bg-card shadow-sm space-y-4">
           <p className="text-[11px] font-bold text-foreground">
-            Seuils de significativité — analyse approfondie
+            {t("motifPanel.thresholdsTitle")}
           </p>
           <p className="text-[10px] text-muted-foreground leading-relaxed">
-            Ces seuils définissent quels événements SE sont considérés comme significatifs
-            (Y=1) vs non-significatifs (Y=0). Ils permettront de comparer les patterns
-            moléculaires entre les deux groupes pour identifier des signatures d&apos;épissage.
+            {t("motifPanel.thresholdsDesc")}
           </p>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -446,14 +473,14 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
         <SummaryChip label="Clusters" value={data.clusters.n_clusters} />
         {/* Significance breakdown */}
         <div className="text-center px-3 py-2 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
-          <p className="text-[9px] text-green-700 dark:text-green-400 uppercase tracking-wide font-semibold">Significatifs (Y=1)</p>
+          <p className="text-[9px] text-green-700 dark:text-green-400 uppercase tracking-wide font-semibold">{t("motifPanel.significantChip")}</p>
           <p className="text-base font-bold text-green-700 dark:text-green-300 tabular-nums">
             {data.n_significant}
             <span className="text-[10px] font-normal text-green-600 dark:text-green-400 ml-1">({sigPct}%)</span>
           </p>
         </div>
         <div className="text-center px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-700/30 border border-slate-200 dark:border-slate-600">
-          <p className="text-[9px] text-muted-foreground uppercase tracking-wide font-semibold">Non-sig. (Y=0)</p>
+          <p className="text-[9px] text-muted-foreground uppercase tracking-wide font-semibold">{t("motifPanel.notSignificantChip")}</p>
           <p className="text-base font-bold text-muted-foreground tabular-nums">{data.n_not_significant}</p>
         </div>
         {!data.fasta_available && (
@@ -463,7 +490,7 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
         )}
         {nonSeCount > 0 && (
           <span className="self-center text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded px-2 py-1">
-            {nonSeCount} événement{nonSeCount > 1 ? "s" : ""} non-SE exclu{nonSeCount > 1 ? "s" : ""} — motifs séquences SE uniquement
+            {t("motifPanel.nonSeNotice", { n: nonSeCount })}
           </span>
         )}
       </div>

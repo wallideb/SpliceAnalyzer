@@ -74,25 +74,27 @@ async def list_events(
 async def get_top10(
     analysis_id: uuid.UUID,
     event_type: str | None = Query(None, description="Filter by event type (SE, RI, A3SS, A5SS, MXE)"),
+    limit: int = Query(10, ge=1, le=50, description="Number of top events to return"),
     db: AsyncSession = Depends(get_db),
 ):
     res = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
     if not res.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    if event_type:
-        # Dynamic top-10 for a specific event type: rank by FDR ASC, |ΔΨ| DESC
+    if event_type or limit != 10:
+        # Dynamic top-N for a specific event type (or custom limit):
+        # rank by FDR ASC, |ΔΨ| DESC
+        conditions = [SplicingEvent.analysis_id == analysis_id]
+        if event_type:
+            conditions.append(SplicingEvent.event_type == event_type.upper())
         q = (
             select(SplicingEvent)
-            .where(
-                SplicingEvent.analysis_id == analysis_id,
-                SplicingEvent.event_type == event_type.upper(),
-            )
+            .where(*conditions)
             .order_by(
                 SplicingEvent.fdr.asc().nulls_last(),
                 SplicingEvent.abs_inc_level_diff.desc().nulls_last(),
             )
-            .limit(10)
+            .limit(limit)
         )
     else:
         # Default: pre-computed global top-10

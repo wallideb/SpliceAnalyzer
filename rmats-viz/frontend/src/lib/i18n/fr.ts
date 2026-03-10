@@ -556,6 +556,8 @@ export const fr: Translations = {
     title: "Analyse approfondie",
     backToEvents: "Retour aux événements",
     top10AlwaysIncluded: "Top 10 — toujours inclus",
+    topNLabel: "Top",
+    topNAlwaysIncluded: "— toujours inclus",
     basketCount: "+{{n}} du panier",
     optionalModulesActive: "{{n}} module optionnel activé",
     optionalModulesActivePlural: "{{n}} modules optionnels activés",

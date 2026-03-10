@@ -551,6 +551,8 @@ export const en = {
     title: "Deep Analysis",
     backToEvents: "Back to events",
     top10AlwaysIncluded: "Top 10 — always included",
+    topNLabel: "Top",
+    topNAlwaysIncluded: "— always included",
     basketCount: "+{{n}} from basket",
     optionalModulesActive: "{{n}} optional module active",
     optionalModulesActivePlural: "{{n}} optional modules active",

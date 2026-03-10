@@ -16,7 +16,7 @@
  * Route : /analyses/[id]/deep-analysis?modules=stringdb,pathways,...
  */
 
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -42,16 +42,19 @@ export default function DeepAnalysisPage() {
     return new Set(raw.split(",").filter(Boolean));
   }, [searchParams]);
 
+  // Top-N selector state (default 10, range 5–50)
+  const [topN, setTopN] = useState(10);
+
   // Analysis metadata
   const { data: analysis } = useQuery({
     queryKey: ["analysis", id],
     queryFn: () => getAnalysis(id),
   });
 
-  // Top-10 events (always included)
+  // Top-N events (always included)
   const { data: top10 = [], isLoading: loadingTop10 } = useQuery({
-    queryKey: ["top10", id],
-    queryFn: () => getTop10(id),
+    queryKey: ["top10", id, topN],
+    queryFn: () => getTop10(id, undefined, topN),
     enabled: !!id,
   });
 
@@ -174,14 +177,25 @@ export default function DeepAnalysisPage() {
       </Link>
 
       {/* ── Selection summary ── */}
-      <div className="flex flex-wrap gap-3">
-        {/* Top-10 badge */}
+      <div className="flex flex-wrap gap-3 items-center">
+        {/* Top-N selector */}
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 text-xs">
-          <span className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-600 text-white font-bold text-[10px]">
-            10
-          </span>
           <span className="text-blue-700 dark:text-blue-300 font-medium">
-            {t("deepAnalysis.top10AlwaysIncluded")}
+            {t("deepAnalysis.topNLabel")}
+          </span>
+          <select
+            value={topN}
+            onChange={(e) => setTopN(Number(e.target.value))}
+            className="bg-white dark:bg-blue-950/50 border border-blue-300 dark:border-blue-700 rounded px-1.5 py-0.5 text-xs font-bold text-blue-700 dark:text-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            {[5, 10, 15, 20, 25, 30, 40, 50].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          <span className="text-blue-600/70 dark:text-blue-400/70">
+            {t("deepAnalysis.topNAlwaysIncluded")}
           </span>
         </div>
 

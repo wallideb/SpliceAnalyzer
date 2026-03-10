@@ -1,3 +1,9 @@
+import asyncio
+import logging
+import os
+import subprocess
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -6,7 +12,81 @@ from app.config import settings
 from app.database import engine
 from app.routers import analyses, annotations, events, export, genes, splice
 
-app = FastAPI(title="rMATS Visualizer API", version="1.0.0")
+logger = logging.getLogger(__name__)
+
+NCBI_CHR19_URL = (
+    "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/"
+    "GCF_000001405.39_GRCh38.p13/"
+    "GCF_000001405.39_GRCh38.p13_assembly_structure/"
+    "Primary_Assembly/assembled_chromosomes/FASTA/chr19.fna.gz"
+)
+
+
+def _setup_fasta() -> None:
+    """Download and index chr19 FASTA if not already present (runs inside container)."""
+    fasta = settings.GRCH38_FASTA
+    fai = fasta + ".fai"
+
+    if os.path.isfile(fasta) and os.path.isfile(fai):
+        logger.info("FASTA already present: %s", fasta)
+        return
+
+    gz_path = fasta + ".dl.gz"
+    data_dir = os.path.dirname(fasta)
+    os.makedirs(data_dir, exist_ok=True)
+
+    logger.info("Downloading chr19 FASTA from NCBI to %s ...", gz_path)
+    try:
+        subprocess.run(
+            ["curl", "-fSL", "--retry", "3", "-o", gz_path, NCBI_CHR19_URL],
+            check=True, timeout=600,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        logger.warning("curl download failed (%s), trying wget ...", exc)
+        try:
+            subprocess.run(
+                ["wget", "-q", "-O", gz_path, NCBI_CHR19_URL],
+                check=True, timeout=600,
+            )
+        except Exception as exc2:
+            logger.error("FASTA download failed: %s", exc2)
+            return
+
+    logger.info("Decompressing %s → %s ...", gz_path, fasta)
+    try:
+        with open(fasta, "wb") as out_f:
+            subprocess.run(
+                ["gunzip", "-c", gz_path],
+                stdout=out_f,
+                check=True, timeout=120,
+            )
+        os.remove(gz_path)
+    except Exception as exc:
+        logger.error("Decompression failed: %s", exc)
+        return
+
+    logger.info("Indexing with samtools faidx ...")
+    try:
+        subprocess.run(
+            [settings.SAMTOOLS_BIN, "faidx", fasta],
+            check=True, timeout=120,
+        )
+    except Exception as exc:
+        logger.error("samtools faidx failed: %s", exc)
+        return
+
+    logger.info("FASTA setup complete: %s (+ .fai)", fasta)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: ensure FASTA is available
+    await asyncio.to_thread(_setup_fasta)
+    yield
+    # Shutdown: nothing to clean up
+
+
+app = FastAPI(title="rMATS Visualizer API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

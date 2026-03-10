@@ -321,35 +321,44 @@ async def compute_splice_features(
 # ---------------------------------------------------------------------------
 
 @router.get("/feature/{event_id}", response_model=SpliceFeatureResponse)
-async def get_splice_feature(
-    event_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-):
-    """Return splice features for one SE event (compute on-the-fly if missing)."""
-    ev_res = await db.execute(
-        select(SplicingEvent).where(SplicingEvent.id == event_id)
-    )
-    event = ev_res.scalar_one_or_none()
-    if event is None:
-        raise HTTPException(404, "Event not found")
-    if event.event_type != "SE":
-        return SpliceFeatureResponse(
-            event_id=str(event_id),
-            event_type=event.event_type,
-            gene_symbol=event.gene_symbol,
-            error="Splice site analysis only available for SE events",
+async def get_splice_feature(event_id: uuid.UUID):
+    """Return splice features for one SE event (compute on-the-fly if missing).
+
+    Manages DB sessions manually (no ``Depends(get_db)``) so that the
+    connection is released before slow I/O (samtools / Ensembl / MANE).
+    This prevents pool exhaustion when 10+ cards load in parallel.
+    """
+    # ── 1. Quick DB read: fetch event + check feature cache ──────────────
+    async with AsyncSessionLocal() as db:
+        ev_res = await db.execute(
+            select(SplicingEvent).where(SplicingEvent.id == event_id)
         )
+        event = ev_res.scalar_one_or_none()
+        if event is None:
+            raise HTTPException(404, "Event not found")
+        if event.event_type != "SE":
+            return SpliceFeatureResponse(
+                event_id=str(event_id),
+                event_type=event.event_type,
+                gene_symbol=event.gene_symbol,
+                error="Splice site analysis only available for SE events",
+            )
 
-    # Return cached features if available; otherwise compute on-the-fly.
-    feat_res = await db.execute(
-        select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
-    )
-    feat = feat_res.scalar_one_or_none()
+        feat_res = await db.execute(
+            select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
+        )
+        feat = feat_res.scalar_one_or_none()
+        if feat is not None:
+            return _feat_to_response(feat, event)
+    # ── session closed — connection returned to pool ─────────────────────
 
-    if feat is None:
-        # Compute on-the-fly (FASTA + Ensembl fallback) and persist
-        fa_ok = fasta_available()
-        feat = await _compute_one(event, db, fa_ok)
+    # ── 2. Slow I/O (no DB held): samtools / Ensembl / MANE ─────────────
+    fa_ok = fasta_available()
+    feat_data, mane, seq_source = await _fetch_features(event, fa_ok)
+
+    # ── 3. Quick DB write: persist computed result ───────────────────────
+    async with AsyncSessionLocal() as db:
+        feat = await _upsert_feature(event, feat_data, mane, db, seq_source)
         await db.commit()
 
     return _feat_to_response(feat, event)

@@ -37,6 +37,17 @@ export function getMANETranscript(eventId: string): Promise<MANETranscriptRespon
   return fetchJSON<MANETranscriptResponse>(`${BASE}/splice/mane_transcript/${eventId}`);
 }
 
+export interface ComputeProgress {
+  n_se_events: number;
+  n_computed: number;
+  pct: number;
+  done: boolean;
+}
+
+export function getComputeProgress(analysisId: string): Promise<ComputeProgress> {
+  return fetchJSON<ComputeProgress>(`${BASE}/splice/progress/${analysisId}`);
+}
+
 export function runPermutationTest(
   analysisId: string,
   nIterations: number = 500,

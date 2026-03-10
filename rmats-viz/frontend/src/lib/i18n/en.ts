@@ -492,6 +492,7 @@ export const en = {
     notComputed: "Features not yet computed for this event.",
     computing: "Computing…",
     computeBtn: "Compute features",
+    computingDesc: "Fetching sequences and computing splice features for all SE events",
   },
   mutatedGenePanel: {
     noContext: "Analysis context not available.",

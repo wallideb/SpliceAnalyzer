@@ -59,7 +59,8 @@ const WIDTH = 900;
 const HEIGHT = 350;
 const INNER_W = WIDTH - MARGIN.left - MARGIN.right;
 const INNER_H = HEIGHT - MARGIN.top - MARGIN.bottom;
-const GENOME_SIGNIFICANCE = -Math.log10(0.05); // 1.301
+const GENOME_SIGNIFICANCE = -Math.log10(0.05);     // 1.301
+const STRINGENT_SIGNIFICANCE = -Math.log10(0.001); // 3.0
 const CHR_GAP = 4; // px gap between chromosomes
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -184,6 +185,21 @@ export function ManhattanPlot({ data, loading, mutatedGenes = [], onEventClick }
       .filter(Boolean) as { symbol: string; px: number; chr: string; nEvents: number }[];
   }, [mutatedGenes, data, chrOffsets, totalGenome, normChr]);
 
+  // Auto-labels: top 5 most significant events with distinct gene symbols
+  const topLabels = useMemo(() => {
+    const seen = new Set<string>();
+    return [...points]
+      .filter((p) => visibleTypes.has(p.event_type) && p.gene_symbol && p.py > GENOME_SIGNIFICANCE)
+      .sort((a, b) => b.py - a.py)
+      .filter((p) => {
+        const sym = p.gene_symbol!.toUpperCase();
+        if (seen.has(sym)) return false;
+        seen.add(sym);
+        return true;
+      })
+      .slice(0, 5);
+  }, [points, visibleTypes]);
+
   const toggleType = useCallback((type: string) => {
     setVisibleTypes((prev) => {
       const next = new Set(prev);
@@ -279,6 +295,41 @@ export function ManhattanPlot({ data, loading, mutatedGenes = [], onEventClick }
               FDR 0.05
             </text>
 
+            {/* Stringent significance line (FDR 0.001) */}
+            {maxY >= STRINGENT_SIGNIFICANCE && (
+              <>
+                <line
+                  x1={0}
+                  x2={INNER_W}
+                  y1={yScale(STRINGENT_SIGNIFICANCE)}
+                  y2={yScale(STRINGENT_SIGNIFICANCE)}
+                  stroke="#7c3aed"
+                  strokeWidth={0.8}
+                  strokeDasharray="3,4"
+                  opacity={0.5}
+                />
+                <text
+                  x={INNER_W + 2}
+                  y={yScale(STRINGENT_SIGNIFICANCE) + 4}
+                  className="fill-violet-500 dark:fill-violet-400"
+                  fontSize={8}
+                  fontWeight={600}
+                >
+                  FDR 0.001
+                </text>
+              </>
+            )}
+
+            {/* Significance band shading (above FDR 0.05 = significant region) */}
+            <rect
+              x={0}
+              y={0}
+              width={INNER_W}
+              height={yScale(GENOME_SIGNIFICANCE)}
+              fill="#ef4444"
+              opacity={0.03}
+            />
+
             {/* Data points */}
             {filteredPoints.map((p) => (
               <circle
@@ -316,6 +367,32 @@ export function ManhattanPlot({ data, loading, mutatedGenes = [], onEventClick }
                 }}
                 className="cursor-pointer transition-all"
               />
+            ))}
+
+            {/* Auto gene labels for top significant events */}
+            {topLabels.map((p, i) => (
+              <g key={`label-${p.id}`}>
+                <line
+                  x1={p.px}
+                  y1={yScale(p.py) - 4}
+                  x2={p.px}
+                  y2={yScale(p.py) - 12 - i * 2}
+                  stroke="hsl(var(--muted-foreground))"
+                  strokeWidth={0.5}
+                  opacity={0.6}
+                />
+                <text
+                  x={p.px}
+                  y={yScale(p.py) - 14 - i * 2}
+                  textAnchor="middle"
+                  fontSize={7}
+                  fontWeight={600}
+                  fontStyle="italic"
+                  className="fill-foreground"
+                >
+                  {p.gene_symbol}
+                </text>
+              </g>
             ))}
 
             {/* Mutated gene position markers */}

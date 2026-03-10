@@ -497,6 +497,7 @@ export const fr: Translations = {
     notComputed: "Features non calculées pour cet événement.",
     computing: "Calcul…",
     computeBtn: "Calculer les features",
+    computingDesc: "Récupération des séquences et calcul des features d'épissage pour tous les événements SE",
   },
   mutatedGenePanel: {
     noContext: "Contexte d'analyse non disponible.",

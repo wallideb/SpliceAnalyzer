@@ -313,8 +313,48 @@ async def compute_splice_features(
         n_computed=0,
         n_clusters=0,
         fasta_available=fa_ok,
-        message="Computation started in background. Poll /splice/patterns/{id} for progress.",
+        message="Computation started in background. Poll /splice/progress/{id} for progress.",
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /splice/progress/{analysis_id}
+# ---------------------------------------------------------------------------
+
+@router.get("/progress/{analysis_id}")
+async def get_compute_progress(
+    analysis_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return splice feature computation progress for an analysis."""
+    from sqlalchemy import func
+
+    n_se_result = await db.execute(
+        select(func.count(SplicingEvent.id)).where(
+            SplicingEvent.analysis_id == analysis_id,
+            SplicingEvent.event_type == "SE",
+        )
+    )
+    n_se = n_se_result.scalar() or 0
+
+    n_computed_result = await db.execute(
+        select(func.count(EventSpliceFeature.id)).where(
+            EventSpliceFeature.event_id.in_(
+                select(SplicingEvent.id).where(
+                    SplicingEvent.analysis_id == analysis_id,
+                    SplicingEvent.event_type == "SE",
+                )
+            )
+        )
+    )
+    n_computed = n_computed_result.scalar() or 0
+
+    return {
+        "n_se_events": n_se,
+        "n_computed": n_computed,
+        "pct": round(n_computed / n_se * 100, 1) if n_se > 0 else 0,
+        "done": n_computed >= n_se,
+    }
 
 
 # ---------------------------------------------------------------------------

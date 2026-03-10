@@ -94,7 +94,7 @@ export function PPTTrack({
       </div>
 
       {/* Nucleotide sequence with position numbers and branch point marker */}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto -mx-1 px-1" style={{ WebkitOverflowScrolling: "touch" }}>
         {/* Position number row (every 5 nt) */}
         <div className="flex gap-[2px] mb-0.5">
           {seq.split("").map((_, i) => {

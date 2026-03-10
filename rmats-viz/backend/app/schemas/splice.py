@@ -3,7 +3,6 @@ Pydantic schemas for the splice pattern analysis endpoints.
 """
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 from pydantic import BaseModel

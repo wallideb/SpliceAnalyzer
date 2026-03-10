@@ -394,7 +394,6 @@ async def get_splice_patterns(
     """Aggregate splice-signal patterns across all SE events of an analysis."""
 
     # Fetch events + their features (join)
-    from sqlalchemy import join as sqljoin
     stmt = (
         select(SplicingEvent, EventSpliceFeature)
         .join(

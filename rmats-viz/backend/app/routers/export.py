@@ -303,7 +303,7 @@ async def export_analysis_excel(
         n_gt = sum(1 for f in features.values() if f.donor_is_gt is True)
         n_ag = sum(1 for f in features.values() if f.acceptor_is_ag is True)
         n_inframe = sum(
-            1 for f in features.values() if f.frame_class == "in-frame"
+            1 for f in features.values() if f.frame_class == "in_frame"
         )
         n_frameshift = sum(
             1 for f in features.values() if f.frame_class == "frameshift"
@@ -646,8 +646,7 @@ async def export_analysis_pdf(
         for feat in feat_result.scalars().all():
             features[feat.event_id] = feat
 
-    import asyncio as _asyncio
-    pdf_bytes = await _asyncio.to_thread(_build_pdf, analysis, events, features)
+    pdf_bytes = await asyncio.to_thread(_build_pdf, analysis, events, features)
 
     return StreamingResponse(
         BytesIO(pdf_bytes),

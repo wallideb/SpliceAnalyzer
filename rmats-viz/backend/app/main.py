@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.config import settings
@@ -99,13 +100,15 @@ async def health():
             await conn.execute(text("SELECT 1"))
         return {"status": "ok", "db": "ok"}
     except Exception as exc:
-        return {"status": "ok", "db": f"error: {exc}"}
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "db": f"error: {exc}"},
+        )
 
 
 @app.get("/api/v1/debug/fasta")
 async def debug_fasta():
     """Diagnostic endpoint — checks FASTA + samtools availability inside the container."""
-    import os, shutil, subprocess
     fasta = settings.GRCH38_FASTA
     samtools_bin = settings.SAMTOOLS_BIN
     info: dict = {

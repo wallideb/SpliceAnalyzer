@@ -269,7 +269,6 @@ async def parse_and_store(
 
     # Assign top_rank
     top10 = select_top10(deduped)
-    top10_index = set(top10.index)
 
     deduped["top_rank"] = None
     for rank_row in top10.itertuples():

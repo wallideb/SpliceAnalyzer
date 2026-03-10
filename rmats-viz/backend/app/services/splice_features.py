@@ -13,7 +13,7 @@ Sizes:
 
 GT-AG canonical rule:
   donor_is_gt    donor_seq[3:5] == "GT"
-  acceptor_is_ag acceptor_seq[17:19] == "AG"   (pos 17-18 in the 23-nt acceptor)
+  acceptor_is_ag acceptor_seq[18:20] == "AG"   (pos 18-19 in the 23-nt acceptor)
 
 PPT (polypyrimidine tract):
   ppt_score       fraction of C/T in the 47-nt ppt_seq
@@ -188,7 +188,7 @@ def compute_features(
     d = windows.donor_seq.upper()
     a = windows.acceptor_seq.upper()
     res.donor_is_gt    = (len(d) >= 5 and d[3:5] == "GT")
-    res.acceptor_is_ag = (len(a) >= 20 and a[17:19] == "AG")
+    res.acceptor_is_ag = (len(a) >= 21 and a[18:20] == "AG")
 
     # PPT
     if windows.ppt_seq:

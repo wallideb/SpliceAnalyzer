@@ -324,6 +324,18 @@ export const fr: Translations = {
     upstreamExonLabel: "exon amont",
     downstreamExonLabel: "exon aval",
   },
+  maneTrack: {
+    title: "Transcrit MANE Select",
+    notFound: "Transcrit MANE non trouvé pour cet événement.",
+    structureNotAvailable: "Structure du transcrit non disponible.",
+    skippedExon: "Exon sauté",
+    otherExons: "Autres exons",
+    widthNote: "Largeur ∝ taille exon · introns compressés",
+    exonLabel: "Exon {{rank}} / {{total}}",
+    sizeLabel: "Taille : {{size}} nt",
+    coordsLabel: "Coordonnées : {{start}}–{{end}}",
+    skippedLabel: "★ Exon sauté",
+  },
   permutation: {
     iterations: "Nombre d'itérations",
     moreIterations: "Plus d'itérations = distribution nulle plus précise.",

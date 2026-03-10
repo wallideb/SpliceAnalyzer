@@ -99,7 +99,7 @@ _COMPUTE_SEM = asyncio.Semaphore(10)
 async def _fetch_features(
     event: SplicingEvent,
     fa_ok: bool,
-) -> tuple[Any, dict]:
+) -> tuple[Any, dict, str | None]:
     """Pure-compute step (no DB): extract sequences + call Ensembl.
 
     Runs under _COMPUTE_SEM so at most 10 events are processed concurrently.

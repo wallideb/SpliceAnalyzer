@@ -321,6 +321,18 @@ export const en = {
     upstreamExonLabel: "upstream exon",
     downstreamExonLabel: "downstream exon",
   },
+  maneTrack: {
+    title: "MANE Select Transcript",
+    notFound: "MANE transcript not found for this event.",
+    structureNotAvailable: "Transcript structure not available.",
+    skippedExon: "Skipped exon",
+    otherExons: "Other exons",
+    widthNote: "Width ∝ exon size · introns compressed",
+    exonLabel: "Exon {{rank}} / {{total}}",
+    sizeLabel: "Size: {{size}} nt",
+    coordsLabel: "Coordinates: {{start}}–{{end}}",
+    skippedLabel: "★ Skipped exon",
+  },
   permutation: {
     iterations: "Number of iterations",
     moreIterations: "More iterations = more precise null distribution.",

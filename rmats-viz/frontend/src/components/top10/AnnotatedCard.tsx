@@ -672,7 +672,9 @@ function SEDirectionBadge({
 }) {
   if (eventType !== "SE" || delta === null || delta === undefined || delta === 0) return null;
   const moreSkippingLabel = delta < 0 ? group1Label : group2Label;
-  const colorClasses = delta > 0
+  // ΔΨ < 0 → more skipping in group 1 (patients) → RED
+  // ΔΨ > 0 → more skipping in group 2 (controls) → BLUE
+  const colorClasses = delta < 0
     ? "text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800"
     : "text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800";
   return (
@@ -720,7 +722,7 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
               FDR {formatFDR(ev.fdr)}
             </span>
             <span className={`text-[10px] font-bold font-mono ${
-              (ev.inc_level_difference ?? 0) > 0
+              (ev.inc_level_difference ?? 0) < 0
                 ? "text-red-500 dark:text-red-400"
                 : "text-blue-500 dark:text-blue-400"
             }`}>
@@ -779,7 +781,7 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
         <div>
           <dt className="text-[10px] text-muted-foreground">ΔPSI</dt>
           <dd className={`text-xs font-bold ${
-            (ev.inc_level_difference ?? 0) > 0
+            (ev.inc_level_difference ?? 0) < 0
               ? "text-red-600 dark:text-red-400"
               : "text-blue-600 dark:text-blue-400"
           }`}>

@@ -139,7 +139,7 @@ function nucColor(base: string): string {
 // Donor: positions -3,-2,-1 | +1,+2,...,+6 (GT at idx 3,4)
 // Acceptor: positions -20...,-1 | +1,+2,+3 (AG at idx 21,22 i.e. 17,18 in 0-based -20 slice)
 const DONOR_GT_IDX    = new Set([3, 4]);
-const ACCEPTOR_AG_IDX = new Set([17, 18]); // 0-based in 23-nt sequence
+const ACCEPTOR_AG_IDX = new Set([18, 19]); // 0-based in 23-nt sequence: AG at positions -2,-1
 
 // Colours
 const COLOR_FLANK      = "#94a3b8";
@@ -290,7 +290,9 @@ export function ExonDiagram({
   const [hoveredEl, setHoveredEl] = useState<"donor" | "acceptor" | "ppt" | "bp" | null>(null);
 
   const delta    = incLevelDifference ?? 0;
-  const arcColor = delta < 0 ? COLOR_BLUE : COLOR_RED;
+  // ΔΨ < 0 → more exon skipping in group 1 (patients) → RED
+  // ΔΨ > 0 → more exon skipping in group 2 (controls) → BLUE
+  const arcColor = delta < 0 ? COLOR_RED : COLOR_BLUE;
   const arcWidth = Math.max(2, Math.min(6, 2 + Math.abs(delta) * 6));
   const arcDashed = fdr !== null && fdr > 0.05;
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # =============================================================================
 # setup_chr19_fasta.sh
 # Concatenate the 3 chr19 FASTA parts, produce GRCh38.fa (chr19 only for dev),

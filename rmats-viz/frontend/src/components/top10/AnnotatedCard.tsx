@@ -95,8 +95,24 @@ function GeneView({ ev, annotation }: { ev: SplicingEvent; annotation?: GeneAnno
     ? `https://www.ensembl.org/Homo_sapiens/Gene/Summary?g=${ensgId}`
     : null;
 
+  const incL1 = ev.inc_level_1?.split(",").map(Number).filter((v) => !isNaN(v)) ?? [];
+  const incL2 = ev.inc_level_2?.split(",").map(Number).filter((v) => !isNaN(v)) ?? [];
+  const mean = (arr: number[]) =>
+    arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(3) : "—";
+
   return (
-    <div className="space-y-2 text-sm">
+    <div className="space-y-3 text-sm">
+      {/* rMATS scores */}
+      <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 text-xs">
+        <StatRow label="FDR" value={formatFDR(ev.fdr)} highlight />
+        <StatRow label="p-value" value={ev.p_value != null ? ev.p_value.toExponential(2) : "—"} />
+        <StatRow label="|ΔPSI|" value={ev.abs_inc_level_diff?.toFixed(3) ?? "—"} />
+        <StatRow label={t("annotatedCard.scores.meanPsi1")} value={mean(incL1)} />
+        <StatRow label={t("annotatedCard.scores.meanPsi2")} value={mean(incL2)} />
+        <StatRow label="ΔPSI" value={formatDeltaPSI(ev.inc_level_difference)} highlight />
+      </div>
+
+      {/* Gene info */}
       {ensgId && (
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-muted-foreground text-xs">{t("annotatedCard.gene.ensg")}</span>
@@ -207,35 +223,6 @@ function PanelAppView({ annotation, isLoading }: { annotation?: GeneAnnotation; 
   );
 }
 
-function ScoresView({ ev }: { ev: SplicingEvent }) {
-  const t = useT();
-  const incL1 = ev.inc_level_1?.split(",").map(Number).filter((v) => !isNaN(v)) ?? [];
-  const incL2 = ev.inc_level_2?.split(",").map(Number).filter((v) => !isNaN(v)) ?? [];
-  const mean = (arr: number[]) =>
-    arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(3) : "—";
-
-  return (
-    <div className="space-y-2 text-xs">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-        <StatRow label="FDR" value={formatFDR(ev.fdr)} highlight />
-        <StatRow label="p-value" value={ev.p_value != null ? ev.p_value.toExponential(2) : "—"} />
-        <StatRow label="ΔPSI" value={formatDeltaPSI(ev.inc_level_difference)} highlight />
-        <StatRow label="|ΔPSI|" value={ev.abs_inc_level_diff?.toFixed(3) ?? "—"} />
-        <StatRow label={t("annotatedCard.scores.meanPsi1")} value={mean(incL1)} />
-        <StatRow label={t("annotatedCard.scores.meanPsi2")} value={mean(incL2)} />
-      </div>
-      <div className="bg-muted/40 dark:bg-slate-700/40 rounded px-2.5 py-2 space-y-1">
-        <p className="font-semibold text-foreground text-[10px] uppercase tracking-wide mb-1">
-          {t("annotatedCard.scores.counts")}
-        </p>
-        {ev.ijc_sample_1 && <p><span className="text-muted-foreground">IJC G1:</span>{" "}{ev.ijc_sample_1.split(",").slice(0, 3).join(", ")}{ev.ijc_sample_1.split(",").length > 3 ? "…" : ""}</p>}
-        {ev.sjc_sample_1 && <p><span className="text-muted-foreground">SJC G1:</span>{" "}{ev.sjc_sample_1.split(",").slice(0, 3).join(", ")}{ev.sjc_sample_1.split(",").length > 3 ? "…" : ""}</p>}
-        {ev.ijc_sample_2 && <p><span className="text-muted-foreground">IJC G2:</span>{" "}{ev.ijc_sample_2.split(",").slice(0, 3).join(", ")}{ev.ijc_sample_2.split(",").length > 3 ? "…" : ""}</p>}
-        {ev.sjc_sample_2 && <p><span className="text-muted-foreground">SJC G2:</span>{" "}{ev.sjc_sample_2.split(",").slice(0, 3).join(", ")}{ev.sjc_sample_2.split(",").length > 3 ? "…" : ""}</p>}
-      </div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // STRING-DB custom SVG diagram helpers
@@ -791,7 +778,6 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
       <div className="p-4 flex-1">
         {mode === "gene"     && <GeneView ev={ev} annotation={annotation} />}
         {mode === "go"       && <GOView annotation={annotation} isLoading={annotationLoading} />}
-        {mode === "scores"   && <ScoresView ev={ev} />}
         {mode === "stringdb" && <StringDBView eventSymbol={symbol} mutatedGenes={mutatedGenes} />}
         {(mode === "pathways" || mode === "motifs") && (
           <ComingSoonView mode={mode} />

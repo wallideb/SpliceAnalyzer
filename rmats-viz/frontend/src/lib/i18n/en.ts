@@ -156,9 +156,8 @@ export const en = {
   top10View: {
     noEvents: "No events found.",
     modeLabels: {
-      gene: "Genomic location",
+      gene: "Event details",
       go: "Gene Ontology (GO)",
-      scores: "Detailed rMATS scores",
       stringdb: "STRING-DB interactions with mutated gene",
       pathways: "Molecular pathways (coming soon)",
       motifs: "Recurrent splicing patterns",
@@ -232,9 +231,8 @@ export const en = {
     collapse: "Collapse panel",
     expand: "Expand panel",
     tabs: {
-      gene: "Gene",
+      gene: "Event",
       go: "GO / Ontology",
-      scores: "rMATS Scores",
       interactions: "Interactions",
       pathways: "Mol. Pathways",
       motifs: "Recur. Motifs",
@@ -297,6 +295,7 @@ export const en = {
     computingDesc: "Fetching splice-site sequences via Ensembl REST — this may take a few tens of seconds.",
     computeError: "Computation error. Please retry.",
     thresholds: "Significance thresholds:",
+    significantOnly: "significant events only",
     modify: "Modify",
     thresholdsTitle: "Significance thresholds — deep analysis",
     thresholdsDesc: "These thresholds define which SE events are considered significant (Y=1) vs non-significant (Y=0). This enables molecular pattern comparison between the two groups to identify splicing signatures.",

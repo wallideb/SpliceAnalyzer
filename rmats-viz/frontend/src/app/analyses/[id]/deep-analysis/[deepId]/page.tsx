@@ -161,6 +161,9 @@ export default function DeepAnalysisDetailPage() {
           analysisId={id}
           group1Label={group1?.group_label ?? "Group 1"}
           group2Label={group2?.group_label ?? "Group 2"}
+          deepAnalysisId={deepId}
+          fdrThreshold={deepAnalysis?.fdr_threshold}
+          deltaPsiMin={deepAnalysis?.delta_psi_min}
         />
       )}
 

@@ -11,6 +11,7 @@ GET    /deep-analyses/{id}/pattern-comparison — dual-group pattern stats
 
 from __future__ import annotations
 
+import math
 import statistics
 import uuid
 from collections import Counter
@@ -232,9 +233,17 @@ class GroupPatternStats(BaseModel):
     mean_delta_psi: float | None = None
 
 
+class StatTestResult(BaseModel):
+    feature: str
+    test_name: str
+    statistic: float | None = None
+    p_value: float | None = None
+    significant: bool = False  # p < 0.05
+
 class PatternComparisonResponse(BaseModel):
     significant: GroupPatternStats
     not_significant: GroupPatternStats
+    statistical_tests: list[StatTestResult] = []
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +298,189 @@ async def get_pattern_comparison(
     return PatternComparisonResponse(
         significant=_compute_group_stats(sig_events, sig_feats),
         not_significant=_compute_group_stats(nonsig_events, nonsig_feats),
+        statistical_tests=_compute_stat_tests(sig_events, sig_feats, nonsig_events, nonsig_feats),
     )
+
+
+# ---------------------------------------------------------------------------
+# Statistical test helpers (no scipy dependency)
+# ---------------------------------------------------------------------------
+
+def _welch_t_test(vals1: list[float], vals2: list[float]) -> tuple[float | None, float | None]:
+    """Welch's t-test for unequal variances. Returns (t_stat, p_value) or (None, None)."""
+    n1, n2 = len(vals1), len(vals2)
+    if n1 < 2 or n2 < 2:
+        return None, None
+    m1, m2 = statistics.mean(vals1), statistics.mean(vals2)
+    v1 = statistics.variance(vals1)
+    v2 = statistics.variance(vals2)
+    se = math.sqrt(v1 / n1 + v2 / n2)
+    if se == 0:
+        return None, None
+    t_stat = (m1 - m2) / se
+    # Welch-Satterthwaite degrees of freedom
+    num = (v1 / n1 + v2 / n2) ** 2
+    denom = (v1 / n1) ** 2 / (n1 - 1) + (v2 / n2) ** 2 / (n2 - 1)
+    df = num / denom if denom > 0 else 1
+    # Two-tailed p-value using t-distribution approximation
+    p = _t_cdf_approx(abs(t_stat), df) * 2
+    return round(t_stat, 4), round(min(p, 1.0), 4)
+
+
+def _t_cdf_approx(t: float, df: float) -> float:
+    """Approximate upper-tail p-value for Student t-distribution.
+    Uses the regularized incomplete beta function approximation."""
+    x = df / (df + t * t)
+    # Regularized incomplete beta function approximation via continued fraction
+    a, b = df / 2.0, 0.5
+    return 0.5 * _regularized_beta(x, a, b)
+
+
+def _regularized_beta(x: float, a: float, b: float, max_iter: int = 200) -> float:
+    """Regularized incomplete beta function I_x(a,b) via Lentz's continued fraction."""
+    if x <= 0:
+        return 0.0
+    if x >= 1:
+        return 1.0
+    # Use the log-beta prefix
+    lbeta = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
+    front = math.exp(a * math.log(x) + b * math.log(1 - x) - lbeta) / a
+
+    # Modified Lentz's algorithm for continued fraction
+    f = 1.0
+    c = 1.0
+    d = 1.0 - (a + b) * x / (a + 1)
+    if abs(d) < 1e-30:
+        d = 1e-30
+    d = 1.0 / d
+    f = d
+    for m in range(1, max_iter + 1):
+        # Even step
+        num = m * (b - m) * x / ((a + 2 * m - 1) * (a + 2 * m))
+        d = 1.0 + num * d
+        if abs(d) < 1e-30:
+            d = 1e-30
+        c = 1.0 + num / c
+        if abs(c) < 1e-30:
+            c = 1e-30
+        d = 1.0 / d
+        f *= c * d
+        # Odd step
+        num = -((a + m) * (a + b + m) * x) / ((a + 2 * m) * (a + 2 * m + 1))
+        d = 1.0 + num * d
+        if abs(d) < 1e-30:
+            d = 1e-30
+        c = 1.0 + num / c
+        if abs(c) < 1e-30:
+            c = 1e-30
+        d = 1.0 / d
+        delta = c * d
+        f *= delta
+        if abs(delta - 1.0) < 1e-8:
+            break
+    return front * f
+
+
+def _proportion_z_test(k1: int, n1: int, k2: int, n2: int) -> tuple[float | None, float | None]:
+    """Two-proportion z-test. Returns (z_stat, p_value) or (None, None)."""
+    if n1 < 1 or n2 < 1:
+        return None, None
+    p1 = k1 / n1
+    p2 = k2 / n2
+    p_pool = (k1 + k2) / (n1 + n2)
+    se = math.sqrt(p_pool * (1 - p_pool) * (1 / n1 + 1 / n2)) if 0 < p_pool < 1 else 0
+    if se == 0:
+        return None, None
+    z = (p1 - p2) / se
+    # Two-tailed p-value from normal distribution
+    p = 2 * (1 - _normal_cdf(abs(z)))
+    return round(z, 4), round(p, 4)
+
+
+def _normal_cdf(x: float) -> float:
+    """Standard normal CDF approximation (Abramowitz & Stegun)."""
+    return 0.5 * math.erfc(-x / math.sqrt(2))
+
+
+def _compute_stat_tests(
+    sig_events: list,
+    sig_feats: list,
+    nonsig_events: list,
+    nonsig_feats: list,
+) -> list[StatTestResult]:
+    """Compute statistical tests comparing significant vs non-significant groups."""
+    results: list[StatTestResult] = []
+
+    # 1. Mean ΔΨ — Welch's t-test
+    dpsi_sig = [ev.inc_level_difference for ev in sig_events if ev.inc_level_difference is not None]
+    dpsi_ns = [ev.inc_level_difference for ev in nonsig_events if ev.inc_level_difference is not None]
+    t_stat, p_val = _welch_t_test(dpsi_sig, dpsi_ns)
+    results.append(StatTestResult(
+        feature="mean_delta_psi", test_name="Welch's t-test",
+        statistic=t_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+    ))
+
+    # 2. Exon size — Welch's t-test
+    sizes_sig = [f.exon_size for f in sig_feats if f.exon_size is not None]
+    sizes_ns = [f.exon_size for f in nonsig_feats if f.exon_size is not None]
+    t_stat, p_val = _welch_t_test(sizes_sig, sizes_ns)
+    results.append(StatTestResult(
+        feature="exon_size", test_name="Welch's t-test",
+        statistic=t_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+    ))
+
+    # 3. PPT score — Welch's t-test
+    ppt_sig = [f.ppt_score for f in sig_feats if f.ppt_score is not None and f.donor_seq]
+    ppt_ns = [f.ppt_score for f in nonsig_feats if f.ppt_score is not None and f.donor_seq]
+    t_stat, p_val = _welch_t_test(ppt_sig, ppt_ns)
+    results.append(StatTestResult(
+        feature="ppt_score", test_name="Welch's t-test",
+        statistic=t_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+    ))
+
+    # 4. Canonical GT (5'SS) — proportion z-test
+    sig_with_seq = [f for f in sig_feats if f.donor_seq and len(f.donor_seq) >= 9]
+    ns_with_seq = [f for f in nonsig_feats if f.donor_seq and len(f.donor_seq) >= 9]
+    k1 = sum(1 for f in sig_with_seq if f.donor_is_gt)
+    k2 = sum(1 for f in ns_with_seq if f.donor_is_gt)
+    z_stat, p_val = _proportion_z_test(k1, len(sig_with_seq), k2, len(ns_with_seq))
+    results.append(StatTestResult(
+        feature="canonical_gt", test_name="Proportion z-test",
+        statistic=z_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+    ))
+
+    # 5. Canonical AG (3'SS) — proportion z-test
+    sig_acc = [f for f in sig_feats if f.acceptor_seq and len(f.acceptor_seq) >= 23]
+    ns_acc = [f for f in nonsig_feats if f.acceptor_seq and len(f.acceptor_seq) >= 23]
+    k1 = sum(1 for f in sig_acc if f.acceptor_is_ag)
+    k2 = sum(1 for f in ns_acc if f.acceptor_is_ag)
+    z_stat, p_val = _proportion_z_test(k1, len(sig_acc), k2, len(ns_acc))
+    results.append(StatTestResult(
+        feature="canonical_ag", test_name="Proportion z-test",
+        statistic=z_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+    ))
+
+    # 6. In-frame proportion — proportion z-test
+    sig_frame = [f for f in sig_feats if f.frame_class and f.frame_class != "unknown"]
+    ns_frame = [f for f in nonsig_feats if f.frame_class and f.frame_class != "unknown"]
+    k1 = sum(1 for f in sig_frame if f.frame_class == "in_frame")
+    k2 = sum(1 for f in ns_frame if f.frame_class == "in_frame")
+    z_stat, p_val = _proportion_z_test(k1, len(sig_frame), k2, len(ns_frame))
+    results.append(StatTestResult(
+        feature="in_frame_pct", test_name="Proportion z-test",
+        statistic=z_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+    ))
+
+    # 7. Branch point found — proportion z-test
+    k1 = sum(1 for f in sig_with_seq if f.bp_motif_found)
+    k2 = sum(1 for f in ns_with_seq if f.bp_motif_found)
+    z_stat, p_val = _proportion_z_test(k1, len(sig_with_seq), k2, len(ns_with_seq))
+    results.append(StatTestResult(
+        feature="bp_found", test_name="Proportion z-test",
+        statistic=z_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+    ))
+
+    return results
 
 
 def _compute_group_stats(

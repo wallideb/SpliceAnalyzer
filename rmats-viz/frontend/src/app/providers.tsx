@@ -1,7 +1,6 @@
 "use client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
-import { BasketProvider } from "@/contexts/BasketContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 
@@ -11,7 +10,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={client}>
       <ThemeProvider>
         <LanguageProvider>
-          <BasketProvider>{children}</BasketProvider>
+          {children}
         </LanguageProvider>
       </ThemeProvider>
     </QueryClientProvider>

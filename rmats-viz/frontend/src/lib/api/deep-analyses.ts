@@ -111,9 +111,18 @@ export interface GroupPatternStats {
   mean_delta_psi: number | null;
 }
 
+export interface StatTestResult {
+  feature: string;
+  test_name: string;
+  statistic: number | null;
+  p_value: number | null;
+  significant: boolean;
+}
+
 export interface PatternComparisonResponse {
   significant: GroupPatternStats;
   not_significant: GroupPatternStats;
+  statistical_tests: StatTestResult[];
 }
 
 export function getPatternComparison(

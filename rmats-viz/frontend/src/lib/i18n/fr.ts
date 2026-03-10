@@ -157,9 +157,8 @@ export const fr: Translations = {
   top10View: {
     noEvents: "Aucun événement trouvé.",
     modeLabels: {
-      gene: "Localisation génomique",
+      gene: "Détails de l'événement",
       go: "Ontologie génique (GO)",
-      scores: "Scores rMATS détaillés",
       stringdb: "Interactions STRING-DB avec le gène muté",
       pathways: "Voies moléculaires (à venir)",
       motifs: "Patterns d'épissage récurrents",
@@ -233,9 +232,8 @@ export const fr: Translations = {
     collapse: "Masquer le volet",
     expand: "Afficher le volet",
     tabs: {
-      gene: "Gène",
+      gene: "Événement",
       go: "GO / Ontologie",
-      scores: "Scores rMATS",
       interactions: "Interactions",
       pathways: "Voies moléc.",
       motifs: "Motifs récur.",
@@ -300,6 +298,7 @@ export const fr: Translations = {
     computingDesc: "Requêtes aux sites d'épissage via Ensembl REST — cette opération peut prendre quelques dizaines de secondes.",
     computeError: "Erreur lors du calcul. Réessayez.",
     thresholds: "Seuils de significativité :",
+    significantOnly: "événements significatifs uniquement",
     modify: "Modifier",
     thresholdsTitle: "Seuils de significativité — analyse approfondie",
     thresholdsDesc: "Ces seuils définissent quels événements SE sont considérés comme significatifs (Y=1) vs non-significatifs (Y=0). Ils permettront de comparer les patterns moléculaires entre les deux groupes pour identifier des signatures d'épissage.",

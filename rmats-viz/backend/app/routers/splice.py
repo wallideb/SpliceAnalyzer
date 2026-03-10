@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
 from app.models.event import SplicingEvent
+from app.models.deep_analysis import DeepAnalysisEvent
 from app.models.splice import EventCluster, EventSpliceFeature
 from app.schemas.splice import (
     ComputeJobResponse,
@@ -389,9 +390,14 @@ async def get_splice_patterns(
     analysis_id: uuid.UUID,
     fdr_threshold: float = Query(0.05, ge=0.0, le=1.0, description="FDR significance cutoff"),
     abs_delta_psi_min: float = Query(0.05, ge=0.0, le=1.0, description="Minimum |ΔΨ| for significance"),
+    deep_analysis_id: uuid.UUID | None = Query(None, description="If set, only analyse significant events from this deep analysis"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Aggregate splice-signal patterns across all SE events of an analysis."""
+    """Aggregate splice-signal patterns across SE events of an analysis.
+
+    When deep_analysis_id is provided, only events tagged as significant
+    in that deep analysis are included (thresholds are informational only).
+    """
 
     # Fetch events + their features (join)
     stmt = (
@@ -406,6 +412,17 @@ async def get_splice_patterns(
             SplicingEvent.event_type == "SE",
         )
     )
+
+    # If deep_analysis_id is provided, restrict to significant events only
+    if deep_analysis_id is not None:
+        stmt = stmt.join(
+            DeepAnalysisEvent,
+            DeepAnalysisEvent.event_id == SplicingEvent.id,
+        ).where(
+            DeepAnalysisEvent.deep_analysis_id == deep_analysis_id,
+            DeepAnalysisEvent.is_significant == True,
+        )
+
     rows = (await db.execute(stmt)).all()
 
     if not rows:

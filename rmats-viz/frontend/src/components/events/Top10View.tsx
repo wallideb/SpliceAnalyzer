@@ -35,9 +35,15 @@ interface Top10ViewProps {
   /** Group labels for direction-of-effect badges (e.g. "Patients" / "Contrôles"). */
   group1Label?: string;
   group2Label?: string;
+  /** Deep analysis ID — restricts MotifPatternPanel to significant events. */
+  deepAnalysisId?: string;
+  /** Pre-set FDR threshold from deep analysis. */
+  fdrThreshold?: number;
+  /** Pre-set |ΔΨ| min from deep analysis. */
+  deltaPsiMin?: number;
 }
 
-export function Top10View({ events, mutatedGenes = [], activeModules, analysisId, group1Label, group2Label }: Top10ViewProps) {
+export function Top10View({ events, mutatedGenes = [], activeModules, analysisId, group1Label, group2Label, deepAnalysisId, fdrThreshold, deltaPsiMin }: Top10ViewProps) {
   const [mode, setMode] = useState<ViewMode>("gene");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const t = useT();
@@ -61,7 +67,6 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
   const MODE_LABELS: Record<ViewMode, string> = {
     gene:     t("top10View.modeLabels.gene"),
     go:       t("top10View.modeLabels.go"),
-    scores:   t("top10View.modeLabels.scores"),
     stringdb: t("top10View.modeLabels.stringdb"),
     pathways: t("top10View.modeLabels.pathways"),
     motifs:   t("top10View.modeLabels.motifs"),
@@ -88,7 +93,7 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
 
         {/* Motifs mode → full-width aggregate panel */}
         {mode === "motifs" && analysisId ? (
-          <MotifPatternPanel events={events} analysisId={analysisId} />
+          <MotifPatternPanel events={events} analysisId={analysisId} deepAnalysisId={deepAnalysisId} fdrThreshold={fdrThreshold} deltaPsiMin={deltaPsiMin} />
         ) : mode === "motifs" ? (
           <p className="text-xs text-muted-foreground italic">
             {t("top10View.noAnalysisId")}

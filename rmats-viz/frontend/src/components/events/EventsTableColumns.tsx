@@ -66,9 +66,9 @@ export function makeEventsColumns(
           return <span className="text-muted-foreground">N/A</span>;
         const txt = formatDeltaPSI(val);
         const cls =
-          val > 0
+          val < 0
             ? "text-red-600 dark:text-red-400 font-semibold"
-            : val < 0
+            : val > 0
             ? "text-blue-600 dark:text-blue-400 font-semibold"
             : "text-muted-foreground";
         return <span className={`tabular-nums ${cls}`}>{txt}</span>;
@@ -85,7 +85,7 @@ export function makeEventsColumns(
         if (isSE) {
           // ΔΨ < 0 → more skipping in group1; ΔΨ > 0 → more skipping in group2
           const moreSkippingLabel = val < 0 ? group1Label : group2Label;
-          const seColor = val > 0
+          const seColor = val < 0
             ? "text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800"
             : "text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800";
           return (
@@ -94,16 +94,16 @@ export function makeEventsColumns(
             </span>
           );
         }
-        // Non-SE: simple inclusion direction
-        if (val > 0)
+        // Non-SE: ΔΨ < 0 → reduced inclusion in group1 → red
+        if (val < 0)
           return (
             <span className="inline-flex items-center gap-0.5 text-xs font-medium text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded whitespace-nowrap">
-              ↑ {group1Label}
+              ↓ {group1Label}
             </span>
           );
         return (
           <span className="inline-flex items-center gap-0.5 text-xs font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 px-1.5 py-0.5 rounded whitespace-nowrap">
-            ↑ {group2Label}
+            ↑ {group1Label}
           </span>
         );
       },

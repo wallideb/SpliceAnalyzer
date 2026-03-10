@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -9,7 +9,6 @@ import { ManhattanPlot } from "@/components/events/ManhattanPlot";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
 import { ScienceNote } from "@/components/ScienceNote";
 import { ExcelExportModal, type ExcelColumnGroup } from "@/components/ExcelExportModal";
-import { useBasket } from "@/contexts/BasketContext";
 import { useT, useLanguage } from "@/contexts/LanguageContext";
 import type { EventsQuery } from "@/lib/api";
 import type { GeneEntry } from "@/types/gene";
@@ -33,7 +32,6 @@ function dpsiSliderToValue(pos: number): number {
 
 export default function AnalysisDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { addItems, hasItem } = useBasket();
   const t = useT();
   const { lang } = useLanguage();
 
@@ -49,7 +47,6 @@ export default function AnalysisDetailPage() {
   const [isExporting, setIsExporting] = useState(false);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [showExcelModal, setShowExcelModal] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showIncLevel, setShowIncLevel] = useState(false);
 
   const sortBy = sortKey.slice(0, sortKey.lastIndexOf("|")) as EventsQuery["sort_by"];
@@ -103,39 +100,6 @@ export default function AnalysisDetailPage() {
     (g): g is GeneEntry => typeof g === "object" && "ensembl_id" in g,
   );
 
-  const handleToggleSelect = useCallback((eventId: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(eventId)) next.delete(eventId);
-      else next.add(eventId);
-      return next;
-    });
-  }, []);
-
-  const handleSelectPage = useCallback((ids: string[]) => {
-    setSelectedIds((prev) => {
-      const allSelected = ids.every((id) => prev.has(id));
-      const next = new Set(prev);
-      if (allSelected) ids.forEach((id) => next.delete(id));
-      else ids.forEach((id) => next.add(id));
-      return next;
-    });
-  }, []);
-
-  const handleAddToBasket = useCallback(() => {
-    if (!eventsPage || selectedIds.size === 0) return;
-    const selectedEvents = eventsPage.items.filter((e) => selectedIds.has(e.id));
-    addItems(
-      selectedEvents.map((event) => ({
-        event,
-        analysisId: id,
-        analysisName,
-        addedAt: new Date().toISOString(),
-      }))
-    );
-    setSelectedIds(new Set());
-  }, [eventsPage, selectedIds, addItems, id, analysisName]);
-
   const handleExport = useCallback(async (groups: ExcelColumnGroup[] = ["core"]) => {
     setIsExporting(true);
     setShowExcelModal(false);
@@ -158,12 +122,6 @@ export default function AnalysisDetailPage() {
       setIsExportingPDF(false);
     }
   }, [id]);
-
-  const newCount = useMemo(() => {
-    let n = 0;
-    selectedIds.forEach((eid) => { if (!hasItem(eid)) n++; });
-    return n;
-  }, [selectedIds, hasItem]);
 
   return (
     <div className="flex gap-6 items-start">
@@ -190,7 +148,7 @@ export default function AnalysisDetailPage() {
       )}
 
       {/* ══ MAIN CONTENT ══════════════════════════════════════════════════ */}
-      <div className={`flex-1 min-w-0 space-y-5${selectedIds.size > 0 ? " pb-24" : ""}`}>
+      <div className="flex-1 min-w-0 space-y-5">
 
       {/* ── Header ── */}
       <div className="flex items-start justify-between flex-wrap gap-3">
@@ -274,11 +232,11 @@ export default function AnalysisDetailPage() {
           <span className="font-semibold text-foreground">{t("analysisDetail.legend.deltaLabel")}</span>
           <span className="inline-flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm bg-red-100 border border-red-300 dark:bg-red-950/40 dark:border-red-800" />
-            <span className="text-red-600 dark:text-red-400">{t("analysisDetail.legend.positive", { group: group1Label })}</span>
+            <span className="text-red-600 dark:text-red-400">{t("analysisDetail.legend.negative", { group: group1Label })}</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm bg-blue-100 border border-blue-300 dark:bg-blue-950/40 dark:border-blue-800" />
-            <span className="text-blue-600 dark:text-blue-400">{t("analysisDetail.legend.negative", { group: group2Label })}</span>
+            <span className="text-blue-600 dark:text-blue-400">{t("analysisDetail.legend.positive", { group: group1Label })}</span>
           </span>
         </div>
 
@@ -430,14 +388,8 @@ export default function AnalysisDetailPage() {
           pages={eventsPage.pages}
           onPageChange={setPage}
           loading={isLoading}
-          selectedIds={selectedIds}
-          onToggleSelect={handleToggleSelect}
-          onSelectPage={handleSelectPage}
           group1Label={group1Label}
           group2Label={group2Label}
-          basketIds={new Set(
-            eventsPage.items.filter((e) => hasItem(e.id)).map((e) => e.id)
-          )}
           showIncLevel={showIncLevel}
         />
       )}
@@ -456,43 +408,6 @@ export default function AnalysisDetailPage() {
       />
 
       </div>{/* end main content */}
-
-      {/* ══ FIXED BASKET ACTION BUTTON – always follows scroll ════════════ */}
-      {selectedIds.size > 0 && (
-        <div className="fixed bottom-6 right-6 z-50">
-          <div className="flex items-center gap-2 bg-blue-600 dark:bg-blue-700 border border-blue-500 dark:border-blue-600 rounded-2xl shadow-2xl px-3 py-2.5 text-white">
-            {/* Count badge */}
-            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white/20 text-xs font-extrabold tabular-nums">
-              {selectedIds.size}
-            </span>
-            <span className="text-sm font-medium pr-1">
-              {t("analysisDetail.basket.selected")}
-            </span>
-            {/* Deselect */}
-            <button
-              onClick={() => setSelectedIds(new Set())}
-              className="flex items-center justify-center w-6 h-6 rounded-lg text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
-              title={t("analysisDetail.basket.deselect")}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            {/* Add to basket */}
-            <button
-              onClick={handleAddToBasket}
-              disabled={newCount === 0}
-              className="inline-flex items-center gap-1.5 bg-white dark:bg-blue-50 text-blue-700 dark:text-blue-800 text-sm px-3 py-1.5 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold hover:bg-blue-50 shadow-sm"
-              title={newCount === 0 ? t("analysisDetail.basket.alreadyInBasketTitle") : undefined}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z" />
-              </svg>
-              {newCount > 0 ? t("analysisDetail.basket.add", { n: newCount }) : t("analysisDetail.basket.alreadyInBasket")}
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* ══ EXCEL EXPORT MODAL ══════════════════════════════════════════════ */}
       <ExcelExportModal

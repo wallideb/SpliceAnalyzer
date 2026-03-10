@@ -551,6 +551,15 @@ export const fr: Translations = {
     maneTranscript: "Transcrit MANE : {{id}}",
     maneNotFound: "MANE : non trouvé",
   },
+  manhattan: {
+    title: "Manhattan Plot — Significativité des événements à l'échelle du génome",
+    toggle: "Manhattan Plot",
+    loading: "Chargement des données Manhattan…",
+    noData: "Aucun événement avec des coordonnées chromosomiques disponible.",
+    xAxis: "Chromosome",
+    yAxis: "−log₁₀(FDR)",
+    description: "{{n}} événements affichés · chaque point est un événement d'épissage positionné par coordonnée génomique · axe y = −log₁₀(FDR) · ligne rouge pointillée = seuil FDR 0.05",
+  },
   deepAnalysis: {
     breadcrumb: "Analyse approfondie",
     title: "Analyse approfondie",

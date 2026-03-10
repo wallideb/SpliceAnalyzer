@@ -546,6 +546,15 @@ export const en = {
     maneTranscript: "MANE transcript: {{id}}",
     maneNotFound: "MANE: not found",
   },
+  manhattan: {
+    title: "Manhattan Plot — Genome-wide event significance",
+    toggle: "Manhattan Plot",
+    loading: "Loading Manhattan data…",
+    noData: "No events with chromosome coordinates available.",
+    xAxis: "Chromosome",
+    yAxis: "−log₁₀(FDR)",
+    description: "{{n}} events displayed · each dot is a splicing event positioned by genomic coordinate · y-axis = −log₁₀(FDR) · dashed red line = FDR 0.05 threshold",
+  },
   deepAnalysis: {
     breadcrumb: "Deep Analysis",
     title: "Deep Analysis",

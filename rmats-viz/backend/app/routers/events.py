@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.analysis import Analysis
 from app.models.event import SplicingEvent
-from app.schemas.event import EventsPage, SplicingEventResponse
+from app.schemas.event import EventsPage, ManhattanPoint, SplicingEventResponse
 
 router = APIRouter(tags=["events"])
 
@@ -106,3 +106,43 @@ async def get_top10(
         )
     rows = (await db.execute(q)).scalars().all()
     return rows
+
+
+@router.get("/analyses/{analysis_id}/events/manhattan", response_model=list[ManhattanPoint])
+async def get_manhattan(
+    analysis_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return lightweight event data for the Manhattan plot (all events, no pagination)."""
+    res = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
+    if not res.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    q = (
+        select(
+            SplicingEvent.id,
+            SplicingEvent.event_type,
+            SplicingEvent.gene_symbol,
+            SplicingEvent.chr,
+            SplicingEvent.exon_start,
+            SplicingEvent.fdr,
+            SplicingEvent.inc_level_difference,
+        )
+        .where(SplicingEvent.analysis_id == analysis_id)
+        .where(SplicingEvent.chr.isnot(None))
+        .where(SplicingEvent.exon_start.isnot(None))
+        .order_by(SplicingEvent.chr, SplicingEvent.exon_start)
+    )
+    rows = (await db.execute(q)).all()
+    return [
+        ManhattanPoint(
+            id=r.id,
+            event_type=r.event_type,
+            gene_symbol=r.gene_symbol,
+            chr=r.chr,
+            position=r.exon_start,
+            fdr=r.fdr,
+            inc_level_difference=r.inc_level_difference,
+        )
+        for r in rows
+    ]

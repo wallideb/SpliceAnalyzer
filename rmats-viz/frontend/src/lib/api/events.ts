@@ -48,6 +48,10 @@ export async function listEvents(analysisId: string, query: EventsQuery = {}): P
   return fetchJSON(`${BASE}/analyses/${analysisId}/events?${params}`);
 }
 
+export async function getManhattanData(analysisId: string): Promise<import("@/components/events/ManhattanPlot").ManhattanPoint[]> {
+  return fetchJSON(`${BASE}/analyses/${analysisId}/events/manhattan`);
+}
+
 export async function getTop10(analysisId: string, eventType?: string, limit?: number): Promise<SplicingEvent[]> {
   const params = new URLSearchParams();
   if (eventType) params.set("event_type", encodeURIComponent(eventType));

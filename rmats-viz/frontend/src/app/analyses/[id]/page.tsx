@@ -3,8 +3,9 @@ import { useState, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getAnalysis, listEvents, downloadAnalysisExcel, downloadAnalysisPDF } from "@/lib/api";
+import { getAnalysis, listEvents, downloadAnalysisExcel, downloadAnalysisPDF, getManhattanData } from "@/lib/api";
 import { EventsTable } from "@/components/events/EventsTable";
+import { ManhattanPlot } from "@/components/events/ManhattanPlot";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
 import { ScienceNote } from "@/components/ScienceNote";
 import { ExcelExportModal, type ExcelColumnGroup } from "@/components/ExcelExportModal";
@@ -83,6 +84,16 @@ export default function AnalysisDetailPage() {
     queryFn: () => listEvents(id, query),
     enabled: !!id,
   });
+
+  // Manhattan plot data (all events, lightweight)
+  const { data: manhattanData = [], isLoading: loadingManhattan } = useQuery({
+    queryKey: ["manhattan", id],
+    queryFn: () => getManhattanData(id),
+    enabled: !!id,
+    staleTime: 5 * 60 * 1000, // 5 min cache
+  });
+
+  const [showManhattan, setShowManhattan] = useState(false);
 
   const group1 = analysis?.sample_groups.find((g) => g.group_index === 1);
   const group2 = analysis?.sample_groups.find((g) => g.group_index === 2);
@@ -429,6 +440,27 @@ export default function AnalysisDetailPage() {
           </div>
         )}
       </div>
+
+      {/* ── Manhattan plot toggle + panel ── */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setShowManhattan((v) => !v)}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+            showManhattan
+              ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+              : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+          }`}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+          </svg>
+          {t("manhattan.toggle")}
+        </button>
+      </div>
+
+      {showManhattan && (
+        <ManhattanPlot data={manhattanData} loading={loadingManhattan} />
+      )}
 
       {/* ── Events table ── */}
       {eventsPage && (

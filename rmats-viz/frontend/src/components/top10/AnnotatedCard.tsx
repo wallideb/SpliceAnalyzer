@@ -25,10 +25,12 @@ import { useQuery } from "@tanstack/react-query";
 import { getGeneAnnotation, getGeneInteractions } from "@/lib/api/annotations";
 import { EventTypeBadge } from "@/components/events/EventTypeBadge";
 import { formatFDR, formatDeltaPSI, formatCoord } from "@/lib/utils";
+import { useT } from "@/contexts/LanguageContext";
 import type { SplicingEvent } from "@/types/event";
 import type { GeneAnnotation, GeneInteraction, PanelConfidence } from "@/types/annotation";
 import type { GeneEntry } from "@/types/gene";
 import type { ViewMode } from "./types";
+import { SpliceView } from "./SpliceView";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -41,6 +43,11 @@ interface AnnotatedCardProps {
   ensemblIdHint?: string | null;
   /** Mutated genes from the analysis, used for StringDB interaction view. */
   mutatedGenes: GeneEntry[];
+  /** Analysis UUID — needed by SpliceView to trigger bulk feature computation. */
+  analysisId?: string;
+  /** Group labels (e.g. "Patients" / "Contrôles") for direction-of-effect badges. */
+  group1Label?: string;
+  group2Label?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,10 +68,10 @@ const CONFIDENCE_DOT: Record<PanelConfidence, string> = {
   unknown: "bg-muted-foreground",
 };
 
-const GO_CATEGORY_LABELS: Record<string, string> = {
-  BP: "Processus biologique",
-  MF: "Fonction moléculaire",
-  CC: "Composant cellulaire",
+const GO_CATEGORY_KEYS: Record<string, string> = {
+  BP: "annotatedCard.go.categories.BP",
+  MF: "annotatedCard.go.categories.MF",
+  CC: "annotatedCard.go.categories.CC",
 };
 
 const GO_CATEGORY_COLOR: Record<string, string> = {
@@ -82,6 +89,7 @@ function Skeleton({ className = "" }: { className?: string }) {
 // ---------------------------------------------------------------------------
 
 function GeneView({ ev, annotation }: { ev: SplicingEvent; annotation?: GeneAnnotation }) {
+  const t = useT();
   const ensgId = annotation?.ensembl_id ?? ev.gene_id ?? null;
   const ensemblLink = ensgId
     ? `https://www.ensembl.org/Homo_sapiens/Gene/Summary?g=${ensgId}`
@@ -91,7 +99,7 @@ function GeneView({ ev, annotation }: { ev: SplicingEvent; annotation?: GeneAnno
     <div className="space-y-2 text-sm">
       {ensgId && (
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-muted-foreground text-xs">ENSG :</span>
+          <span className="text-muted-foreground text-xs">{t("annotatedCard.gene.ensg")}</span>
           {ensemblLink ? (
             <a href={ensemblLink} target="_blank" rel="noopener noreferrer"
               className="font-mono text-xs text-blue-600 dark:text-blue-400 hover:underline">
@@ -103,16 +111,16 @@ function GeneView({ ev, annotation }: { ev: SplicingEvent; annotation?: GeneAnno
         </div>
       )}
       <div className="text-xs text-muted-foreground bg-muted/40 dark:bg-slate-700/40 rounded px-3 py-2 space-y-0.5">
-        <div><span className="font-medium text-foreground">Chr :</span>{" "}{ev.chr ?? "?"} {ev.strand ? `(brin ${ev.strand})` : ""}</div>
-        <div><span className="font-medium text-foreground">Exon :</span>{" "}{formatCoord(ev.exon_start)} – {formatCoord(ev.exon_end)}</div>
-        <div><span className="font-medium text-foreground">Upstream :</span>{" "}{formatCoord(ev.upstream_es)} – {formatCoord(ev.upstream_ee)}</div>
-        <div><span className="font-medium text-foreground">Downstream :</span>{" "}{formatCoord(ev.downstream_es)} – {formatCoord(ev.downstream_ee)}</div>
+        <div><span className="font-medium text-foreground">{t("annotatedCard.gene.chr")}</span>{" "}{ev.chr ?? "?"} {ev.strand ? t("annotatedCard.gene.strand", { s: ev.strand }) : ""}</div>
+        <div><span className="font-medium text-foreground">{t("annotatedCard.gene.exon")}</span>{" "}{formatCoord(ev.exon_start)} – {formatCoord(ev.exon_end)}</div>
+        <div><span className="font-medium text-foreground">{t("annotatedCard.gene.upstream")}</span>{" "}{formatCoord(ev.upstream_es)} – {formatCoord(ev.upstream_ee)}</div>
+        <div><span className="font-medium text-foreground">{t("annotatedCard.gene.downstream")}</span>{" "}{formatCoord(ev.downstream_es)} – {formatCoord(ev.downstream_ee)}</div>
       </div>
       {ensemblLink && (
         <a href={ensemblLink} target="_blank" rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline">
           <ExternalIcon />
-          Voir sur Ensembl
+          {t("annotatedCard.gene.viewEnsembl")}
         </a>
       )}
     </div>
@@ -120,16 +128,17 @@ function GeneView({ ev, annotation }: { ev: SplicingEvent; annotation?: GeneAnno
 }
 
 function GOView({ annotation, isLoading }: { annotation?: GeneAnnotation; isLoading: boolean }) {
+  const t = useT();
   if (isLoading) {
     return <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-6 w-full" />)}</div>;
   }
   const terms = annotation?.go_terms ?? [];
   if (terms.length === 0) {
-    return <p className="text-xs text-muted-foreground italic">Aucun terme GO disponible.</p>;
+    return <p className="text-xs text-muted-foreground italic">{t("annotatedCard.go.noTerms")}</p>;
   }
-  const grouped = terms.reduce<Record<string, typeof terms>>((acc, t) => {
-    if (!acc[t.category]) acc[t.category] = [];
-    acc[t.category].push(t);
+  const grouped = terms.reduce<Record<string, typeof terms>>((acc, term) => {
+    if (!acc[term.category]) acc[term.category] = [];
+    acc[term.category].push(term);
     return acc;
   }, {});
 
@@ -141,15 +150,15 @@ function GOView({ annotation, isLoading }: { annotation?: GeneAnnotation; isLoad
         return (
           <div key={cat}>
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-              {GO_CATEGORY_LABELS[cat]}
+              {t(GO_CATEGORY_KEYS[cat])}
             </p>
             <div className="flex flex-wrap gap-1">
-              {catTerms.slice(0, 4).map((t) => (
-                <a key={t.id} href={`https://www.ebi.ac.uk/QuickGO/term/${t.id}`}
+              {catTerms.slice(0, 4).map((term) => (
+                <a key={term.id} href={`https://www.ebi.ac.uk/QuickGO/term/${term.id}`}
                   target="_blank" rel="noopener noreferrer"
-                  title={`${t.id} · Evidence: ${t.evidence || "–"}`}
+                  title={`${term.id} · Evidence: ${term.evidence || "–"}`}
                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] border font-medium hover:opacity-80 transition-opacity ${GO_CATEGORY_COLOR[cat] ?? "bg-muted text-foreground"}`}>
-                  {t.term}
+                  {term.term}
                 </a>
               ))}
             </div>
@@ -161,26 +170,27 @@ function GOView({ annotation, isLoading }: { annotation?: GeneAnnotation; isLoad
 }
 
 function PanelAppView({ annotation, isLoading }: { annotation?: GeneAnnotation; isLoading: boolean }) {
+  const t = useT();
   if (isLoading) {
     return <div className="space-y-2">{[1, 2].map((i) => <Skeleton key={i} className="h-8 w-full" />)}</div>;
   }
   const panels = annotation?.panels ?? [];
   if (panels.length === 0) {
-    return <p className="text-xs text-muted-foreground italic">Aucun panel PanelApp trouvé.</p>;
+    return <p className="text-xs text-muted-foreground italic">{t("annotatedCard.panelapp.noPanel")}</p>;
   }
   return (
     <div className="space-y-1.5">
-      {panels.slice(0, 4).map((p) => {
-        const conf = p.confidence_label as PanelConfidence;
+      {panels.slice(0, 4).map((panel) => {
+        const conf = panel.confidence_label as PanelConfidence;
         return (
-          <div key={p.panel_name}
+          <div key={panel.panel_name}
             className={`flex items-start gap-2 px-2.5 py-2 rounded-lg border text-xs ${CONFIDENCE_STYLES[conf]}`}>
             <span className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${CONFIDENCE_DOT[conf]}`} />
             <div className="min-w-0">
-              <p className="font-semibold leading-tight">{p.panel_name}</p>
-              {p.disorders.length > 0 && (
+              <p className="font-semibold leading-tight">{panel.panel_name}</p>
+              {panel.disorders.length > 0 && (
                 <p className="text-[11px] opacity-75 mt-0.5 truncate">
-                  {p.disorders.slice(0, 2).join(", ")}
+                  {panel.disorders.slice(0, 2).join(", ")}
                 </p>
               )}
             </div>
@@ -191,13 +201,14 @@ function PanelAppView({ annotation, isLoading }: { annotation?: GeneAnnotation; 
         target="_blank" rel="noopener noreferrer"
         className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline mt-1">
         <ExternalIcon />
-        Voir sur PanelApp AU
+        {t("annotatedCard.panelapp.viewPanelApp")}
       </a>
     </div>
   );
 }
 
 function ScoresView({ ev }: { ev: SplicingEvent }) {
+  const t = useT();
   const incL1 = ev.inc_level_1?.split(",").map(Number).filter((v) => !isNaN(v)) ?? [];
   const incL2 = ev.inc_level_2?.split(",").map(Number).filter((v) => !isNaN(v)) ?? [];
   const mean = (arr: number[]) =>
@@ -210,12 +221,12 @@ function ScoresView({ ev }: { ev: SplicingEvent }) {
         <StatRow label="p-value" value={ev.p_value != null ? ev.p_value.toExponential(2) : "—"} />
         <StatRow label="ΔPSI" value={formatDeltaPSI(ev.inc_level_difference)} highlight />
         <StatRow label="|ΔPSI|" value={ev.abs_inc_level_diff?.toFixed(3) ?? "—"} />
-        <StatRow label="PSI moy. G1" value={mean(incL1)} />
-        <StatRow label="PSI moy. G2" value={mean(incL2)} />
+        <StatRow label={t("annotatedCard.scores.meanPsi1")} value={mean(incL1)} />
+        <StatRow label={t("annotatedCard.scores.meanPsi2")} value={mean(incL2)} />
       </div>
       <div className="bg-muted/40 dark:bg-slate-700/40 rounded px-2.5 py-2 space-y-1">
         <p className="font-semibold text-foreground text-[10px] uppercase tracking-wide mb-1">
-          Comptages (3 premiers échantillons)
+          {t("annotatedCard.scores.counts")}
         </p>
         {ev.ijc_sample_1 && <p><span className="text-muted-foreground">IJC G1:</span>{" "}{ev.ijc_sample_1.split(",").slice(0, 3).join(", ")}{ev.ijc_sample_1.split(",").length > 3 ? "…" : ""}</p>}
         {ev.sjc_sample_1 && <p><span className="text-muted-foreground">SJC G1:</span>{" "}{ev.sjc_sample_1.split(",").slice(0, 3).join(", ")}{ev.sjc_sample_1.split(",").length > 3 ? "…" : ""}</p>}
@@ -325,6 +336,8 @@ function SingleInteraction({
     </div>
   );
 
+  const t = useT();
+
   if (isLoading) {
     return (
       <div>
@@ -342,7 +355,7 @@ function SingleInteraction({
       <div>
         {pairLabel}
         <p className="text-[11px] text-muted-foreground italic">
-          Erreur lors de la récupération des données STRING-DB.
+          {t("annotatedCard.stringdb.error")}
         </p>
       </div>
     );
@@ -353,7 +366,7 @@ function SingleInteraction({
       <div>
         {pairLabel}
         <p className="text-[11px] text-muted-foreground italic">
-          Aucune interaction STRING-DB trouvée entre ces deux gènes.
+          {t("annotatedCard.stringdb.noInteraction")}
         </p>
       </div>
     );
@@ -371,14 +384,14 @@ function SingleInteraction({
 
       {/* Score summary */}
       <div className="text-center text-[11px] text-muted-foreground">
-        Score combiné STRING :{" "}
+        {t("annotatedCard.stringdb.combinedScore")}{" "}
         <span className="font-semibold text-foreground">{scorePercent}%</span>
       </div>
 
       {/* Evidence table */}
       <div className="space-y-1">
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-          Preuves d'interaction
+          {t("annotatedCard.stringdb.evidence")}
         </p>
         <div className="divide-y divide-border rounded-lg border border-border overflow-hidden text-[11px]">
           {data.channel_meta.map((ch) => {
@@ -402,7 +415,7 @@ function SingleInteraction({
       {data.pmids.length > 0 && (
         <div className="space-y-1">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-            Publications associées
+            {t("annotatedCard.stringdb.publications")}
           </p>
           <ul className="space-y-1.5">
             {data.pmids.map((pub) => (
@@ -434,7 +447,7 @@ function SingleInteraction({
         className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
       >
         <ExternalIcon />
-        Ouvrir dans STRING-DB
+        {t("annotatedCard.stringdb.openStringDB")}
       </a>
     </div>
   );
@@ -452,10 +465,11 @@ function StringDBView({
   eventSymbol: string;
   mutatedGenes: GeneEntry[];
 }) {
+  const t = useT();
   if (!eventSymbol) {
     return (
       <p className="text-xs text-muted-foreground italic">
-        Symbole du gène non disponible.
+        {t("annotatedCard.stringdb.noSymbol")}
       </p>
     );
   }
@@ -468,7 +482,7 @@ function StringDBView({
   if (pairs.length === 0) {
     return (
       <p className="text-xs text-muted-foreground italic">
-        Le gène porteur de l'événement est identique au gène muté — pas d'interaction à afficher.
+        {t("annotatedCard.stringdb.selfInteraction")}
       </p>
     );
   }
@@ -507,6 +521,7 @@ const PANEL_BADGE_STYLE: Record<PanelConfidence, string> = {
 };
 
 function PanelAppBadge({ annotation }: { annotation?: GeneAnnotation }) {
+  const t = useT();
   const [show, setShow] = useState(false);
   const conf = topPanelConfidence(annotation?.panels ?? []);
   if (!conf || conf === "unknown") return null;
@@ -529,20 +544,22 @@ function PanelAppBadge({ annotation }: { annotation?: GeneAnnotation }) {
       {show && (
         <div className="absolute right-0 top-full mt-1 z-50 w-64 bg-card border border-border rounded-lg shadow-xl p-2.5 space-y-1.5">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-            Panels de maladie
+            {t("annotatedCard.panelapp.diseasePanels")}
           </p>
-          {panels.slice(0, 6).map((p) => {
-            const c = p.confidence_label as PanelConfidence;
+          {panels.slice(0, 6).map((panel) => {
+            const c = panel.confidence_label as PanelConfidence;
             return (
-              <div key={p.panel_name} className={`flex items-start gap-1.5 px-2 py-1.5 rounded text-xs border ${CONFIDENCE_STYLES[c]}`}>
+              <div key={panel.panel_name} className={`flex items-start gap-1.5 px-2 py-1.5 rounded text-xs border ${CONFIDENCE_STYLES[c]}`}>
                 <span className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${CONFIDENCE_DOT[c]}`} />
-                <span className="font-medium leading-tight">{p.panel_name}</span>
+                <span className="font-medium leading-tight">{panel.panel_name}</span>
               </div>
             );
           })}
           {panels.length > 6 && (
             <p className="text-[11px] text-muted-foreground text-right">
-              +{panels.length - 6} panel{panels.length - 6 > 1 ? "s" : ""}…
+              {panels.length - 6 > 1
+                ? t("annotatedCard.panelapp.morePanelsPlural", { n: panels.length - 6 })
+                : t("annotatedCard.panelapp.morePanels", { n: panels.length - 6 })}…
             </p>
           )}
         </div>
@@ -555,23 +572,24 @@ function PanelAppBadge({ annotation }: { annotation?: GeneAnnotation }) {
 // Coming-soon stub for deep-analysis modules not yet implemented
 // ---------------------------------------------------------------------------
 
-const COMING_SOON_LABELS: Partial<Record<ViewMode, string>> = {
-  pathways: "Voies moléculaires",
-  motifs:   "Motifs récurrents",
-  splice:   "Sites consensus d'épissage",
+const COMING_SOON_LABEL_KEYS: Partial<Record<ViewMode, string>> = {
+  pathways: "sidebarNav.tabs.pathways",
+  motifs:   "sidebarNav.tabs.motifs",
 };
 
 function ComingSoonView({ mode }: { mode: ViewMode }) {
-  const label = COMING_SOON_LABELS[mode] ?? mode;
+  const t = useT();
+  const label = COMING_SOON_LABEL_KEYS[mode] ? t(COMING_SOON_LABEL_KEYS[mode]!) : mode;
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-6 text-center">
       <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
-      <p className="text-sm font-semibold text-foreground">Module à venir</p>
-      <p className="text-[11px] text-muted-foreground max-w-[180px] leading-relaxed">
-        Le module <strong>{label}</strong> est en cours de développement.
-      </p>
+      <p className="text-sm font-semibold text-foreground">{t("annotatedCard.comingSoon")}</p>
+      <p
+        className="text-[11px] text-muted-foreground max-w-[180px] leading-relaxed"
+        dangerouslySetInnerHTML={{ __html: t("annotatedCard.comingSoonModule", { label }) }}
+      />
     </div>
   );
 }
@@ -635,7 +653,34 @@ function GeneSymbolWithTooltip({
 // Main card component
 // ---------------------------------------------------------------------------
 
-export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: AnnotatedCardProps) {
+/** Returns a direction badge for SE exon-skipping events based on ΔΨ sign.
+ *  Always names the group that has MORE skipping so the label reads
+ *  "↑ Exon skipping in patients" (en) / "↑ Saut chez patients" (fr).
+ */
+function SEDirectionBadge({
+  delta,
+  group1Label = "Groupe 1",
+  group2Label = "Groupe 2",
+  eventType,
+  t,
+}: {
+  delta: number | null | undefined;
+  group1Label?: string;
+  group2Label?: string;
+  eventType: string | null | undefined;
+  t: (key: string, vars?: Record<string, string | number>) => string;
+}) {
+  if (eventType !== "SE" || delta === null || delta === undefined || delta === 0) return null;
+  const moreSkippingLabel = delta < 0 ? group1Label : group2Label;
+  return (
+    <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded-md whitespace-nowrap leading-none">
+      {t("annotatedCard.direction.skippingUp", { group: moreSkippingLabel })}
+    </span>
+  );
+}
+
+export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, analysisId, group1Label, group2Label }: AnnotatedCardProps) {
+  const t = useT();
   const symbol = ev.gene_symbol ?? ev.gene_id ?? "";
 
   // annotation always fetched when symbol available (needed for PanelApp badge + GO + gene views)
@@ -646,6 +691,54 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: 
     enabled: !!symbol && needsAnnotation,
     staleTime: 5 * 60 * 1000,
   });
+
+  // Mode splice : layout compact (header inline + diagramme plein format)
+  if (mode === "splice") {
+    return (
+      <div className="flex flex-col border border-border dark:border-slate-600 rounded-xl bg-card dark:bg-slate-800/80 shadow-sm">
+        {/* Header compact inline */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border dark:border-slate-600/60">
+          {ev.top_rank != null ? (
+            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold shrink-0">
+              {ev.top_rank}
+            </span>
+          ) : (
+            <span title={t("annotatedCard.basketEvent")} className="w-5 h-5 flex items-center justify-center rounded-full bg-violet-600 text-white shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z" />
+              </svg>
+            </span>
+          )}
+          <GeneSymbolWithTooltip symbol={symbol || "—"} annotation={annotation} />
+          <div className="flex items-center gap-1.5 ml-auto shrink-0 flex-wrap">
+            <PanelAppBadge annotation={annotation} />
+            <EventTypeBadge type={ev.event_type} />
+            <span className="text-[10px] text-muted-foreground font-mono">
+              FDR {formatFDR(ev.fdr)}
+            </span>
+            <span className={`text-[10px] font-bold font-mono ${
+              (ev.inc_level_difference ?? 0) > 0
+                ? "text-red-500 dark:text-red-400"
+                : "text-blue-500 dark:text-blue-400"
+            }`}>
+              ΔΨ {formatDeltaPSI(ev.inc_level_difference)}
+            </span>
+            <SEDirectionBadge
+              delta={ev.inc_level_difference}
+              eventType={ev.event_type}
+              group1Label={group1Label}
+              group2Label={group2Label}
+              t={t}
+            />
+          </div>
+        </div>
+        {/* Diagramme plein format */}
+        <div className="px-2 py-3">
+          <SpliceView event={ev} analysisId={analysisId} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col border border-border dark:border-slate-600 rounded-xl bg-card dark:bg-slate-800/80 shadow-sm hover:shadow-md transition-shadow">
@@ -659,7 +752,7 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: 
             </span>
           ) : (
             /* Basket badge (not a top-10 event) */
-            <span title="Événement du panier" className="w-7 h-7 flex items-center justify-center rounded-full bg-violet-600 text-white shrink-0">
+            <span title={t("annotatedCard.basketEvent")} className="w-7 h-7 flex items-center justify-center rounded-full bg-violet-600 text-white shrink-0">
               <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z" />
               </svg>
@@ -675,7 +768,7 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: 
       </div>
 
       {/* ── Quick stats ── */}
-      <div className="flex gap-4 px-4 py-2 border-b border-border dark:border-slate-600/60 bg-muted/20 dark:bg-slate-700/30">
+      <div className="flex flex-wrap items-center gap-4 px-4 py-2 border-b border-border dark:border-slate-600/60 bg-muted/20 dark:bg-slate-700/30">
         <div>
           <dt className="text-[10px] text-muted-foreground">FDR</dt>
           <dd className="text-xs font-bold text-foreground">{formatFDR(ev.fdr)}</dd>
@@ -694,6 +787,13 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: 
           <dt className="text-[10px] text-muted-foreground">|ΔPSI|</dt>
           <dd className="text-xs font-semibold text-foreground">{ev.abs_inc_level_diff?.toFixed(3) ?? "—"}</dd>
         </div>
+        <SEDirectionBadge
+          delta={ev.inc_level_difference}
+          eventType={ev.event_type}
+          group1Label={group1Label}
+          group2Label={group2Label}
+          t={t}
+        />
       </div>
 
       {/* ── Dynamic content ── */}
@@ -702,7 +802,7 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes }: 
         {mode === "go"       && <GOView annotation={annotation} isLoading={annotationLoading} />}
         {mode === "scores"   && <ScoresView ev={ev} />}
         {mode === "stringdb" && <StringDBView eventSymbol={symbol} mutatedGenes={mutatedGenes} />}
-        {(mode === "pathways" || mode === "motifs" || mode === "splice") && (
+        {(mode === "pathways" || mode === "motifs") && (
           <ComingSoonView mode={mode} />
         )}
       </div>

@@ -2,9 +2,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { listAnalyses, deleteAnalysis } from "@/lib/api";
+import { useT, useLanguage } from "@/contexts/LanguageContext";
 import Link from "next/link";
 
 export default function AnalysesPage() {
+  const t = useT();
+  const { lang } = useLanguage();
   const { data: analyses, isLoading, error, refetch } = useQuery({
     queryKey: ["analyses"],
     queryFn: listAnalyses,
@@ -13,18 +16,9 @@ export default function AnalysesPage() {
   const handleDelete = async (id: string, name: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm(`Supprimer l'analyse « ${name} » ?`)) return;
+    if (!confirm(t("analyses.confirmDelete", { name }))) return;
     await deleteAnalysis(id);
     refetch();
-  };
-
-  const handleShare = (id: string, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const url = `${window.location.origin}/analyses/${id}`;
-    navigator.clipboard.writeText(url).then(() => {
-      // small visual feedback via title change is handled in ShareButton
-    });
   };
 
   return (
@@ -33,10 +27,10 @@ export default function AnalysesPage() {
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight text-foreground">
-            Mes analyses
+            {t("analyses.title")}
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Explorez et gérez vos analyses d&apos;épissage différentiel rMATS
+            {t("analyses.subtitle")}
           </p>
         </div>
         <Link
@@ -46,19 +40,19 @@ export default function AnalysesPage() {
           <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          Nouvelle analyse
+          {t("analyses.newAnalysis")}
         </Link>
       </div>
 
       {isLoading && (
         <div className="flex items-center gap-2 text-muted-foreground text-sm py-8">
           <LoadingDots />
-          <span>Chargement...</span>
+          <span>{t("analyses.loading")}</span>
         </div>
       )}
       {error && (
         <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg px-4 py-3 text-sm">
-          Erreur : {(error as Error).message}
+          {t("analyses.error", { message: (error as Error).message })}
         </div>
       )}
 
@@ -69,13 +63,13 @@ export default function AnalysesPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25h12A2.25 2.25 0 0020.25 18v-3.75M16.5 3.75h4.5m0 0v4.5m0-4.5L12 12" />
             </svg>
           </div>
-          <p className="text-lg font-semibold text-foreground mb-1">Aucune analyse</p>
-          <p className="text-sm text-muted-foreground">Importez vos fichiers rMATS pour commencer.</p>
+          <p className="text-lg font-semibold text-foreground mb-1">{t("analyses.empty.title")}</p>
+          <p className="text-sm text-muted-foreground">{t("analyses.empty.subtitle")}</p>
           <Link
             href="/analyses/new"
             className="inline-flex items-center gap-2 mt-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
           >
-            Créer ma première analyse
+            {t("analyses.empty.cta")}
           </Link>
         </div>
       )}
@@ -96,10 +90,9 @@ export default function AnalysesPage() {
                   <StatusBadge status={a.status} />
                 </div>
 
-                {/* Mutated genes */}
                 {a.mutated_genes && a.mutated_genes.length > 0 && (
                   <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-                    <span className="text-xs text-muted-foreground font-medium">Gène(s) muté(s) :</span>
+                    <span className="text-xs text-muted-foreground font-medium">{t("analyses.mutatedGenes")}</span>
                     {a.mutated_genes.map((gene) => (
                       <span
                         key={typeof gene === "string" ? gene : gene.ensembl_id}
@@ -116,7 +109,7 @@ export default function AnalysesPage() {
                     <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
-                    {new Date(a.created_at).toLocaleString("fr-FR")}
+                    {new Date(a.created_at).toLocaleString(lang === "fr" ? "fr-FR" : "en-GB")}
                   </span>
                 </p>
               </div>
@@ -126,7 +119,7 @@ export default function AnalysesPage() {
                 <ShareButton analysisId={a.id} />
                 <button
                   onClick={(e) => handleDelete(a.id, a.name, e)}
-                  title="Supprimer l'analyse"
+                  title={t("analyses.delete")}
                   className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -143,6 +136,7 @@ export default function AnalysesPage() {
 }
 
 function ShareButton({ analysisId }: { analysisId: string }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -158,7 +152,7 @@ function ShareButton({ analysisId }: { analysisId: string }) {
   return (
     <button
       onClick={handleCopy}
-      title={copied ? "Lien copié !" : "Partager l'analyse (copier le lien)"}
+      title={copied ? t("analyses.share.copied") : t("analyses.share.copy")}
       className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
         copied
           ? "text-green-600 bg-green-50 dark:bg-green-950/40"
@@ -179,32 +173,33 @@ function ShareButton({ analysisId }: { analysisId: string }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const config: Record<string, { cls: string; label: string; dot: string }> = {
+  const t = useT();
+  const config: Record<string, { cls: string; dot: string; labelKey: string }> = {
     ready: {
       cls: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 border border-green-200 dark:border-green-800",
       dot: "bg-green-500",
-      label: "Prête",
+      labelKey: "analyses.status.ready",
     },
     processing: {
       cls: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800",
       dot: "bg-yellow-500",
-      label: "En cours",
+      labelKey: "analyses.status.processing",
     },
     error: {
       cls: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 border border-red-200 dark:border-red-800",
       dot: "bg-red-500",
-      label: "Erreur",
+      labelKey: "analyses.status.error",
     },
   };
   const c = config[status] ?? {
     cls: "bg-gray-100 text-gray-600 border border-gray-200",
     dot: "bg-gray-400",
-    label: status,
+    labelKey: null,
   };
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-0.5 rounded-full ${c.cls}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
-      {c.label}
+      {c.labelKey ? t(c.labelKey) : status}
     </span>
   );
 }

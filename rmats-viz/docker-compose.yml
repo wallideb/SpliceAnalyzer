@@ -25,12 +25,15 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-rmats}:${POSTGRES_PASSWORD:-rmats}@db:5432/${POSTGRES_DB:-rmatsdb}
       CORS_ORIGINS: '["http://localhost:3000","http://frontend:3000"]'
+      GRCH38_FASTA: /data/GRCh38.fa
+      MANE_CACHE_DB: /data/mane_cache.db
     volumes:
       - ./backend:/app
+      - ./data:/data
     ports:
       - "8000:8000"
     command: >
-      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
   frontend:
     build: ./frontend

@@ -3,10 +3,13 @@ import { useState, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getAnalysis, listEvents } from "@/lib/api";
+import { getAnalysis, listEvents, downloadAnalysisExcel, downloadAnalysisPDF } from "@/lib/api";
 import { EventsTable } from "@/components/events/EventsTable";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
+import { ScienceNote } from "@/components/ScienceNote";
+import { ExcelExportModal, type ExcelColumnGroup } from "@/components/ExcelExportModal";
 import { useBasket } from "@/contexts/BasketContext";
+import { useT, useLanguage } from "@/contexts/LanguageContext";
 import type { EventsQuery } from "@/lib/api";
 import type { GeneEntry } from "@/types/gene";
 
@@ -30,6 +33,8 @@ function dpsiSliderToValue(pos: number): number {
 export default function AnalysisDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { addItems, hasItem } = useBasket();
+  const t = useT();
+  const { lang } = useLanguage();
 
   const [page, setPage] = useState(1);
   const [eventType, setEventType] = useState("");
@@ -40,6 +45,9 @@ export default function AnalysisDetailPage() {
   const [pvalSlider, setPvalSlider] = useState(0);
   const [dpsiSlider, setDpsiSlider] = useState(0);
 
+  const [isExporting, setIsExporting] = useState(false);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [showExcelModal, setShowExcelModal] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [highlightTop10, setHighlightTop10] = useState(true);
   const [hideTop10, setHideTop10] = useState(false);
@@ -78,8 +86,8 @@ export default function AnalysisDetailPage() {
 
   const group1 = analysis?.sample_groups.find((g) => g.group_index === 1);
   const group2 = analysis?.sample_groups.find((g) => g.group_index === 2);
-  const group1Label = group1?.group_label ?? "Groupe 1";
-  const group2Label = group2?.group_label ?? "Groupe 2";
+  const group1Label = group1?.group_label ?? "Group 1";
+  const group2Label = group2?.group_label ?? "Group 2";
   const analysisName = analysis?.name ?? "";
 
   // Resolved mutated gene entries (guard against legacy string format)
@@ -120,6 +128,29 @@ export default function AnalysisDetailPage() {
     setSelectedIds(new Set());
   }, [eventsPage, selectedIds, addItems, id, analysisName]);
 
+  const handleExport = useCallback(async (groups: ExcelColumnGroup[] = ["core"]) => {
+    setIsExporting(true);
+    setShowExcelModal(false);
+    try {
+      await downloadAnalysisExcel(id, groups);
+    } catch {
+      alert(t("analysisDetail.excelError"));
+    } finally {
+      setIsExporting(false);
+    }
+  }, [id, t]);
+
+  const handleExportPDF = useCallback(async () => {
+    setIsExportingPDF(true);
+    try {
+      await downloadAnalysisPDF(id);
+    } catch {
+      alert(t("analysisDetail.pdfError"));
+    } finally {
+      setIsExportingPDF(false);
+    }
+  }, [id]);
+
   const newCount = useMemo(() => {
     let n = 0;
     selectedIds.forEach((eid) => { if (!hasItem(eid)) n++; });
@@ -140,7 +171,7 @@ export default function AnalysisDetailPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
             </svg>
             <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
-              Gènes candidats
+              {t("analysisDetail.candidateGenes")}
             </span>
           </div>
           {/* Cards – scrollable if many genes */}
@@ -165,7 +196,7 @@ export default function AnalysisDetailPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 22V12h6v10" />
               </svg>
-              Analyses
+              {t("analysisDetail.breadcrumb")}
             </Link>
             <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 text-muted-foreground/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -187,7 +218,7 @@ export default function AnalysisDetailPage() {
             )}
             {analysis?.mutated_genes && analysis.mutated_genes.length > 0 && (
               <span className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-xs text-muted-foreground">Gène(s) muté(s) :</span>
+                <span className="text-xs text-muted-foreground">{t("analysisDetail.mutatedGenes")}</span>
                 {analysis.mutated_genes.map((gene) => (
                   <span
                     key={typeof gene === "string" ? gene : gene.ensembl_id}
@@ -210,12 +241,12 @@ export default function AnalysisDetailPage() {
               onChange={(e) => setHighlightTop10(e.target.checked)}
               className="rounded border-border accent-blue-600 cursor-pointer w-3.5 h-3.5"
             />
-            Surligner Top 10
+            {t("analysisDetail.highlightTop10")}
           </label>
           {/* Hide / show top-10 events toggle */}
           <button
             onClick={() => { setHideTop10((v) => !v); setPage(1); }}
-            title={hideTop10 ? "Afficher les Top 10 dans la liste" : "Masquer les Top 10 de la liste"}
+            title={hideTop10 ? t("analysisDetail.showTop10") : t("analysisDetail.hideTop10")}
             className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
               hideTop10
                 ? "bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
@@ -234,7 +265,23 @@ export default function AnalysisDetailPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
               </svg>
             )}
-            {hideTop10 ? "Top 10 masqué" : "Masquer Top 10"}
+            {hideTop10 ? t("analysisDetail.top10Hidden") : t("analysisDetail.hideTop10")}
+          </button>
+          <button
+            onClick={() => setShowExcelModal(true)}
+            disabled={isExporting}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50 transition-colors"
+          >
+            {isExporting ? <SpinnerIcon /> : <DownloadIcon />}
+            {isExporting ? "Export…" : t("analysisDetail.excel")}
+          </button>
+          <button
+            onClick={handleExportPDF}
+            disabled={isExportingPDF}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg disabled:opacity-50 transition-colors"
+          >
+            {isExportingPDF ? <SpinnerIcon /> : <DownloadIcon />}
+            {isExportingPDF ? "PDF…" : t("analysisDetail.pdf")}
           </button>
           <Link
             href={`/analyses/${id}/top10`}
@@ -243,7 +290,7 @@ export default function AnalysisDetailPage() {
             <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
             </svg>
-            Top 10
+            {t("analysisDetail.top10")}
           </Link>
         </div>
       </div>
@@ -251,14 +298,14 @@ export default function AnalysisDetailPage() {
       {/* ── Legend + event count ── */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          <span className="font-semibold text-foreground">ΔPSI :</span>
+          <span className="font-semibold text-foreground">{t("analysisDetail.legend.deltaLabel")}</span>
           <span className="inline-flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm bg-red-100 border border-red-300 dark:bg-red-950/40 dark:border-red-800" />
-            <span className="text-red-600 dark:text-red-400">positif → ↑ {group1Label}</span>
+            <span className="text-red-600 dark:text-red-400">{t("analysisDetail.legend.positive", { group: group1Label })}</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm bg-blue-100 border border-blue-300 dark:bg-blue-950/40 dark:border-blue-800" />
-            <span className="text-blue-600 dark:text-blue-400">négatif → ↑ {group2Label}</span>
+            <span className="text-blue-600 dark:text-blue-400">{t("analysisDetail.legend.negative", { group: group2Label })}</span>
           </span>
         </div>
 
@@ -276,10 +323,10 @@ export default function AnalysisDetailPage() {
             </svg>
           )}
           <span className="text-sm font-bold text-blue-700 dark:text-blue-300 tabular-nums">
-            {eventsPage?.total.toLocaleString("fr-FR") ?? "…"}
+            {eventsPage?.total.toLocaleString(lang === "fr" ? "fr-FR" : "en-GB") ?? "…"}
           </span>
           <span className="text-xs text-blue-500 dark:text-blue-400">
-            événement{(eventsPage?.total ?? 0) !== 1 ? "s" : ""}
+            {(eventsPage?.total ?? 0) !== 1 ? t("analysisDetail.eventsPlural") : t("analysisDetail.events")}
           </span>
         </div>
       </div>
@@ -293,7 +340,7 @@ export default function AnalysisDetailPage() {
             onChange={(e) => { setEventType(e.target.value); setPage(1); }}
             className="border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
           >
-            <option value="">Tous les types</option>
+            <option value="">{t("analysisDetail.filters.allTypes")}</option>
             {["SE", "RI", "A3SS", "A5SS", "MXE"].map((t) => (
               <option key={t} value={t}>{t}</option>
             ))}
@@ -301,7 +348,7 @@ export default function AnalysisDetailPage() {
 
           <input
             type="text"
-            placeholder="Gène (ex: PCBP1)"
+            placeholder={t("analysisDetail.filters.genePlaceholder")}
             value={geneFilter}
             onChange={(e) => { setGeneFilter(e.target.value); setPage(1); }}
             className="border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
@@ -312,18 +359,18 @@ export default function AnalysisDetailPage() {
             onChange={(e) => { setSortKey(e.target.value); setPage(1); }}
             className="border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
           >
-            <option value="fdr|asc">FDR ↑ croissant</option>
-            <option value="fdr|desc">FDR ↓ décroissant</option>
-            <option value="p_value|asc">p-value ↑</option>
-            <option value="p_value|desc">p-value ↓</option>
-            <option value="abs_inc_level_diff|desc">|ΔPSI| ↓ plus grand</option>
-            <option value="abs_inc_level_diff|asc">|ΔPSI| ↑ plus petit</option>
-            <option value="gene_symbol|asc">Gène A→Z</option>
+            <option value="fdr|asc">{t("analysisDetail.filters.sortFdrAsc")}</option>
+            <option value="fdr|desc">{t("analysisDetail.filters.sortFdrDesc")}</option>
+            <option value="p_value|asc">{t("analysisDetail.filters.sortPvalAsc")}</option>
+            <option value="p_value|desc">{t("analysisDetail.filters.sortPvalDesc")}</option>
+            <option value="abs_inc_level_diff|desc">{t("analysisDetail.filters.sortDpsiDesc")}</option>
+            <option value="abs_inc_level_diff|asc">{t("analysisDetail.filters.sortDpsiAsc")}</option>
+            <option value="gene_symbol|asc">{t("analysisDetail.filters.sortGeneAz")}</option>
           </select>
 
           <button
             onClick={() => setShowIncLevel((v) => !v)}
-            title={showIncLevel ? "Masquer les niveaux d'inclusion" : "Afficher les niveaux d'inclusion"}
+            title={showIncLevel ? t("analysisDetail.filters.hideIncLevel") : t("analysisDetail.filters.showIncLevel")}
             className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
               showIncLevel
                 ? "bg-blue-600 text-white border-blue-600 shadow-sm"
@@ -337,7 +384,7 @@ export default function AnalysisDetailPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
               )}
             </svg>
-            {showIncLevel ? "IncLevel visible" : "IncLevel masqué"}
+            {showIncLevel ? t("analysisDetail.filters.incLevelVisible") : t("analysisDetail.filters.incLevelHidden")}
           </button>
         </div>
 
@@ -348,7 +395,7 @@ export default function AnalysisDetailPage() {
             value={fdrSlider}
             onChange={(v) => { setFdrSlider(v); setPage(1); }}
             displayValue={fdrSlider > 0 ? `≤ ${formatStatValue(logSliderToValue(fdrSlider))}` : undefined}
-            noFilterLabel="aucun filtre"
+            noFilterLabel={t("analysisDetail.filters.noFilter")}
             max={100}
             ticks={["1", "0.1", "0.01", "1e-5", "1e-10"]}
           />
@@ -357,7 +404,7 @@ export default function AnalysisDetailPage() {
             value={pvalSlider}
             onChange={(v) => { setPvalSlider(v); setPage(1); }}
             displayValue={pvalSlider > 0 ? `≤ ${formatStatValue(logSliderToValue(pvalSlider))}` : undefined}
-            noFilterLabel="aucun filtre"
+            noFilterLabel={t("analysisDetail.filters.noFilter")}
             max={100}
             ticks={["1", "0.1", "0.01", "1e-5", "1e-10"]}
           />
@@ -366,7 +413,7 @@ export default function AnalysisDetailPage() {
             value={dpsiSlider}
             onChange={(v) => { setDpsiSlider(v); setPage(1); }}
             displayValue={dpsiSlider > 0 ? `≥ ${dpsiSliderToValue(dpsiSlider).toFixed(2)}` : undefined}
-            noFilterLabel="aucun filtre"
+            noFilterLabel={t("analysisDetail.filters.noFilter")}
             max={100}
             ticks={["0", "0.1", "0.25", "0.5", "1"]}
             accentClass="accent-violet-600"
@@ -378,11 +425,7 @@ export default function AnalysisDetailPage() {
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span>
-              Les <strong>Top 10 événements ◈</strong> sont sélectionnés selon les seuils rMATS par défaut
-              (FDR &lt; 0.05, |ΔPSI| ≥ 0.1), classés par FDR puis |ΔPSI|. Ils sont filtrés comme tous les autres événements
-              lorsque des seuils statistiques sont actifs. Utilisez le bouton <strong>Masquer Top 10</strong> pour les exclure de la liste.
-            </span>
+            <span dangerouslySetInnerHTML={{ __html: t("analysisDetail.top10Notice") }} />
           </div>
         )}
       </div>
@@ -411,9 +454,16 @@ export default function AnalysisDetailPage() {
       {!eventsPage && isLoading && (
         <div className="flex items-center gap-3 py-10 text-muted-foreground text-sm">
           <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          Chargement des événements…
+          {t("analysisDetail.loading")}
         </div>
       )}
+
+      {/* ── Statistical methodology note ── */}
+      <ScienceNote
+        title={t("scienceNotes.exonDiagram.title")}
+        body={t("scienceNotes.exonDiagram.body")}
+        refs={["rmats", "benjamini_hochberg", "mane_select"]}
+      />
 
       </div>{/* end main content */}
 
@@ -426,13 +476,13 @@ export default function AnalysisDetailPage() {
               {selectedIds.size}
             </span>
             <span className="text-sm font-medium pr-1">
-              sélectionné{selectedIds.size > 1 ? "s" : ""}
+              {t("analysisDetail.basket.selected")}
             </span>
             {/* Deselect */}
             <button
               onClick={() => setSelectedIds(new Set())}
               className="flex items-center justify-center w-6 h-6 rounded-lg text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
-              title="Tout désélectionner"
+              title={t("analysisDetail.basket.deselect")}
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -443,18 +493,44 @@ export default function AnalysisDetailPage() {
               onClick={handleAddToBasket}
               disabled={newCount === 0}
               className="inline-flex items-center gap-1.5 bg-white dark:bg-blue-50 text-blue-700 dark:text-blue-800 text-sm px-3 py-1.5 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold hover:bg-blue-50 shadow-sm"
-              title={newCount === 0 ? "Tous ces événements sont déjà dans le panier" : undefined}
+              title={newCount === 0 ? t("analysisDetail.basket.alreadyInBasketTitle") : undefined}
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z" />
               </svg>
-              {newCount > 0 ? `Ajouter (${newCount})` : "Déjà dans le panier"}
+              {newCount > 0 ? t("analysisDetail.basket.add", { n: newCount }) : t("analysisDetail.basket.alreadyInBasket")}
             </button>
           </div>
         </div>
       )}
 
+      {/* ══ EXCEL EXPORT MODAL ══════════════════════════════════════════════ */}
+      <ExcelExportModal
+        isOpen={showExcelModal}
+        onClose={() => setShowExcelModal(false)}
+        onDownload={handleExport}
+        isDownloading={isExporting}
+      />
+
     </div>
+  );
+}
+
+// ── Export icon components ─────────────────────────────────────────────────────
+function DownloadIcon() {
+  return (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    </svg>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+    </svg>
   );
 }
 
@@ -478,6 +554,7 @@ function StatSlider({
   ticks: string[];
   accentClass?: string;
 }) {
+  const t = useT();
   const pct = (value / max) * 100;
   const isViolet = accentClass.includes("violet");
 
@@ -501,7 +578,7 @@ function StatSlider({
             onClick={() => onChange(0)}
             disabled={value === 0}
             className="w-5 h-5 flex items-center justify-center text-muted-foreground hover:text-destructive disabled:opacity-20 disabled:cursor-not-allowed transition-colors rounded"
-            title="Réinitialiser"
+            title={t("analysisDetail.filters.reset")}
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

@@ -83,7 +83,12 @@ export default function Top10Page() {
       <MutatedGenePanel mutatedGenes={mutatedGenes} analysisId={id} />
 
       {top10 && (
-        <Top10View events={top10} mutatedGenes={mutatedGenes} />
+        <Top10View
+          events={top10}
+          mutatedGenes={mutatedGenes}
+          group1Label={group1?.group_label ?? "Groupe 1"}
+          group2Label={group2?.group_label ?? "Groupe 2"}
+        />
       )}
     </div>
   );

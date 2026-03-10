@@ -1,0 +1,302 @@
+"""
+Sequence extraction service
+============================
+Extracts genomic sub-sequences from a locally indexed GRCh38 FASTA
+using ``samtools faidx``.
+
+Coordinate convention
+---------------------
+All input coordinates follow the rMATS / BED convention:
+  - 0-based start (inclusive)
+  - end (exclusive)
+``samtools faidx`` expects 1-based inclusive → we add +1 to start.
+
+Splice-site windows (per SE event)
+------------------------------------
+For a skipped exon [exon_start, exon_end) on strand + :
+
+  donor (5'SS)    chr : exon_end-3   .. exon_end+6      →  3nt exon + GT + 4nt intron
+  acceptor (3'SS) chr : exon_start-20 .. exon_start+3   → 20nt intron + AG + 3nt exon
+  ppt_zone        chr : exon_start-50 .. exon_start-3   → 47nt upstream of acceptor
+
+For strand - (positions are still genomic / + strand):
+  donor (5'SS)    chr : exon_start-6  .. exon_start+3   → RC → 3nt exon + GT + 4nt intron
+  acceptor (3'SS) chr : exon_end-3    .. exon_end+20    → RC → 20nt intron + AG + 3nt exon
+  ppt_zone        chr : exon_end+3    .. exon_end+50    → RC → 47nt PPT region
+"""
+
+from __future__ import annotations
+
+import logging
+import subprocess
+from dataclasses import dataclass
+
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+# Complement table
+_COMP = str.maketrans("ACGTacgtNn", "TGCAtgcaNn")
+
+# UCSC chr-style → GRCh38 RefSeq accession (for NCBI-headered FASTA files)
+_UCSC_TO_REFSEQ: dict[str, str] = {
+    "chr1":  "NC_000001.11", "chr2":  "NC_000002.12", "chr3":  "NC_000003.12",
+    "chr4":  "NC_000004.12", "chr5":  "NC_000005.10", "chr6":  "NC_000006.12",
+    "chr7":  "NC_000007.14", "chr8":  "NC_000008.11", "chr9":  "NC_000009.12",
+    "chr10": "NC_000010.11", "chr11": "NC_000011.10", "chr12": "NC_000012.12",
+    "chr13": "NC_000013.11", "chr14": "NC_000014.9",  "chr15": "NC_000015.10",
+    "chr16": "NC_000016.10", "chr17": "NC_000017.11", "chr18": "NC_000018.10",
+    "chr19": "NC_000019.10", "chr20": "NC_000020.11", "chr21": "NC_000021.9",
+    "chr22": "NC_000022.11", "chrX":  "NC_000023.11", "chrY":  "NC_000024.10",
+    "chrM":  "NC_012920.1",  "chrMT": "NC_012920.1",
+}
+
+# Cache: (fasta_path → contig set). Keyed by path so a FASTA swap is handled;
+# also re-reads if the cache entry is empty (FASTA not yet assembled at startup).
+_fai_cache: dict[str, set[str]] = {}
+
+
+def _fai_contig_set(fasta_path: str) -> set[str]:
+    """Return the set of contig names from the .fai index.
+
+    Cached per fasta_path, but re-reads when the cached set is empty so that a
+    FASTA assembled after the backend started is picked up on the next request.
+    """
+    import os
+    cached = _fai_cache.get(fasta_path)
+    if cached:          # non-empty hit → return immediately
+        return cached
+    fai = fasta_path + ".fai"
+    if os.path.isfile(fai):
+        with open(fai) as f:
+            contigs = {line.split("\t")[0] for line in f if line.strip()}
+        if contigs:
+            _fai_cache[fasta_path] = contigs
+            return contigs
+    return set()
+
+
+def _resolve_chrom(chrom: str, fasta_path: str) -> str:
+    """Return the contig name as it appears in the FASTA index.
+
+    Handles two common cases:
+    - rMATS uses UCSC names (chr1…chr22, chrX, chrY, chrM)
+    - NCBI FASTA files use RefSeq accessions (NC_000001.11 …)
+    """
+    contigs = _fai_contig_set(fasta_path)
+    if chrom in contigs:
+        return chrom
+    # Try RefSeq alias
+    alias = _UCSC_TO_REFSEQ.get(chrom)
+    if alias and alias in contigs:
+        return alias
+    # Return as-is; samtools will emit a warning but we catch the error
+    return chrom
+
+
+def reverse_complement(seq: str) -> str:
+    return seq.translate(_COMP)[::-1]
+
+
+def extract_region(
+    chrom: str,
+    start: int,
+    end: int,
+    strand: str = "+",
+    fasta_path: str | None = None,
+) -> str:
+    """Fetch a genomic sub-sequence (0-based BED coords → 1-based samtools).
+
+    Returns empty string on any error (FASTA not available, region out of
+    bounds, samtools not found).  The caller must tolerate empty strings.
+    """
+    if end <= start:
+        return ""
+    fasta = fasta_path or settings.GRCH38_FASTA
+    resolved = _resolve_chrom(chrom, fasta)
+    # samtools faidx region: 1-based inclusive
+    region = f"{resolved}:{start + 1}-{end}"
+    try:
+        result = subprocess.run(
+            [settings.SAMTOOLS_BIN, "faidx", fasta, region],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=True,
+        )
+        lines = result.stdout.strip().split("\n")
+        seq = "".join(ln for ln in lines if not ln.startswith(">")).upper()
+        if strand == "-":
+            seq = reverse_complement(seq)
+        return seq
+    except FileNotFoundError:
+        logger.warning("samtools not found at '%s'", settings.SAMTOOLS_BIN)
+    except subprocess.CalledProcessError as exc:
+        logger.debug("samtools faidx failed for %s: %s", region, exc.stderr)
+    except subprocess.TimeoutExpired:
+        logger.warning("samtools timed out for %s", region)
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Window definitions
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SpliceWindows:
+    donor_seq: str               # 9 nt  : 3 exon + GT + 4 intron  (skipped exon 5'SS)
+    acceptor_seq: str            # 23 nt : 20 intron + AG + 3 exon  (skipped exon 3'SS)
+    ppt_seq: str                 # 47 nt : upstream of 3'SS
+    upstream_donor_seq: str = ""    # 9 nt  : upstream flanking exon 5'SS
+    downstream_acceptor_seq: str = ""  # 23 nt : downstream flanking exon 3'SS
+    source: str = "fasta"        # "fasta" | "ensembl"
+
+
+def get_splice_windows(
+    chrom: str,
+    strand: str,
+    exon_start: int,
+    exon_end: int,
+    fasta_path: str | None = None,
+    upstream_ee: int | None = None,
+    downstream_es: int | None = None,
+) -> SpliceWindows:
+    """Extract splice-signal windows for one SE skipped exon.
+
+    upstream_ee   — end coordinate of the upstream flanking exon (0-based excl)
+    downstream_es — start coordinate of the downstream flanking exon (0-based incl)
+    """
+    fp = fasta_path or settings.GRCH38_FASTA
+
+    if strand == "+":
+        donor_seq    = extract_region(chrom, exon_end - 3,    exon_end + 6,    "+", fp)
+        acceptor_seq = extract_region(chrom, exon_start - 20, exon_start + 3,  "+", fp)
+        ppt_seq      = extract_region(chrom, exon_start - 50, exon_start - 3,  "+", fp)
+        upstream_donor_seq = (
+            extract_region(chrom, upstream_ee - 3, upstream_ee + 6, "+", fp)
+            if upstream_ee is not None else ""
+        )
+        downstream_acceptor_seq = (
+            extract_region(chrom, downstream_es - 20, downstream_es + 3, "+", fp)
+            if downstream_es is not None else ""
+        )
+    else:
+        donor_seq    = extract_region(chrom, exon_start - 6,  exon_start + 3,  "-", fp)
+        acceptor_seq = extract_region(chrom, exon_end - 3,    exon_end + 20,   "-", fp)
+        ppt_seq      = extract_region(chrom, exon_end + 3,    exon_end + 50,   "-", fp)
+        upstream_donor_seq = (
+            extract_region(chrom, upstream_ee - 6, upstream_ee + 3, "-", fp)
+            if upstream_ee is not None else ""
+        )
+        downstream_acceptor_seq = (
+            extract_region(chrom, downstream_es - 3, downstream_es + 20, "-", fp)
+            if downstream_es is not None else ""
+        )
+
+    return SpliceWindows(
+        donor_seq=donor_seq,
+        acceptor_seq=acceptor_seq,
+        ppt_seq=ppt_seq,
+        upstream_donor_seq=upstream_donor_seq,
+        downstream_acceptor_seq=downstream_acceptor_seq,
+        source="fasta",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Ensembl REST API fallback (no local FASTA required)
+# ---------------------------------------------------------------------------
+
+def _fetch_ensembl_seq(chrom: str, start: int, end: int) -> str:
+    """Fetch a genomic sequence from Ensembl REST API (0-based BED → 1-based inclusive).
+
+    Returns empty string on any error (network, quota, region out of bounds).
+    """
+    import json
+    import urllib.request
+
+    if end <= start:
+        return ""
+
+    # Convert UCSC-style chr names to Ensembl (strip 'chr', map M → MT)
+    ens = chrom[3:] if chrom.startswith("chr") else chrom
+    if ens == "M":
+        ens = "MT"
+
+    region = f"{ens}:{start + 1}..{end}"
+    url = (
+        f"https://rest.ensembl.org/sequence/region/human/{region}"
+        "?content-type=application/json"
+    )
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "rmats-viz/1.0"})
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            data = json.loads(resp.read())
+            return data.get("seq", "").upper()
+    except Exception as exc:
+        logger.debug("Ensembl REST %s: %s", region, exc)
+        return ""
+
+
+def get_splice_windows_from_ensembl(
+    chrom: str,
+    strand: str,
+    exon_start: int,
+    exon_end: int,
+    upstream_ee: int | None = None,
+    downstream_es: int | None = None,
+) -> SpliceWindows:
+    """Identical window definitions to get_splice_windows() via Ensembl REST API.
+
+    Used as a fallback when no local FASTA/samtools is available.
+    Makes up to 5 sequential HTTP calls (donor, acceptor, PPT, upstream donor, downstream acceptor).
+    """
+    if strand == "+":
+        donor_seq    = _fetch_ensembl_seq(chrom, exon_end - 3,    exon_end + 6)
+        acceptor_seq = _fetch_ensembl_seq(chrom, exon_start - 20, exon_start + 3)
+        ppt_seq      = _fetch_ensembl_seq(chrom, exon_start - 50, exon_start - 3)
+        upstream_donor_seq = (
+            _fetch_ensembl_seq(chrom, upstream_ee - 3, upstream_ee + 6)
+            if upstream_ee is not None else ""
+        )
+        downstream_acceptor_seq = (
+            _fetch_ensembl_seq(chrom, downstream_es - 20, downstream_es + 3)
+            if downstream_es is not None else ""
+        )
+    else:
+        donor_seq    = reverse_complement(_fetch_ensembl_seq(chrom, exon_start - 6, exon_start + 3))
+        acceptor_seq = reverse_complement(_fetch_ensembl_seq(chrom, exon_end - 3,   exon_end + 20))
+        ppt_seq      = reverse_complement(_fetch_ensembl_seq(chrom, exon_end + 3,   exon_end + 50))
+        upstream_donor_seq = (
+            reverse_complement(_fetch_ensembl_seq(chrom, upstream_ee - 6, upstream_ee + 3))
+            if upstream_ee is not None else ""
+        )
+        downstream_acceptor_seq = (
+            reverse_complement(_fetch_ensembl_seq(chrom, downstream_es - 3, downstream_es + 20))
+            if downstream_es is not None else ""
+        )
+
+    return SpliceWindows(
+        donor_seq=donor_seq,
+        acceptor_seq=acceptor_seq,
+        ppt_seq=ppt_seq,
+        upstream_donor_seq=upstream_donor_seq,
+        downstream_acceptor_seq=downstream_acceptor_seq,
+        source="ensembl",
+    )
+
+
+def fasta_available(fasta_path: str | None = None) -> bool:
+    """Return True if the FASTA file and its index exist and samtools works."""
+    import os
+    fp = fasta_path or settings.GRCH38_FASTA
+    if not os.path.isfile(fp) or not os.path.isfile(fp + ".fai"):
+        return False
+    try:
+        subprocess.run(
+            [settings.SAMTOOLS_BIN, "--version"],
+            capture_output=True, timeout=5, check=True,
+        )
+        return True
+    except Exception:
+        return False

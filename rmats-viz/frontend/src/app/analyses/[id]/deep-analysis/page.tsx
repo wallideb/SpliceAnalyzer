@@ -16,14 +16,17 @@
  * Route : /analyses/[id]/deep-analysis?modules=stringdb,pathways,...
  */
 
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getAnalysis, getTop10 } from "@/lib/api";
+import { computeSpliceFeatures } from "@/lib/api/splice";
 import { useBasket } from "@/contexts/BasketContext";
+import { useT } from "@/contexts/LanguageContext";
 import { Top10View } from "@/components/events/Top10View";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
+import { PermutationPanel } from "@/components/top10/PermutationPanel";
 import type { GeneEntry } from "@/types/gene";
 import type { SplicingEvent } from "@/types/event";
 
@@ -31,6 +34,7 @@ export default function DeepAnalysisPage() {
   const { id } = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const { items: basketItems } = useBasket();
+  const t = useT();
 
   // Parse selected optional modules from URL
   const activeModules = useMemo<Set<string>>(() => {
@@ -73,6 +77,19 @@ export default function DeepAnalysisPage() {
       ),
     [analysis],
   );
+
+  // Auto-compute splice features when the "splice" module is active.
+  // Fires once on mount (or when id changes) so per-event views are ready
+  // before the user switches to the "Sites consensus" tab.
+  const qc = useQueryClient();
+  const { mutate: autoCompute } = useMutation({
+    mutationFn: () => computeSpliceFeatures(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["splice-feature"] }),
+  });
+  useEffect(() => {
+    if (activeModules.has("splice") && id) autoCompute();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   const group1 = analysis?.sample_groups.find((g) => g.group_index === 1);
   const group2 = analysis?.sample_groups.find((g) => g.group_index === 2);
@@ -117,12 +134,12 @@ export default function DeepAnalysisPage() {
           </Link>
           <ChevronIcon />
           <span className="text-foreground font-medium">
-            Analyse approfondie
+            {t("deepAnalysis.breadcrumb")}
           </span>
         </nav>
 
         <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
-          Analyse approfondie
+          {t("deepAnalysis.title")}
         </h1>
 
         {group1 && group2 && (
@@ -153,7 +170,7 @@ export default function DeepAnalysisPage() {
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
         </svg>
-        Retour aux événements
+        {t("deepAnalysis.backToEvents")}
       </Link>
 
       {/* ── Selection summary ── */}
@@ -164,7 +181,7 @@ export default function DeepAnalysisPage() {
             10
           </span>
           <span className="text-blue-700 dark:text-blue-300 font-medium">
-            Top 10 toujours inclus
+            {t("deepAnalysis.top10AlwaysIncluded")}
           </span>
         </div>
 
@@ -186,7 +203,7 @@ export default function DeepAnalysisPage() {
               />
             </svg>
             <span className="text-violet-700 dark:text-violet-300 font-medium">
-              +{basketCount} du panier
+              {t("deepAnalysis.basketCount", { n: basketCount })}
             </span>
           </div>
         )}
@@ -208,13 +225,42 @@ export default function DeepAnalysisPage() {
                 d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
               />
             </svg>
-            {activeModules.size} module
-            {activeModules.size > 1 ? "s" : ""} optionnel
-            {activeModules.size > 1 ? "s" : ""} activé
-            {activeModules.size > 1 ? "s" : ""}
+            {activeModules.size > 1
+              ? t("deepAnalysis.optionalModulesActivePlural", { n: activeModules.size })
+              : t("deepAnalysis.optionalModulesActive", { n: activeModules.size })}
           </div>
         )}
       </div>
+
+      {/* ── Event type breakdown (multi-file context) ── */}
+      {!loadingTop10 && allEvents.length > 0 && (() => {
+        const typeCounts: Record<string, number> = {};
+        for (const ev of allEvents) {
+          const t = ev.event_type ?? "?";
+          typeCounts[t] = (typeCounts[t] ?? 0) + 1;
+        }
+        const types = Object.entries(typeCounts).sort(([a], [b]) => a.localeCompare(b));
+        const hasMultipleTypes = types.length > 1;
+        return (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] text-muted-foreground font-medium">{t("deepAnalysis.eventTypes")}</span>
+            {types.map(([type, count]) => (
+              <span
+                key={type}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-card"
+              >
+                <span className="font-bold text-foreground">{type}</span>
+                <span className="text-muted-foreground">×{count}</span>
+              </span>
+            ))}
+            {hasMultipleTypes && (
+              <span className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded px-2 py-0.5">
+                {t("deepAnalysis.seOnlyNotice")}
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Mutated gene annotation panel ── */}
       <MutatedGenePanel mutatedGenes={mutatedGenes} analysisId={id} />
@@ -223,7 +269,7 @@ export default function DeepAnalysisPage() {
       {loadingTop10 && (
         <div className="flex items-center gap-2 text-muted-foreground text-sm py-6">
           <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          Chargement des événements…
+          {t("deepAnalysis.loading")}
         </div>
       )}
 
@@ -233,15 +279,25 @@ export default function DeepAnalysisPage() {
           events={allEvents}
           mutatedGenes={mutatedGenes}
           activeModules={activeModules}
+          analysisId={id}
+          group1Label={group1?.group_label ?? "Groupe 1"}
+          group2Label={group2?.group_label ?? "Groupe 2"}
         />
       )}
 
       {!loadingTop10 && allEvents.length === 0 && (
         <p className="text-sm text-muted-foreground py-6 text-center">
-          Aucun événement à afficher. Ajoutez des événements au panier ou
-          vérifiez que l&apos;analyse a des données.
+          {t("deepAnalysis.noEvents")}
         </p>
       )}
+
+      {/* ── 4B — Test de permutation — Significativité ── */}
+      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <h2 className="text-sm font-bold text-foreground mb-4">
+          {t("deepAnalysis.permutationTitle")}
+        </h2>
+        <PermutationPanel analysisId={id} />
+      </div>
     </div>
   );
 }

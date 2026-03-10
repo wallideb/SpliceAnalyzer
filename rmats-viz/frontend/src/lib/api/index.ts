@@ -20,4 +20,5 @@ export * from "./analyses";
 export * from "./annotations";
 export * from "./events";
 export * from "./genes";
+export * from "./splice";
 export { fetchJSON, BASE } from "./client";

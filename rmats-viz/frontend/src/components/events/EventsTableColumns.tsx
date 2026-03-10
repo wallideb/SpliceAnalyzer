@@ -98,8 +98,11 @@ export function makeEventsColumns(
         if (isSE) {
           // ΔΨ < 0 → more skipping in group1; ΔΨ > 0 → more skipping in group2
           const moreSkippingLabel = val < 0 ? group1Label : group2Label;
+          const seColor = val > 0
+            ? "text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800"
+            : "text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800";
           return (
-            <span className="inline-flex items-center gap-0.5 text-xs font-medium text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded whitespace-nowrap">
+            <span className={`inline-flex items-center gap-0.5 text-xs font-medium border ${seColor} px-1.5 py-0.5 rounded whitespace-nowrap`}>
               {t("annotatedCard.direction.skippingUp", { group: moreSkippingLabel })}
             </span>
           );

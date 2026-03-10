@@ -340,30 +340,17 @@ async def get_splice_feature(
             error="Splice site analysis only available for SE events",
         )
 
-    # Return cached features only (never auto-compute to avoid long blocking calls).
-    # Use POST /splice/compute/{analysis_id} to trigger background computation first.
+    # Return cached features if available; otherwise compute on-the-fly.
     feat_res = await db.execute(
         select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
     )
     feat = feat_res.scalar_one_or_none()
 
     if feat is None:
-        # Sizes only — return a lightweight placeholder so the card renders
-        from app.services.splice_features import compute_features
-        result_data = compute_features(event, None)
-        return SpliceFeatureResponse(
-            event_id=str(event_id),
-            event_type=event.event_type,
-            gene_symbol=event.gene_symbol,
-            chr=event.chr,
-            strand=event.strand,
-            exon_size=result_data.exon_size,
-            upstream_intron_size=result_data.upstream_intron_size,
-            downstream_intron_size=result_data.downstream_intron_size,
-            fasta_available=False,
-            sequence_source=None,
-            error="Not yet computed — run POST /splice/compute/{analysis_id}",
-        )
+        # Compute on-the-fly (FASTA + Ensembl fallback) and persist
+        fa_ok = fasta_available()
+        feat = await _compute_one(event, db, fa_ok)
+        await db.commit()
 
     return _feat_to_response(feat, event)
 

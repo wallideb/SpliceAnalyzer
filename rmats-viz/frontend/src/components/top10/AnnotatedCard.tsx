@@ -672,8 +672,11 @@ function SEDirectionBadge({
 }) {
   if (eventType !== "SE" || delta === null || delta === undefined || delta === 0) return null;
   const moreSkippingLabel = delta < 0 ? group1Label : group2Label;
+  const colorClasses = delta > 0
+    ? "text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800"
+    : "text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800";
   return (
-    <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded-md whitespace-nowrap leading-none">
+    <span className={`inline-flex items-center gap-0.5 text-[10px] font-semibold border ${colorClasses} px-1.5 py-0.5 rounded-md whitespace-nowrap leading-none`}>
       {t("annotatedCard.direction.skippingUp", { group: moreSkippingLabel })}
     </span>
   );

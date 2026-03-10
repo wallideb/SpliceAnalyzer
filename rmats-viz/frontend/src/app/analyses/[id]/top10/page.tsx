@@ -1,14 +1,20 @@
 "use client";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { getAnalysis, getTop10 } from "@/lib/api";
 import { Top10View } from "@/components/events/Top10View";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
+import { useT } from "@/contexts/LanguageContext";
 import type { GeneEntry } from "@/types/gene";
+
+const EVENT_TYPES = ["SE", "RI", "A3SS", "A5SS", "MXE"] as const;
 
 export default function Top10Page() {
   const { id } = useParams<{ id: string }>();
+  const t = useT();
+  const [eventType, setEventType] = useState<string>("");
 
   const { data: analysis } = useQuery({
     queryKey: ["analysis", id],
@@ -16,8 +22,8 @@ export default function Top10Page() {
   });
 
   const { data: top10, isLoading } = useQuery({
-    queryKey: ["top10", id],
-    queryFn: () => getTop10(id),
+    queryKey: ["top10", id, eventType],
+    queryFn: () => getTop10(id, eventType || undefined),
     enabled: !!id,
   });
 
@@ -49,9 +55,21 @@ export default function Top10Page() {
           <span className="text-foreground font-medium">Top 10</span>
         </nav>
 
-        <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
-          Top 10 événements
-        </h1>
+        <div className="flex items-center gap-4 flex-wrap">
+          <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
+            Top 10 événements
+          </h1>
+          <select
+            value={eventType}
+            onChange={(e) => setEventType(e.target.value)}
+            className="border border-border rounded-lg px-3 py-1.5 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
+          >
+            <option value="">{t("analysisDetail.filters.allTypes")}</option>
+            {EVENT_TYPES.map((et) => (
+              <option key={et} value={et}>{et}</option>
+            ))}
+          </select>
+        </div>
         {group1 && group2 && (
           <p className="text-sm text-muted-foreground mt-1">
             <span className="text-red-500 dark:text-red-400 font-semibold">{group1.group_label}</span>

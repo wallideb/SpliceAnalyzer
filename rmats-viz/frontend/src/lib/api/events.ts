@@ -48,6 +48,7 @@ export async function listEvents(analysisId: string, query: EventsQuery = {}): P
   return fetchJSON(`${BASE}/analyses/${analysisId}/events?${params}`);
 }
 
-export async function getTop10(analysisId: string): Promise<SplicingEvent[]> {
-  return fetchJSON(`${BASE}/analyses/${analysisId}/events/top10`);
+export async function getTop10(analysisId: string, eventType?: string): Promise<SplicingEvent[]> {
+  const params = eventType ? `?event_type=${encodeURIComponent(eventType)}` : "";
+  return fetchJSON(`${BASE}/analyses/${analysisId}/events/top10${params}`);
 }

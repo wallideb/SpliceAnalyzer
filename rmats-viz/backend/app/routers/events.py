@@ -71,16 +71,36 @@ async def list_events(
 
 
 @router.get("/analyses/{analysis_id}/events/top10", response_model=list[SplicingEventResponse])
-async def get_top10(analysis_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_top10(
+    analysis_id: uuid.UUID,
+    event_type: str | None = Query(None, description="Filter by event type (SE, RI, A3SS, A5SS, MXE)"),
+    db: AsyncSession = Depends(get_db),
+):
     res = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
     if not res.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    q = (
-        select(SplicingEvent)
-        .where(SplicingEvent.analysis_id == analysis_id)
-        .where(SplicingEvent.top_rank.isnot(None))
-        .order_by(SplicingEvent.top_rank)
-    )
+    if event_type:
+        # Dynamic top-10 for a specific event type: rank by FDR ASC, |ΔΨ| DESC
+        q = (
+            select(SplicingEvent)
+            .where(
+                SplicingEvent.analysis_id == analysis_id,
+                SplicingEvent.event_type == event_type.upper(),
+            )
+            .order_by(
+                SplicingEvent.fdr.asc().nulls_last(),
+                SplicingEvent.abs_inc_level_diff.desc().nulls_last(),
+            )
+            .limit(10)
+        )
+    else:
+        # Default: pre-computed global top-10
+        q = (
+            select(SplicingEvent)
+            .where(SplicingEvent.analysis_id == analysis_id)
+            .where(SplicingEvent.top_rank.isnot(None))
+            .order_by(SplicingEvent.top_rank)
+        )
     rows = (await db.execute(q)).scalars().all()
     return rows

@@ -90,7 +90,7 @@ function NucTrack({
             y1={-2}
             x2={getX(boundaryAt) - 5}
             y2={NT_H + 2}
-            stroke="#475569"
+            stroke="var(--svg-panel-border)"
             strokeWidth={1.5}
             strokeDasharray="3 2"
           />

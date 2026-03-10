@@ -220,12 +220,12 @@ function NucStrip({
       <rect
         x={x - 2} y={y - 1}
         width={seq.length * cellW + 4} height={cellH + 2}
-        rx={2} fill="#0f172a" fillOpacity={0.85}
+        rx={2} fill="var(--svg-panel-bg)" fillOpacity={0.85}
       />
       {seq.toUpperCase().split("").map((base, i) => {
         const cx = x + i * cellW;
         const highlight = highlightIdxs?.has(i) ?? false;
-        const bg = highlight ? "#f59e0b" : nucColor(base);
+        const bg = highlight ? "var(--svg-highlight-bg)" : nucColor(base);
         return (
           <g key={i}>
             <rect
@@ -652,7 +652,7 @@ export function ExonDiagram({
             <rect
               x={PPT_BAR_X1} y={PPT_Y}
               width={PPT_BAR_X2 - PPT_BAR_X1} height={PPT_H}
-              rx={2} fill="#1e293b" stroke="#334155" strokeWidth={0.8}
+              rx={2} fill="var(--svg-panel-bg)" stroke="var(--svg-panel-border)" strokeWidth={0.8}
             />
             {/* Remplissage */}
             <rect
@@ -678,8 +678,8 @@ export function ExonDiagram({
               cx={bpCX}
               cy={BP_CY}
               r={4.5}
-              fill={bpFound ? COLOR_GREEN : "#475569"}
-              stroke={bpFound ? "#14532d" : "#1e293b"}
+              fill={bpFound ? COLOR_GREEN : "var(--svg-panel-border)"}
+              stroke={bpFound ? "#14532d" : "var(--svg-panel-bg)"}
               strokeWidth={hoveredEl === "bp" ? 2 : 1}
             />
             {/* BP label next to circle */}
@@ -844,7 +844,7 @@ export function ExonDiagram({
             <rect
               x={bpCX - 30} y={PPT_Y - 22}
               width={90} height={18}
-              rx={3} fill="#0f172a" stroke={bpFound ? COLOR_GREEN : "#475569"}
+              rx={3} fill="var(--svg-panel-bg)" stroke={bpFound ? COLOR_GREEN : "var(--svg-panel-border)"}
               strokeWidth={0.8} fillOpacity={0.95}
             />
             <text

@@ -22,6 +22,12 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
+    /* SVG-specific theme colors (hex for inline SVG fill/stroke) */
+    --svg-panel-bg: #1e293b;
+    --svg-panel-border: #334155;
+    --svg-highlight-bg: #fef08a;
+    --svg-gene-marker-bg: #fef3c7;
+    --svg-gene-marker-text: #92400e;
   }
 
   .dark {
@@ -42,6 +48,12 @@
     --border: 222 20% 22%;
     --input: 222 20% 22%;
     --ring: 217 91% 60%;
+    /* SVG-specific theme colors (dark mode) */
+    --svg-panel-bg: #1e293b;
+    --svg-panel-border: #475569;
+    --svg-highlight-bg: #854d0e;
+    --svg-gene-marker-bg: #422006;
+    --svg-gene-marker-text: #fbbf24;
   }
 }
 

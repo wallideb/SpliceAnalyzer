@@ -78,9 +78,9 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
             </g>
           );
         })}
-        <line x1={0} y1={MARGIN_T + CHART_H} x2={W} y2={MARGIN_T + CHART_H} stroke="#334155" strokeWidth={0.5} />
-        <text x={2} y={MARGIN_T - 3} fontSize={8} fill="#64748b" fontFamily="sans-serif" fontWeight="600">N</text>
-        <text x={W} y={SVG_H - 2} textAnchor="end" fontSize={8} fill="#64748b" fontFamily="sans-serif" fontStyle="italic" fontWeight="600">ΔΨ</text>
+        <line x1={0} y1={MARGIN_T + CHART_H} x2={W} y2={MARGIN_T + CHART_H} stroke="var(--svg-panel-border)" strokeWidth={0.5} />
+        <text x={2} y={MARGIN_T - 3} fontSize={8} fill="hsl(var(--muted-foreground))" fontFamily="sans-serif" fontWeight="600">N</text>
+        <text x={W} y={SVG_H - 2} textAnchor="end" fontSize={8} fill="hsl(var(--muted-foreground))" fontFamily="sans-serif" fontStyle="italic" fontWeight="600">ΔΨ</text>
       </svg>
       <div className="flex items-center gap-4 text-[11px] text-muted-foreground mt-1.5">
         <span className="flex items-center gap-1">

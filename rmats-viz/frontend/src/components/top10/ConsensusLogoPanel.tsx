@@ -257,7 +257,7 @@ export function ConsensusLogoPanel({
                     textAnchor="end"
                     fontSize={7}
                     fontFamily="monospace"
-                    fill="#64748b"
+                    fill="hsl(var(--muted-foreground))"
                   >
                     {bit}
                   </text>
@@ -282,7 +282,7 @@ export function ConsensusLogoPanel({
             fontSize={7}
             fontFamily="sans-serif"
             fontStyle="italic"
-            fill="#64748b"
+            fill="hsl(var(--muted-foreground))"
             transform={`rotate(-90, 8, ${TOP_PAD + LOGO_H / 2})`}
           >
             Information (bits)
@@ -352,7 +352,7 @@ export function ConsensusLogoPanel({
                     y={TOP_PAD}
                     width={COL_W}
                     height={LOGO_H}
-                    fill="#fef08a"
+                    fill="var(--svg-highlight-bg)"
                     opacity={0.3}
                   />
                 )}
@@ -363,7 +363,7 @@ export function ConsensusLogoPanel({
                     y={TOP_PAD}
                     width={COL_W}
                     height={LOGO_H}
-                    fill="#e2e8f0"
+                    fill="hsl(var(--muted))"
                     opacity={0.35}
                   />
                 )}
@@ -392,7 +392,7 @@ export function ConsensusLogoPanel({
             fontSize={7}
             fontFamily="sans-serif"
             fontStyle="italic"
-            fill="#64748b"
+            fill="hsl(var(--muted-foreground))"
           >
             Position relative to splice site
           </text>

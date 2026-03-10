@@ -337,7 +337,7 @@ export function ManhattanPlot({ data, loading, mutatedGenes = [], onEventClick }
                   width={gm.symbol.length * 7 + 8}
                   height={13}
                   rx={3}
-                  fill="#fef3c7"
+                  fill="var(--svg-gene-marker-bg)"
                   stroke="#f59e0b"
                   strokeWidth={0.8}
                   opacity={0.95}
@@ -347,7 +347,7 @@ export function ManhattanPlot({ data, loading, mutatedGenes = [], onEventClick }
                   y={-5 - i * 14}
                   fontSize={8}
                   fontWeight={700}
-                  fill="#92400e"
+                  fill="var(--svg-gene-marker-text)"
                   fontFamily="sans-serif"
                 >
                   {gm.symbol}

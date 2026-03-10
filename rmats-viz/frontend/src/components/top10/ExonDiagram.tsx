@@ -387,12 +387,12 @@ export function ExonDiagram({
   // Branch-point circle position (38% into PPT bar)
   const bpCX = PPT_BAR_X1 + (PPT_BAR_X2 - PPT_BAR_X1) * 0.38;
 
-  // Donor site indicator bounds
-  const donorIndicatorX = LEFT_EXON_RIGHT - 5;
+  // Donor site indicator bounds — at right edge of skipped exon (5'SS donor)
+  const donorIndicatorX = SKIP_RIGHT - 5;
   const donorIndicatorW = SITE_W;
 
-  // Acceptor site indicator bounds
-  const acceptorIndicatorX = RIGHT_EXON_LEFT - SITE_W + 5;
+  // Acceptor site indicator bounds — at left edge of skipped exon (3'SS acceptor)
+  const acceptorIndicatorX = SKIP_X - SITE_W + 5;
   const acceptorIndicatorW = SITE_W;
 
   // Hover hit area: expand the zone around indicator for easier hovering
@@ -499,7 +499,7 @@ export function ExonDiagram({
         </text>
 
         {warnDonor && (
-          <text x={LEFT_EXON_RIGHT + 2} y={EXON_Y - 13} fontSize={8} fill={COLOR_WARN} fontFamily="sans-serif">
+          <text x={SKIP_RIGHT + 2} y={EXON_Y - 13} fontSize={8} fill={COLOR_WARN} fontFamily="sans-serif">
             ⚠ non-GT
           </text>
         )}
@@ -601,7 +601,7 @@ export function ExonDiagram({
         </text>
 
         {warnAcceptor && (
-          <text x={RIGHT_EXON_LEFT - 2} y={EXON_Y - 13} textAnchor="end" fontSize={8} fill={COLOR_WARN} fontFamily="sans-serif">
+          <text x={SKIP_X - 2} y={EXON_Y - 13} textAnchor="end" fontSize={8} fill={COLOR_WARN} fontFamily="sans-serif">
             ⚠ non-AG
           </text>
         )}
@@ -710,13 +710,15 @@ export function ExonDiagram({
         ══════════════════════════════════════════════════════════════════ */}
 
         {/* ── Donor hover: séquence 9 nt complète ── */}
-        {hoveredEl === "donor" && donorSeq && (
+        {hoveredEl === "donor" && donorSeq && (() => {
+          const stripX = SKIP_RIGHT - 3 * 8; // align exon boundary with position -1/+1
+          return (
           <g>
             {/* Position axis above strip */}
             {[-3, -2, -1, 1, 2, 3, 4, 5, 6].map((pos, i) => (
               <text
                 key={i}
-                x={110 + i * 8 + 3}
+                x={stripX + i * 8 + 3}
                 y={SEQ_STRIP_Y - 2}
                 textAnchor="middle" fontSize={7}
                 fill={DONOR_GT_IDX.has(i) ? COLOR_AMBER : COLOR_TEXT_MUTED}
@@ -727,7 +729,7 @@ export function ExonDiagram({
             ))}
             <NucStrip
               seq={donorSeq}
-              x={110}
+              x={stripX}
               y={SEQ_STRIP_Y}
               cellW={8}
               cellH={SEQ_CELL_H}
@@ -735,22 +737,25 @@ export function ExonDiagram({
             />
             {/* Boundary line */}
             <line
-              x1={110 + 3 * 8} y1={SEQ_STRIP_Y - 1}
-              x2={110 + 3 * 8} y2={SEQ_STRIP_Y + SEQ_CELL_H + 1}
+              x1={stripX + 3 * 8} y1={SEQ_STRIP_Y - 1}
+              x2={stripX + 3 * 8} y2={SEQ_STRIP_Y + SEQ_CELL_H + 1}
               stroke={COLOR_AMBER} strokeWidth={1} strokeDasharray="2 1"
             />
             {/* Label */}
             <text
-              x={110 + 9 * 8 + 5} y={SEQ_STRIP_Y + SEQ_CELL_H * 0.7}
+              x={stripX + 9 * 8 + 5} y={SEQ_STRIP_Y + SEQ_CELL_H * 0.7}
               fontSize={7} fill={COLOR_GREEN} fontFamily="monospace"
             >
               5&apos;SS
             </text>
           </g>
-        )}
+          );
+        })()}
 
         {/* ── Acceptor hover: séquence 23 nt complète ── */}
-        {hoveredEl === "acceptor" && acceptorSeq && (
+        {hoveredEl === "acceptor" && acceptorSeq && (() => {
+          const stripX = SKIP_X - 20 * 6.5; // position so that exon boundary aligns with pos -1/+1
+          return (
           <g>
             {/* Position axis above strip — last 23 positions before AG then +1,+2,+3 */}
             {Array.from({ length: 23 }, (_, i) => {
@@ -758,7 +763,7 @@ export function ExonDiagram({
               return (
                 <text
                   key={i}
-                  x={638 + i * 6.5 + 2.5}
+                  x={stripX + i * 6.5 + 2.5}
                   y={SEQ_STRIP_Y - 2}
                   textAnchor="middle" fontSize={6.5}
                   fill={ACCEPTOR_AG_IDX.has(i) ? COLOR_AMBER : COLOR_TEXT_MUTED}
@@ -770,7 +775,7 @@ export function ExonDiagram({
             })}
             <NucStrip
               seq={acceptorSeq}
-              x={638}
+              x={stripX}
               y={SEQ_STRIP_Y}
               cellW={6.5}
               cellH={SEQ_CELL_H}
@@ -778,19 +783,20 @@ export function ExonDiagram({
             />
             {/* Boundary line */}
             <line
-              x1={638 + 20 * 6.5} y1={SEQ_STRIP_Y - 1}
-              x2={638 + 20 * 6.5} y2={SEQ_STRIP_Y + SEQ_CELL_H + 1}
+              x1={stripX + 20 * 6.5} y1={SEQ_STRIP_Y - 1}
+              x2={stripX + 20 * 6.5} y2={SEQ_STRIP_Y + SEQ_CELL_H + 1}
               stroke={COLOR_AMBER} strokeWidth={1} strokeDasharray="2 1"
             />
             {/* Label */}
             <text
-              x={635} y={SEQ_STRIP_Y + SEQ_CELL_H * 0.7}
+              x={stripX - 5} y={SEQ_STRIP_Y + SEQ_CELL_H * 0.7}
               textAnchor="end" fontSize={7} fill={COLOR_GREEN} fontFamily="monospace"
             >
               3&apos;SS
             </text>
           </g>
-        )}
+          );
+        })()}
 
         {/* ── PPT hover: strip nucléotidique compact ── */}
         {hoveredEl === "ppt" && pptSeq && (

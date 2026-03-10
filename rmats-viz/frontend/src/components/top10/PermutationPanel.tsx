@@ -96,7 +96,8 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
     <div style={{ overflowX: "auto" }}>
       <svg
         viewBox={`0 0 ${W} ${SVG_H}`}
-        style={{ width: W, height: SVG_H, display: "block" }}
+        className="w-full"
+        style={{ maxWidth: W, minWidth: 360, display: "block" }}
         aria-label={t("permutation.results.nullDistribution")}
       >
         {nullBins.map((bin, i) => {
@@ -120,8 +121,8 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
               )}
               {i % 5 === 0 && (
                 <text
-                  x={x + barW / 2} y={MARGIN_T + CHART_H + 12}
-                  textAnchor="middle" fontSize={6.5}
+                  x={x + barW / 2} y={MARGIN_T + CHART_H + 14}
+                  textAnchor="middle" fontSize={8}
                   fontFamily="monospace" fill="#94a3b8"
                 >
                   {bin.toFixed(1)}
@@ -131,8 +132,8 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
           );
         })}
         <line x1={0} y1={MARGIN_T + CHART_H} x2={W} y2={MARGIN_T + CHART_H} stroke="#334155" strokeWidth={0.5} />
-        <text x={2} y={MARGIN_T - 3} fontSize={6.5} fill="#64748b" fontFamily="sans-serif">N</text>
-        <text x={W} y={SVG_H - 2} textAnchor="end" fontSize={6.5} fill="#64748b" fontFamily="sans-serif" fontStyle="italic">ΔΨ</text>
+        <text x={2} y={MARGIN_T - 3} fontSize={8} fill="#64748b" fontFamily="sans-serif" fontWeight="600">N</text>
+        <text x={W} y={SVG_H - 2} textAnchor="end" fontSize={8} fill="#64748b" fontFamily="sans-serif" fontStyle="italic" fontWeight="600">ΔΨ</text>
       </svg>
       <DualHistLegend />
     </div>
@@ -142,7 +143,7 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
 function DualHistLegend() {
   const t = useT();
   return (
-    <div className="flex items-center gap-4 text-[9px] text-muted-foreground mt-1">
+    <div className="flex items-center gap-4 text-[11px] text-muted-foreground mt-1.5">
       <span className="flex items-center gap-1">
         <span className="inline-block w-4 h-2.5 rounded-sm bg-blue-500/45" />
         {t("permutation.results.nullDistribution")} (permutations)
@@ -194,7 +195,8 @@ function MetricHistogram({ metric }: { metric: MetricPermResult }) {
     <div style={{ overflowX: "auto" }}>
       <svg
         viewBox={`0 0 ${W} ${SVG_H}`}
-        style={{ width: W, height: SVG_H, display: "block" }}
+        className="w-full"
+        style={{ maxWidth: W, minWidth: 360, display: "block" }}
         aria-label={t("permutation.results.nullDistLabel", { label: metric.label })}
       >
         {metric.null_hist_bins.map((bin, i) => {
@@ -210,8 +212,8 @@ function MetricHistogram({ metric }: { metric: MetricPermResult }) {
               />
               {i % 5 === 0 && (
                 <text
-                  x={x + barW / 2} y={MARGIN_T + CHART_H + 12}
-                  textAnchor="middle" fontSize={6.5}
+                  x={x + barW / 2} y={MARGIN_T + CHART_H + 14}
+                  textAnchor="middle" fontSize={8}
                   fontFamily="monospace" fill="#94a3b8"
                 >
                   {bin.toFixed(2)}
@@ -220,26 +222,44 @@ function MetricHistogram({ metric }: { metric: MetricPermResult }) {
             </g>
           );
         })}
-        {/* Observed stat vertical line */}
+        {/* Observed stat vertical line — solid, bold, with label background */}
         {obsLineX !== null && (
           <g>
             <line
-              x1={obsLineX} y1={MARGIN_T}
-              x2={obsLineX} y2={MARGIN_T + CHART_H}
-              stroke={obsColor} strokeWidth={2} strokeDasharray="4 2"
+              x1={obsLineX} y1={MARGIN_T - 2}
+              x2={obsLineX} y2={MARGIN_T + CHART_H + 2}
+              stroke={obsColor} strokeWidth={3}
             />
-            <text
-              x={obsLineX + 3} y={MARGIN_T + 10}
-              fontSize={7} fill={obsColor} fontFamily="monospace" fontWeight="bold"
-            >
-              {metric.observed_stat !== null
-                ? (metric.observed_stat >= 0 ? "+" : "") + metric.observed_stat.toFixed(3)
-                : ""}
-            </text>
+            {/* Observed value label with background for readability */}
+            {metric.observed_stat !== null && (() => {
+              const label = (metric.observed_stat >= 0 ? "+" : "") + metric.observed_stat.toFixed(3);
+              const labelX = obsLineX > W / 2 ? obsLineX - 5 : obsLineX + 5;
+              const anchor = obsLineX > W / 2 ? "end" : "start";
+              return (
+                <>
+                  <rect
+                    x={anchor === "end" ? labelX - label.length * 5.5 - 4 : labelX - 2}
+                    y={MARGIN_T}
+                    width={label.length * 5.5 + 6}
+                    height={14}
+                    rx={2}
+                    fill={obsColor}
+                    fillOpacity={0.15}
+                  />
+                  <text
+                    x={labelX} y={MARGIN_T + 11}
+                    textAnchor={anchor}
+                    fontSize={9} fill={obsColor} fontFamily="monospace" fontWeight="bold"
+                  >
+                    {label}
+                  </text>
+                </>
+              );
+            })()}
           </g>
         )}
         <line x1={0} y1={MARGIN_T + CHART_H} x2={W} y2={MARGIN_T + CHART_H} stroke="#334155" strokeWidth={0.5} />
-        <text x={2} y={MARGIN_T - 3} fontSize={6.5} fill="#64748b" fontFamily="sans-serif">N</text>
+        <text x={2} y={MARGIN_T - 3} fontSize={8} fill="#64748b" fontFamily="sans-serif" fontWeight="600">N</text>
       </svg>
       <MetricHistLegend obsColor={obsColor} observedStat={metric.observed_stat} />
     </div>
@@ -249,7 +269,7 @@ function MetricHistogram({ metric }: { metric: MetricPermResult }) {
 function MetricHistLegend({ obsColor, observedStat }: { obsColor: string; observedStat: number | null }) {
   const t = useT();
   return (
-    <div className="flex items-center gap-4 text-[9px] text-muted-foreground mt-1">
+    <div className="flex items-center gap-4 text-[11px] text-muted-foreground mt-1.5">
       <span className="flex items-center gap-1">
         <span className="inline-block w-4 h-2.5 rounded-sm bg-blue-500/50" />
         {t("permutation.results.nullDistribution")} H₀

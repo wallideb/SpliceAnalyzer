@@ -84,7 +84,7 @@ function fmtCoord(v: number | null): string {
 // ---------------------------------------------------------------------------
 
 const W = 900;
-const H = 200;
+const H = 220;
 
 const EXON_Y   = 78;
 const EXON_H   = 32;
@@ -425,8 +425,8 @@ export function ExonDiagram({
         {(fdr !== null || incLevelDifference !== null) && (
           <text
             x={arcMidX} y={ARC_TOP_Y - 1}
-            textAnchor="middle" fontSize={9.5}
-            fill={arcColor} fontFamily="monospace" fontWeight="600"
+            textAnchor="middle" fontSize={11}
+            fill={arcColor} fontFamily="monospace" fontWeight="700"
           >
             {[
               fdr !== null              ? `FDR ${fmtPval(fdr)}`          : null,
@@ -442,10 +442,10 @@ export function ExonDiagram({
         </g>
         <text
           x={LEFT_EXON_X + FLANK_W / 2} y={LABEL_Y + 2}
-          textAnchor="middle" fontSize={9}
+          textAnchor="middle" fontSize={10}
           fill={COLOR_TEXT_MUTED} fontFamily="sans-serif"
         >
-          exon amont
+          {t("exonDiagram.upstreamFlankingExon")}
         </text>
 
         {/* ── Zone Donor (5'SS) — compact + hover expand ── */}
@@ -478,7 +478,7 @@ export function ExonDiagram({
           <text
             x={donorIndicatorX + donorIndicatorW / 2}
             y={EXON_Y + EXON_H / 2 + 3}
-            textAnchor="middle" fontSize={7}
+            textAnchor="middle" fontSize={8.5}
             fill={warnDonor ? COLOR_WARN : COLOR_GREEN}
             fontFamily="monospace" fontWeight="bold"
           >
@@ -491,9 +491,9 @@ export function ExonDiagram({
         <text
           x={donorIndicatorX + donorIndicatorW / 2}
           y={EXON_Y - 7}
-          textAnchor="middle" fontSize={6.5}
+          textAnchor="middle" fontSize={8}
           fill={warnDonor ? COLOR_WARN : COLOR_GREEN}
-          fontFamily="monospace" fontWeight="600"
+          fontFamily="monospace" fontWeight="700"
         >
           5&apos;SS
         </text>
@@ -580,7 +580,7 @@ export function ExonDiagram({
           <text
             x={acceptorIndicatorX + acceptorIndicatorW / 2}
             y={EXON_Y + EXON_H / 2 + 3}
-            textAnchor="middle" fontSize={7}
+            textAnchor="middle" fontSize={8.5}
             fill={warnAcceptor ? COLOR_WARN : COLOR_GREEN}
             fontFamily="monospace" fontWeight="bold"
           >
@@ -593,9 +593,9 @@ export function ExonDiagram({
         <text
           x={acceptorIndicatorX + acceptorIndicatorW / 2}
           y={EXON_Y - 7}
-          textAnchor="middle" fontSize={6.5}
+          textAnchor="middle" fontSize={8}
           fill={warnAcceptor ? COLOR_WARN : COLOR_GREEN}
-          fontFamily="monospace" fontWeight="600"
+          fontFamily="monospace" fontWeight="700"
         >
           3&apos;SS
         </text>
@@ -613,10 +613,10 @@ export function ExonDiagram({
         </g>
         <text
           x={RIGHT_EXON_X + FLANK_W / 2} y={LABEL_Y + 2}
-          textAnchor="middle" fontSize={9}
+          textAnchor="middle" fontSize={10}
           fill={COLOR_TEXT_MUTED} fontFamily="sans-serif"
         >
-          exon aval
+          {t("exonDiagram.downstreamFlankingExon")}
         </text>
 
         {/* ── Barre PPT — zone hover ── */}
@@ -685,7 +685,7 @@ export function ExonDiagram({
             {/* BP label next to circle */}
             <text
               x={bpCX + 7} y={BP_CY + 3}
-              fontSize={6.5} fill={bpFound ? COLOR_GREEN : COLOR_TEXT_MUTED}
+              fontSize={8} fill={bpFound ? COLOR_GREEN : COLOR_TEXT_MUTED}
               fontFamily="monospace" fontWeight="600"
             >
               BP{bpFound && bpDistance ? ` ~${bpDistance}nt` : "?"}
@@ -718,7 +718,7 @@ export function ExonDiagram({
                 key={i}
                 x={110 + i * 8 + 3}
                 y={SEQ_STRIP_Y - 2}
-                textAnchor="middle" fontSize={5.5}
+                textAnchor="middle" fontSize={7}
                 fill={DONOR_GT_IDX.has(i) ? COLOR_AMBER : COLOR_TEXT_MUTED}
                 fontFamily="monospace"
               >
@@ -760,7 +760,7 @@ export function ExonDiagram({
                   key={i}
                   x={638 + i * 6.5 + 2.5}
                   y={SEQ_STRIP_Y - 2}
-                  textAnchor="middle" fontSize={5}
+                  textAnchor="middle" fontSize={6.5}
                   fill={ACCEPTOR_AG_IDX.has(i) ? COLOR_AMBER : COLOR_TEXT_MUTED}
                   fontFamily="monospace"
                 >
@@ -848,8 +848,8 @@ export function ExonDiagram({
               fontFamily="monospace"
             >
               {bpFound
-                ? `YNYURAY — ~${bpDistance} nt du 3'SS`
-                : "YNYURAY — non détecté"}
+                ? `YNYURAY — ${t("exonDiagram.bpFound", { dist: bpDistance ?? "?" })}`
+                : `YNYURAY — ${t("exonDiagram.bpNotFound")}`}
             </text>
           </g>
         )}

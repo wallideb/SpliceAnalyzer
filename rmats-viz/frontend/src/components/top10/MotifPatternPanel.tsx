@@ -20,7 +20,7 @@
  * A "Calculer" button triggers POST /api/v1/splice/compute/{analysisId}.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSplicePatterns, computeSpliceFeatures } from "@/lib/api/splice";
 import { ScienceNote } from "@/components/ScienceNote";
@@ -272,10 +272,10 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
     refetchIntervalInBackground: false,
   });
 
-  // Stop polling once we have data
-  if (isPolling && data) {
-    setIsPolling(false);
-  }
+  // Stop polling once we have data (must be in useEffect, not render body)
+  useEffect(() => {
+    if (isPolling && data) setIsPolling(false);
+  }, [isPolling, data]);
 
   const compute = useMutation({
     mutationFn: () => computeSpliceFeatures(analysisId),

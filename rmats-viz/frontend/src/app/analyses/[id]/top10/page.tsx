@@ -57,7 +57,7 @@ export default function Top10Page() {
 
         <div className="flex items-center gap-4 flex-wrap">
           <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
-            Top 10 événements
+            {t("top10Page.title")}
           </h1>
           <select
             value={eventType}
@@ -75,7 +75,7 @@ export default function Top10Page() {
             <span className="text-red-500 dark:text-red-400 font-semibold">{group1.group_label}</span>
             {" vs "}
             <span className="text-blue-500 dark:text-blue-400 font-semibold">{group2.group_label}</span>
-            {" — classés par FDR puis |ΔPSI|"}
+            {" " + t("top10Page.sortedBy")}
           </p>
         )}
       </div>
@@ -87,13 +87,13 @@ export default function Top10Page() {
         <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
         </svg>
-        Voir tous les événements
+        {t("top10Page.viewAllEvents")}
       </Link>
 
       {isLoading && (
         <div className="flex items-center gap-2 text-muted-foreground text-sm py-6">
           <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          Chargement des événements…
+          {t("analysisDetail.loading")}
         </div>
       )}
 
@@ -104,8 +104,8 @@ export default function Top10Page() {
         <Top10View
           events={top10}
           mutatedGenes={mutatedGenes}
-          group1Label={group1?.group_label ?? "Groupe 1"}
-          group2Label={group2?.group_label ?? "Groupe 2"}
+          group1Label={group1?.group_label ?? t("top10Page.group1Default")}
+          group2Label={group2?.group_label ?? t("top10Page.group2Default")}
         />
       )}
     </div>

@@ -352,8 +352,8 @@ export default function AnalysisDetailPage() {
             className="border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
           >
             <option value="">{t("analysisDetail.filters.allTypes")}</option>
-            {["SE", "RI", "A3SS", "A5SS", "MXE"].map((t) => (
-              <option key={t} value={t}>{t}</option>
+            {["SE", "RI", "A3SS", "A5SS", "MXE"].map((et) => (
+              <option key={et} value={et}>{et}</option>
             ))}
           </select>
 

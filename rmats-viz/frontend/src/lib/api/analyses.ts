@@ -42,7 +42,8 @@ export async function getAnalysis(id: string): Promise<Analysis> {
 }
 
 export async function deleteAnalysis(id: string): Promise<void> {
-  await fetch(`${BASE}/analyses/${id}`, { method: "DELETE" });
+  const resp = await fetch(`${BASE}/analyses/${id}`, { method: "DELETE" });
+  if (!resp.ok) throw new Error(`Delete failed: ${resp.status}`);
 }
 
 export async function downloadAnalysisExcel(

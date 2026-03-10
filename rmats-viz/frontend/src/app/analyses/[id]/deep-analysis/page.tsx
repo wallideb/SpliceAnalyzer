@@ -250,8 +250,8 @@ export default function DeepAnalysisPage() {
       {!loadingTop10 && allEvents.length > 0 && (() => {
         const typeCounts: Record<string, number> = {};
         for (const ev of allEvents) {
-          const t = ev.event_type ?? "?";
-          typeCounts[t] = (typeCounts[t] ?? 0) + 1;
+          const evType = ev.event_type ?? "?";
+          typeCounts[evType] = (typeCounts[evType] ?? 0) + 1;
         }
         const types = Object.entries(typeCounts).sort(([a], [b]) => a.localeCompare(b));
         const hasMultipleTypes = types.length > 1;

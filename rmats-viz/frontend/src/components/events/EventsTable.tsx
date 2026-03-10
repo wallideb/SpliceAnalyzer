@@ -66,7 +66,7 @@ export function EventsTable({
         onChange={() => onSelectPage(pageIds)}
         onClick={(e) => e.stopPropagation()}
         className="rounded border-gray-300 cursor-pointer accent-blue-600"
-        title="Sélectionner / désélectionner la page"
+        title={t("eventTable.selectPage")}
       />
     ),
     cell: ({ row }) => (
@@ -100,14 +100,14 @@ export function EventsTable({
       {/* Pagination controls */}
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">
-          Page {page}/{pages} &middot; {total.toLocaleString("fr-FR")} résultat{total !== 1 ? "s" : ""}
+          Page {page}/{pages} &middot; {total.toLocaleString()} {total !== 1 ? t("eventTable.resultPlural") : t("eventTable.result")}
         </span>
         <div className="flex gap-1.5">
           <button
             disabled={page <= 1}
             onClick={() => onPageChange(1)}
             className="px-2 py-1 border border-border rounded-md text-xs hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            title="Première page"
+            title={t("eventTable.firstPage")}
           >
             «
           </button>
@@ -116,20 +116,20 @@ export function EventsTable({
             onClick={() => onPageChange(page - 1)}
             className="px-2.5 py-1 border border-border rounded-md text-xs hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
-            ‹ Préc.
+            ‹ {t("eventTable.prev")}
           </button>
           <button
             disabled={page >= pages}
             onClick={() => onPageChange(page + 1)}
             className="px-2.5 py-1 border border-border rounded-md text-xs hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
-            Suiv. ›
+            {t("eventTable.next")} ›
           </button>
           <button
             disabled={page >= pages}
             onClick={() => onPageChange(pages)}
             className="px-2 py-1 border border-border rounded-md text-xs hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            title="Dernière page"
+            title={t("eventTable.lastPage")}
           >
             »
           </button>
@@ -181,7 +181,7 @@ export function EventsTable({
                 <td colSpan={totalCols} className="text-center py-10 text-muted-foreground">
                   <div className="flex items-center justify-center gap-2">
                     <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-                    Chargement…
+                    {t("eventTable.loading")}
                   </div>
                 </td>
               </tr>
@@ -223,7 +223,7 @@ export function EventsTable({
                     ))}
                     <td className="px-1.5 py-2 w-6 text-center">
                       {isInBasket && (
-                        <span title="Dans le panier" className="text-green-500">
+                        <span title={t("eventTable.inBasket")} className="text-green-500">
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
                             className="w-3.5 h-3.5 inline"

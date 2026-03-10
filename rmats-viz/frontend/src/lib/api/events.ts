@@ -4,11 +4,11 @@
  * Functions for fetching splicing events associated with an analysis.
  *
  * Endpoints used:
- *   GET /api/v1/analyses/{id}/events       – Paginated, filtered event list
- *   GET /api/v1/analyses/{id}/events/top10 – Top-10 ranked events
+ *   GET /api/v1/analyses/{id}/events           – Paginated, filtered event list
+ *   GET /api/v1/analyses/{id}/events/manhattan – Manhattan plot data
  */
 
-import type { EventsPage, SplicingEvent } from "@/types/event";
+import type { EventsPage } from "@/types/event";
 import { BASE, fetchJSON } from "./client";
 
 // ---------------------------------------------------------------------------
@@ -25,8 +25,6 @@ export interface EventsQuery {
   sort_dir?: "asc" | "desc";
   page?: number;
   page_size?: number;
-  /** When true, top-10 ranked events are excluded from the result. */
-  exclude_top10?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -44,18 +42,9 @@ export async function listEvents(analysisId: string, query: EventsQuery = {}): P
   if (query.sort_dir) params.set("sort_dir", query.sort_dir);
   if (query.page) params.set("page", String(query.page));
   if (query.page_size) params.set("page_size", String(query.page_size));
-  if (query.exclude_top10) params.set("exclude_top10", "true");
   return fetchJSON(`${BASE}/analyses/${analysisId}/events?${params}`);
 }
 
 export async function getManhattanData(analysisId: string): Promise<import("@/components/events/ManhattanPlot").ManhattanPoint[]> {
   return fetchJSON(`${BASE}/analyses/${analysisId}/events/manhattan`);
-}
-
-export async function getTop10(analysisId: string, eventType?: string, limit?: number): Promise<SplicingEvent[]> {
-  const params = new URLSearchParams();
-  if (eventType) params.set("event_type", encodeURIComponent(eventType));
-  if (limit !== undefined && limit !== 10) params.set("limit", String(limit));
-  const qs = params.toString();
-  return fetchJSON(`${BASE}/analyses/${analysisId}/events/top10${qs ? `?${qs}` : ""}`);
 }

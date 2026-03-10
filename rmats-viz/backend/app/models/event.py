@@ -1,7 +1,7 @@
 import uuid
 from sqlalchemy import (
-    String, Text, Integer, BigInteger, Double, ForeignKey,
-    UniqueConstraint, Index, CheckConstraint, Computed
+    String, Text, BigInteger, Double, ForeignKey,
+    UniqueConstraint, Index, Computed
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
@@ -17,12 +17,7 @@ class SplicingEvent(Base):
             "downstream_es", "downstream_ee",
             name="uq_splicing_event_identity",
         ),
-        CheckConstraint("top_rank BETWEEN 1 AND 10", name="ck_top_rank_range"),
         Index("ix_events_analysis_fdr", "analysis_id", "fdr"),
-        Index(
-            "ix_events_analysis_top_rank", "analysis_id", "top_rank",
-            postgresql_where="top_rank IS NOT NULL",
-        ),
         Index("ix_events_analysis_type", "analysis_id", "event_type"),
         Index("ix_events_analysis_gene", "analysis_id", "gene_symbol"),
     )
@@ -71,8 +66,5 @@ class SplicingEvent(Base):
         Computed("ABS(inc_level_difference)", persisted=True),
         nullable=True,
     )
-
-    # Ranking
-    top_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     analysis: Mapped["Analysis"] = relationship("Analysis", back_populates="events")  # noqa: F821

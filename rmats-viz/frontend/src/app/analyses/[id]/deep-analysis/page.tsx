@@ -1,49 +1,41 @@
 "use client";
 
 /**
- * DeepAnalysisPage
- * =================
- * Analyse approfondie d'une sélection d'événements d'épissage.
+ * DeepAnalysisListPage
+ * =====================
+ * Lists saved deep analyses for an analysis.
+ * Allows creating a new deep analysis with threshold parameters.
  *
- * Contient toujours :
- *   • Les Top 10 événements de l'analyse (classés par FDR + |ΔPSI|)
- *   • Les événements du panier pour cette analyse
- *
- * Les modules optionnels (stringdb, pathways, motifs, splice) sont lus
- * depuis le paramètre URL ?modules=stringdb,pathways et contrôlent les
- * onglets supplémentaires dans la sidebar.
- *
- * Route : /analyses/[id]/deep-analysis?modules=stringdb,pathways,...
+ * Route: /analyses/[id]/deep-analysis
  */
 
-import { useMemo, useEffect, useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getAnalysis, getTop10 } from "@/lib/api";
-import { computeSpliceFeatures } from "@/lib/api/splice";
-import { useBasket } from "@/contexts/BasketContext";
+import { getAnalysis } from "@/lib/api";
+import {
+  listDeepAnalyses,
+  createDeepAnalysis,
+  deleteDeepAnalysis,
+  listEvents,
+} from "@/lib/api";
+import type { DeepAnalysisCreate } from "@/lib/api/deep-analyses";
 import { useT } from "@/contexts/LanguageContext";
-import { Top10View } from "@/components/events/Top10View";
-import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
-import { PermutationPanel } from "@/components/top10/PermutationPanel";
 import type { GeneEntry } from "@/types/gene";
-import type { SplicingEvent } from "@/types/event";
 
-export default function DeepAnalysisPage() {
+// Available deep-analysis modules
+const MODULES = [
+  { key: "splice", label: "Splice site analysis" },
+  { key: "motifs", label: "Motif patterns (PWM)" },
+  { key: "permutation", label: "Permutation test" },
+  { key: "frame", label: "Reading frame analysis" },
+] as const;
+
+export default function DeepAnalysisListPage() {
   const { id } = useParams<{ id: string }>();
-  const searchParams = useSearchParams();
-  const { items: basketItems } = useBasket();
   const t = useT();
-
-  // Parse selected optional modules from URL
-  const activeModules = useMemo<Set<string>>(() => {
-    const raw = searchParams.get("modules") ?? "";
-    return new Set(raw.split(",").filter(Boolean));
-  }, [searchParams]);
-
-  // Top-N selector state (default 10, range 5–50)
-  const [topN, setTopN] = useState(10);
+  const qc = useQueryClient();
 
   // Analysis metadata
   const { data: analysis } = useQuery({
@@ -51,28 +43,83 @@ export default function DeepAnalysisPage() {
     queryFn: () => getAnalysis(id),
   });
 
-  // Top-N events (always included)
-  const { data: top10 = [], isLoading: loadingTop10 } = useQuery({
-    queryKey: ["top10", id, topN],
-    queryFn: () => getTop10(id, undefined, topN),
+  // Saved deep analyses
+  const { data: deepAnalyses = [], isLoading } = useQuery({
+    queryKey: ["deep-analyses", id],
+    queryFn: () => listDeepAnalyses(id),
     enabled: !!id,
   });
 
-  // Basket events for this analysis (excluding those already in top10)
-  const basketForAnalysis = useMemo<SplicingEvent[]>(() => {
-    const top10Ids = new Set((top10 as SplicingEvent[]).map((e) => e.id));
-    return basketItems
-      .filter((item) => item.analysisId === id && !top10Ids.has(item.event.id))
-      .map((item) => item.event);
-  }, [basketItems, id, top10]);
-
-  // Merged event list: top10 first, then basket-only events
-  const allEvents = useMemo<SplicingEvent[]>(
-    () => [...(top10 as SplicingEvent[]), ...basketForAnalysis],
-    [top10, basketForAnalysis],
+  // Form state for new deep analysis
+  const [showForm, setShowForm] = useState(false);
+  const [fdrThreshold, setFdrThreshold] = useState(0.05);
+  const [deltaPsiMin, setDeltaPsiMin] = useState(0.1);
+  const [pvalThreshold, setPvalThreshold] = useState<number | null>(null);
+  const [selectedModules, setSelectedModules] = useState<Set<string>>(
+    new Set(["splice", "permutation", "frame"])
   );
+  const [name, setName] = useState("");
 
-  // Resolve mutated gene entries (guard against legacy string format)
+  // Preview: count how many events match the thresholds
+  const { data: previewPage } = useQuery({
+    queryKey: ["events-preview", id, fdrThreshold, deltaPsiMin, pvalThreshold],
+    queryFn: () =>
+      listEvents(id, {
+        fdr_max: fdrThreshold,
+        delta_psi_min: deltaPsiMin,
+        p_value_max: pvalThreshold ?? undefined,
+        page: 1,
+        page_size: 1,
+      }),
+    enabled: !!id && showForm,
+  });
+
+  // Total events for non-significant count
+  const { data: totalPage } = useQuery({
+    queryKey: ["events-total", id],
+    queryFn: () => listEvents(id, { page: 1, page_size: 1 }),
+    enabled: !!id && showForm,
+  });
+
+  const nSignificant = previewPage?.total ?? 0;
+  const nTotal = totalPage?.total ?? 0;
+  const nNotSignificant = nTotal - nSignificant;
+
+  const createMutation = useMutation({
+    mutationFn: (body: DeepAnalysisCreate) => createDeepAnalysis(id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["deep-analyses", id] });
+      setShowForm(false);
+      setName("");
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (deepId: string) => deleteDeepAnalysis(deepId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["deep-analyses", id] });
+    },
+  });
+
+  const handleCreate = () => {
+    createMutation.mutate({
+      name: name || undefined,
+      fdr_threshold: fdrThreshold,
+      pvalue_threshold: pvalThreshold ?? undefined,
+      delta_psi_min: deltaPsiMin,
+      modules: Array.from(selectedModules),
+    });
+  };
+
+  const toggleModule = (key: string) => {
+    setSelectedModules((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const mutatedGenes = useMemo<GeneEntry[]>(
     () =>
       (analysis?.mutated_genes ?? []).filter(
@@ -81,251 +128,244 @@ export default function DeepAnalysisPage() {
     [analysis],
   );
 
-  // Auto-compute splice features when the "splice" module is active.
-  // Fires once on mount (or when id changes) so per-event views are ready
-  // before the user switches to the "Sites consensus" tab.
-  const qc = useQueryClient();
-  const { mutate: autoCompute } = useMutation({
-    mutationFn: () => computeSpliceFeatures(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["splice-feature"] }),
-  });
-  useEffect(() => {
-    if (activeModules.has("splice") && id) autoCompute();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
   const group1 = analysis?.sample_groups.find((g) => g.group_index === 1);
   const group2 = analysis?.sample_groups.find((g) => g.group_index === 2);
-  const basketCount = basketForAnalysis.length;
 
   return (
-    <div className="space-y-6">
-      {/* ── Breadcrumb & Header ── */}
-      <div>
-        <nav className="flex items-center gap-1 text-sm text-muted-foreground mb-2 flex-wrap">
-          <Link
-            href="/analyses"
-            className="hover:text-foreground transition-colors inline-flex items-center gap-1"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="w-3.5 h-3.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M9 22V12h6v10"
-              />
-            </svg>
-            Analyses
-          </Link>
-          <ChevronIcon />
-          <Link
-            href={`/analyses/${id}`}
-            className="hover:text-foreground transition-colors truncate max-w-[180px]"
-          >
-            {analysis?.name ?? "…"}
-          </Link>
-          <ChevronIcon />
-          <span className="text-foreground font-medium">
-            {t("deepAnalysis.breadcrumb")}
-          </span>
-        </nav>
+    <div className="space-y-6 max-w-4xl">
+      {/* Breadcrumb */}
+      <nav className="flex items-center gap-1 text-sm text-muted-foreground flex-wrap">
+        <Link href="/analyses" className="hover:text-foreground transition-colors inline-flex items-center gap-1">
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 22V12h6v10" />
+          </svg>
+          Analyses
+        </Link>
+        <ChevronIcon />
+        <Link href={`/analyses/${id}`} className="hover:text-foreground transition-colors truncate max-w-[180px]">
+          {analysis?.name ?? "..."}
+        </Link>
+        <ChevronIcon />
+        <span className="text-foreground font-medium">{t("deepAnalysis.breadcrumb")}</span>
+      </nav>
 
-        <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
-          {t("deepAnalysis.title")}
-        </h1>
-
-        {group1 && group2 && (
-          <p className="text-sm text-muted-foreground mt-1">
-            <span className="text-red-500 dark:text-red-400 font-semibold">
-              {group1.group_label}
-            </span>
-            {" vs "}
-            <span className="text-blue-500 dark:text-blue-400 font-semibold">
-              {group2.group_label}
-            </span>
-          </p>
-        )}
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
+            {t("deepAnalysis.title")}
+          </h1>
+          {group1 && group2 && (
+            <p className="text-sm text-muted-foreground mt-1">
+              <span className="text-red-500 dark:text-red-400 font-semibold">{group1.group_label}</span>
+              {" vs "}
+              <span className="text-blue-500 dark:text-blue-400 font-semibold">{group2.group_label}</span>
+            </p>
+          )}
+        </div>
+        <button
+          onClick={() => setShowForm((v) => !v)}
+          className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm shrink-0"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          {t("deepAnalysis.newAnalysis")}
+        </button>
       </div>
 
-      {/* ── Back link ── */}
+      {/* Back link */}
       <Link
         href={`/analyses/${id}`}
         className="inline-flex items-center gap-1.5 text-sm text-blue-600 dark:text-blue-400 hover:underline"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="w-3.5 h-3.5"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2.5}
-        >
+        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
         </svg>
         {t("deepAnalysis.backToEvents")}
       </Link>
 
-      {/* ── Selection summary ── */}
-      <div className="flex flex-wrap gap-3 items-center">
-        {/* Top-N selector */}
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 text-xs">
-          <span className="text-blue-700 dark:text-blue-300 font-medium">
-            {t("deepAnalysis.topNLabel")}
-          </span>
-          <select
-            value={topN}
-            onChange={(e) => setTopN(Number(e.target.value))}
-            className="bg-white dark:bg-blue-950/50 border border-blue-300 dark:border-blue-700 rounded px-1.5 py-0.5 text-xs font-bold text-blue-700 dark:text-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            {[5, 10, 15, 20, 25, 30, 40, 50].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-          <span className="text-blue-600/70 dark:text-blue-400/70">
-            {t("deepAnalysis.topNAlwaysIncluded")}
-          </span>
-        </div>
+      {/* New deep analysis form */}
+      {showForm && (
+        <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-5 space-y-4">
+          <h2 className="text-sm font-bold text-foreground">
+            {t("deepAnalysis.newAnalysisForm")}
+          </h2>
 
-        {/* Basket events badge */}
-        {basketCount > 0 && (
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-950/30 text-xs">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="w-4 h-4 text-violet-600 dark:text-violet-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z"
+          {/* Name */}
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">{t("deepAnalysis.formName")}</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t("deepAnalysis.formNamePlaceholder")}
+              className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Threshold inputs */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">FDR max</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="1"
+                value={fdrThreshold}
+                onChange={(e) => setFdrThreshold(Number(e.target.value))}
+                className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 tabular-nums"
               />
-            </svg>
-            <span className="text-violet-700 dark:text-violet-300 font-medium">
-              {t("deepAnalysis.basketCount", { n: basketCount })}
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">|ΔPSI| min</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="1"
+                value={deltaPsiMin}
+                onChange={(e) => setDeltaPsiMin(Number(e.target.value))}
+                className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 tabular-nums"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">p-value max ({t("deepAnalysis.optional")})</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="1"
+                value={pvalThreshold ?? ""}
+                onChange={(e) => setPvalThreshold(e.target.value ? Number(e.target.value) : null)}
+                placeholder="—"
+                className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 tabular-nums"
+              />
+            </div>
+          </div>
+
+          {/* Preview counts */}
+          <div className="flex items-center gap-4 text-sm">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 font-medium">
+              {nSignificant} {t("deepAnalysis.significant")}
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30 text-slate-600 dark:text-slate-400 font-medium">
+              {nNotSignificant > 0 ? nNotSignificant : "—"} {t("deepAnalysis.notSignificant")}
             </span>
           </div>
-        )}
 
-        {/* Active optional modules */}
-        {activeModules.size > 0 && (
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-muted/40 text-xs text-muted-foreground">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="w-3.5 h-3.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
+          {/* Modules */}
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">{t("deepAnalysis.modules")}</label>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {MODULES.map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => toggleModule(key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    selectedModules.has(key)
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Submit */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleCreate}
+              disabled={createMutation.isPending || nSignificant === 0}
+              className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
-              />
-            </svg>
-            {activeModules.size > 1
-              ? t("deepAnalysis.optionalModulesActivePlural", { n: activeModules.size })
-              : t("deepAnalysis.optionalModulesActive", { n: activeModules.size })}
+              {createMutation.isPending ? t("deepAnalysis.creating") : t("deepAnalysis.create")}
+            </button>
+            <button
+              onClick={() => setShowForm(false)}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {t("deepAnalysis.cancel")}
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* ── Event type breakdown (multi-file context) ── */}
-      {!loadingTop10 && allEvents.length > 0 && (() => {
-        const typeCounts: Record<string, number> = {};
-        for (const ev of allEvents) {
-          const evType = ev.event_type ?? "?";
-          typeCounts[evType] = (typeCounts[evType] ?? 0) + 1;
-        }
-        const types = Object.entries(typeCounts).sort(([a], [b]) => a.localeCompare(b));
-        const hasMultipleTypes = types.length > 1;
-        return (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] text-muted-foreground font-medium">{t("deepAnalysis.eventTypes")}</span>
-            {types.map(([type, count]) => (
-              <span
-                key={type}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-card"
-              >
-                <span className="font-bold text-foreground">{type}</span>
-                <span className="text-muted-foreground">×{count}</span>
-              </span>
-            ))}
-            {hasMultipleTypes && (
-              <span className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded px-2 py-0.5">
-                {t("deepAnalysis.seOnlyNotice")}
-              </span>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* ── Mutated gene annotation panel ── */}
-      <MutatedGenePanel mutatedGenes={mutatedGenes} analysisId={id} />
-
-      {/* ── Loading state ── */}
-      {loadingTop10 && (
+      {/* Saved deep analyses list */}
+      {isLoading && (
         <div className="flex items-center gap-2 text-muted-foreground text-sm py-6">
           <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
           {t("deepAnalysis.loading")}
         </div>
       )}
 
-      {/* ── Main annotated view ── */}
-      {!loadingTop10 && allEvents.length > 0 && (
-        <Top10View
-          events={allEvents}
-          mutatedGenes={mutatedGenes}
-          activeModules={activeModules}
-          analysisId={id}
-          group1Label={group1?.group_label ?? "Groupe 1"}
-          group2Label={group2?.group_label ?? "Groupe 2"}
-        />
+      {!isLoading && deepAnalyses.length === 0 && !showForm && (
+        <div className="text-center py-12 text-muted-foreground">
+          <p className="text-sm">{t("deepAnalysis.noSavedAnalyses")}</p>
+          <p className="text-xs mt-2">{t("deepAnalysis.noSavedAnalysesHint")}</p>
+        </div>
       )}
 
-      {!loadingTop10 && allEvents.length === 0 && (
-        <p className="text-sm text-muted-foreground py-6 text-center">
-          {t("deepAnalysis.noEvents")}
-        </p>
+      {deepAnalyses.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-bold text-foreground">{t("deepAnalysis.savedAnalyses")}</h2>
+          {deepAnalyses.map((da) => (
+            <div
+              key={da.id}
+              className="flex items-center justify-between gap-4 border border-border rounded-xl bg-card p-4 shadow-sm hover:shadow-md transition-shadow"
+            >
+              <Link
+                href={`/analyses/${id}/deep-analysis/${da.id}`}
+                className="flex-1 min-w-0"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-semibold text-foreground truncate">{da.name}</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                    da.status === "ready"
+                      ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                      : da.status === "computing"
+                      ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
+                  }`}>
+                    {da.status}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                  <span>FDR ≤ {da.fdr_threshold}</span>
+                  <span>|ΔPSI| ≥ {da.delta_psi_min}</span>
+                  <span className="text-green-600 dark:text-green-400 font-medium">{da.n_significant} sig.</span>
+                  <span>{da.n_not_significant} non-sig.</span>
+                  <span>{new Date(da.created_at).toLocaleDateString()}</span>
+                </div>
+              </Link>
+              <button
+                onClick={() => {
+                  if (confirm(t("deepAnalysis.confirmDelete")))
+                    deleteMutation.mutate(da.id);
+                }}
+                disabled={deleteMutation.isPending}
+                className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                title={t("deepAnalysis.delete")}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
       )}
-
-      {/* ── 4B — Test de permutation — Significativité ── */}
-      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-        <h2 className="text-sm font-bold text-foreground mb-4">
-          {t("deepAnalysis.permutationTitle")}
-        </h2>
-        <PermutationPanel analysisId={id} />
-      </div>
     </div>
   );
 }
 
 function ChevronIcon() {
   return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      className="w-3 h-3 text-muted-foreground/50"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={2}
-    >
+    <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 text-muted-foreground/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
     </svg>
   );

@@ -25,7 +25,6 @@ interface EventsTableProps {
   group1Label: string;
   group2Label: string;
   basketIds?: Set<string>;
-  highlightTop10?: boolean;
   showIncLevel?: boolean;
 }
 
@@ -42,7 +41,6 @@ export function EventsTable({
   group1Label,
   group2Label,
   basketIds,
-  highlightTop10 = true,
   showIncLevel = false,
 }: EventsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -194,7 +192,6 @@ export function EventsTable({
             ) : (
               table.getRowModel().rows.map((row) => {
                 const event = row.original as SplicingEvent;
-                const isTop10 = event.top_rank != null;
                 const isSelected = selectedIds.has(event.id);
                 const isInBasket = basketIds?.has(event.id) ?? false;
 
@@ -204,13 +201,10 @@ export function EventsTable({
                   ? "bg-green-50 dark:bg-green-950/20 hover:bg-green-100 dark:hover:bg-green-950/40"
                   : "hover:bg-muted/40";
 
-                const top10Border =
-                  isTop10 && highlightTop10 ? "border-l-[3px] border-l-blue-500" : "";
-
                 return (
                   <tr
                     key={row.id}
-                    className={`border-b border-border transition-colors cursor-pointer ${rowBg} ${top10Border}`}
+                    className={`border-b border-border transition-colors cursor-pointer ${rowBg}`}
                     onClick={() => onToggleSelect(event.id)}
                   >
                     {row.getVisibleCells().map((cell) => (

@@ -206,7 +206,6 @@ async def export_analysis_excel(
         "Exon Start", "Exon End", "Exon Size",
         "p-value", "FDR", "ΔΨ", "|ΔΨ|",
         "PSI Group 1", "PSI Group 2",
-        "Top Rank",
         # SE splice features
         "Donor Site", "Canonical GT",
         "Acceptor Site", "Canonical AG",
@@ -244,7 +243,6 @@ async def export_analysis_excel(
             event.abs_inc_level_diff,
             event.inc_level_1,
             event.inc_level_2,
-            event.top_rank,
             # Splice features (SE only)
             feat.donor_seq if feat else None,
             feat.donor_is_gt if feat else None,

@@ -23,6 +23,9 @@ class Analysis(Base):
     events: Mapped[list["SplicingEvent"]] = relationship(  # noqa: F821
         "SplicingEvent", back_populates="analysis", cascade="all, delete-orphan"
     )
+    deep_analyses: Mapped[list["DeepAnalysis"]] = relationship(  # noqa: F821
+        "DeepAnalysis", back_populates="analysis", cascade="all, delete-orphan",
+    )
 
 
 class SampleGroup(Base):

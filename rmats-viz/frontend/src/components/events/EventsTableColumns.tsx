@@ -15,19 +15,6 @@ export function makeEventsColumns(
   t: (key: string, vars?: Record<string, string | number>) => string = (k) => k,
 ) {
   const baseColumns = [
-    helper.accessor("top_rank", {
-      header: t("eventTable.rank"),
-      cell: (info) => {
-        const v = info.getValue();
-        if (v == null) return <span className="text-muted-foreground/30">—</span>;
-        return (
-          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-xs font-bold">
-            {v}
-          </span>
-        );
-      },
-      size: 40,
-    }),
     helper.accessor("event_type", {
       header: t("eventTable.type"),
       cell: (info) => <EventTypeBadge type={info.getValue()} />,

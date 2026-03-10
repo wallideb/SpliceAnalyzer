@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine
-from app.routers import analyses, annotations, events, export, genes, splice
+from app.routers import analyses, annotations, deep_analyses, events, export, genes, splice
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +87,7 @@ app.add_middleware(
 
 app.include_router(analyses.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
+app.include_router(deep_analyses.router, prefix="/api/v1")
 app.include_router(genes.router, prefix="/api/v1")
 app.include_router(annotations.router, prefix="/api/v1")
 app.include_router(splice.router, prefix="/api/v1")

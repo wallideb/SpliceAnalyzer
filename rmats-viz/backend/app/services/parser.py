@@ -1,5 +1,5 @@
 """
-Core rMATS parser: detect event type, parse TSV, deduplicate, select top-10, bulk-insert.
+Core rMATS parser: detect event type, parse TSV, deduplicate, bulk-insert.
 
 Handles the real PCBP1 file quirks:
 - Extra non-standard columns (e.g. InPanelApp) → ignored
@@ -242,12 +242,10 @@ async def parse_and_store(
     db: AsyncSession,
 ) -> int:
     """
-    Parse all uploaded files, deduplicate, rank top-10, bulk-insert.
+    Parse all uploaded files, deduplicate, bulk-insert.
 
     Returns total number of events inserted.
     """
-    from app.services.event_selector import select_top10
-
     all_dfs: list[pd.DataFrame] = []
 
     for filename, content in files:
@@ -266,13 +264,6 @@ async def parse_and_store(
     combined = pd.concat(all_dfs, ignore_index=True)
     deduped = deduplicate_events(combined)
     deduped = deduplicate_with_overlap(deduped, overlap_bp=50)
-
-    # Assign top_rank
-    top10 = select_top10(deduped)
-
-    deduped["top_rank"] = None
-    for rank_row in top10.itertuples():
-        deduped.at[rank_row.Index, "top_rank"] = rank_row.top_rank
 
     records = _df_to_records(deduped, analysis_id)
 

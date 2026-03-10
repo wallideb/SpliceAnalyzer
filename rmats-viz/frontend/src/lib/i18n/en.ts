@@ -71,13 +71,9 @@ export const en = {
   analysisDetail: {
     breadcrumb: "Analyses",
     mutatedGenes: "Mutated gene(s):",
-    highlightTop10: "Highlight Top 10",
-    hideTop10: "Hide Top 10",
-    showTop10: "Show Top 10 in list",
-    top10Hidden: "Top 10 hidden",
     excel: "Excel",
     pdf: "PDF",
-    top10: "Top 10",
+    deepAnalysis: "Deep Analysis",
     excelError: "Error during Excel export. Please try again.",
     pdfError: "Error generating PDF. Please try again.",
     excelModal: {
@@ -115,8 +111,6 @@ export const en = {
       noFilter: "no filter",
       reset: "Reset",
     },
-    top10Notice:
-      "The <strong>Top 10 events ◈</strong> are selected using default rMATS thresholds (FDR &lt; 0.05, |ΔPSI| ≥ 0.1), ranked by FDR then |ΔPSI|. They are filtered like all other events when statistical thresholds are active. Use the <strong>Hide Top 10</strong> button to exclude them from the list.",
     legend: {
       deltaLabel: "ΔPSI:",
       positive: "positive → ↑ {{group}}",
@@ -159,15 +153,8 @@ export const en = {
     loading: "Loading…",
     inBasket: "In basket",
   },
-  top10Page: {
-    title: "Top 10 events",
-    sortedBy: "— ranked by FDR then |ΔPSI|",
-    viewAllEvents: "View all events",
-    group1Default: "Group 1",
-    group2Default: "Group 2",
-  },
   top10View: {
-    noEvents: "No top-10 events found.",
+    noEvents: "No events found.",
     modeLabels: {
       gene: "Genomic location",
       go: "Gene Ontology (GO)",
@@ -193,8 +180,6 @@ export const en = {
     headerPlural: "Basket — {{n}} events",
     subtitle: "Select events then launch deep analysis.",
     close: "Close",
-    top10Notice:
-      "The <strong>Top 10 events</strong> will always be included in the continued analysis, regardless of the basket events.",
     empty: {
       title: "The basket is empty.",
       subtitle:
@@ -238,8 +223,8 @@ export const en = {
     },
     basketEventsPrefix: "{{n}} basket event",
     basketEventsPrefixPlural: "{{n}} basket events",
-    top10AlwaysIncluded:
-      "will always be included in the deep analysis.",
+    basketEventsInfo:
+      "These basket events will be included in the deep analysis.",
     cancel: "Cancel",
     launch: "Launch Analysis",
   },
@@ -593,20 +578,33 @@ export const en = {
   },
   deepAnalysis: {
     breadcrumb: "Deep Analysis",
-    title: "Deep Analysis",
+    title: "Deep Analyses",
     backToEvents: "Back to events",
-    top10AlwaysIncluded: "Top 10 — always included",
-    topNLabel: "Top",
-    topNAlwaysIncluded: "— always included",
-    basketCount: "+{{n}} from basket",
-    optionalModulesActive: "{{n}} optional module active",
-    optionalModulesActivePlural: "{{n}} optional modules active",
+    backToList: "Back to analyses list",
+    loading: "Loading…",
+    noEvents: "No significant events found with these thresholds.",
+    permutationTitle: "Significance by permutation",
+    newAnalysis: "New Deep Analysis",
+    newAnalysisForm: "Create a new deep analysis",
+    formName: "Name",
+    formNamePlaceholder: "e.g. FDR 0.05 — ΔPSI 0.1",
+    optional: "optional",
+    significant: "significant",
+    notSignificant: "non-significant",
+    modules: "Modules",
+    create: "Create analysis",
+    creating: "Creating…",
+    cancel: "Cancel",
+    savedAnalyses: "Saved analyses",
+    noSavedAnalyses: "No deep analyses yet.",
+    noSavedAnalysesHint: "Click \"New Deep Analysis\" to create one with your chosen thresholds.",
+    confirmDelete: "Delete this deep analysis? This cannot be undone.",
+    delete: "Delete",
+    methodology: "Methodology:",
     eventTypes: "Event types:",
     seOnlyNotice: "Sequence analysis (motifs, logos, PPT) — SE events only",
-    loading: "Loading events…",
-    noEvents:
-      "No events to display. Add events to the basket or verify that the analysis has data.",
-    permutationTitle: "Significance by permutation",
+    optionalModulesActive: "{{n}} optional module active",
+    optionalModulesActivePlural: "{{n}} optional modules active",
   },
 };
 

@@ -126,7 +126,7 @@ export function AnalysisOptionsModal({
                   : t("analysisOptions.basketEventsPrefix", { n: basketEventCount })}{" "}
               </>
             )}
-            <strong>Top 10</strong> {t("analysisOptions.top10AlwaysIncluded")}
+            {t("analysisOptions.basketEventsInfo")}
           </p>
         </div>
 

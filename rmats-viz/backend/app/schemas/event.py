@@ -30,7 +30,6 @@ class SplicingEventResponse(BaseModel):
     inc_level_2: str | None = None
     inc_level_difference: float | None = None
     abs_inc_level_diff: float | None = None
-    top_rank: int | None = None
 
     model_config = {"from_attributes": True}
 

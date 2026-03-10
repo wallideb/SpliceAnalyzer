@@ -50,8 +50,6 @@ export default function AnalysisDetailPage() {
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [showExcelModal, setShowExcelModal] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [highlightTop10, setHighlightTop10] = useState(true);
-  const [hideTop10, setHideTop10] = useState(false);
   const [showIncLevel, setShowIncLevel] = useState(false);
 
   const sortBy = sortKey.slice(0, sortKey.lastIndexOf("|")) as EventsQuery["sort_by"];
@@ -76,7 +74,6 @@ export default function AnalysisDetailPage() {
     sort_dir: sortDir,
     page,
     page_size: 50,
-    exclude_top10: hideTop10 || undefined,
   };
 
   const { data: eventsPage, isLoading } = useQuery({
@@ -168,8 +165,6 @@ export default function AnalysisDetailPage() {
     return n;
   }, [selectedIds, hasItem]);
 
-  const hasStatFilters = fdrSlider > 0 || pvalSlider > 0 || dpsiSlider > 0;
-
   return (
     <div className="flex gap-6 items-start">
 
@@ -243,41 +238,8 @@ export default function AnalysisDetailPage() {
           </div>
         </div>
 
-        {/* Top10 actions */}
+        {/* Actions */}
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
-          <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground select-none hover:text-foreground transition-colors">
-            <input
-              type="checkbox"
-              checked={highlightTop10}
-              onChange={(e) => setHighlightTop10(e.target.checked)}
-              className="rounded border-border accent-blue-600 cursor-pointer w-3.5 h-3.5"
-            />
-            {t("analysisDetail.highlightTop10")}
-          </label>
-          {/* Hide / show top-10 events toggle */}
-          <button
-            onClick={() => { setHideTop10((v) => !v); setPage(1); }}
-            title={hideTop10 ? t("analysisDetail.showTop10") : t("analysisDetail.hideTop10")}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-              hideTop10
-                ? "bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
-                : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
-            }`}
-          >
-            {hideTop10 ? (
-              /* Eye icon */
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-            ) : (
-              /* Eye-slash icon */
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-              </svg>
-            )}
-            {hideTop10 ? t("analysisDetail.top10Hidden") : t("analysisDetail.hideTop10")}
-          </button>
           <button
             onClick={() => setShowExcelModal(true)}
             disabled={isExporting}
@@ -295,13 +257,13 @@ export default function AnalysisDetailPage() {
             {isExportingPDF ? "PDF…" : t("analysisDetail.pdf")}
           </button>
           <Link
-            href={`/analyses/${id}/top10`}
+            href={`/analyses/${id}/deep-analysis`}
             className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors shadow-sm"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
-            {t("analysisDetail.top10")}
+            {t("analysisDetail.deepAnalysis")}
           </Link>
         </div>
       </div>
@@ -432,14 +394,6 @@ export default function AnalysisDetailPage() {
           />
         </div>
 
-        {hasStatFilters && (
-          <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 leading-relaxed">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span dangerouslySetInnerHTML={{ __html: t("analysisDetail.top10Notice") }} />
-          </div>
-        )}
       </div>
 
       {/* ── Manhattan plot toggle + panel ── */}
@@ -484,7 +438,6 @@ export default function AnalysisDetailPage() {
           basketIds={new Set(
             eventsPage.items.filter((e) => hasItem(e.id)).map((e) => e.id)
           )}
-          highlightTop10={highlightTop10}
           showIncLevel={showIncLevel}
         />
       )}

@@ -27,7 +27,6 @@ export interface SplicingEvent {
   inc_level_2?: string | null;
   inc_level_difference?: number | null;
   abs_inc_level_diff?: number | null;
-  top_rank?: number | null;
 }
 
 export interface EventsPage {

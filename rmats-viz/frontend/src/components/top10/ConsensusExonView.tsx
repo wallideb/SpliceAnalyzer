@@ -63,9 +63,14 @@ export function ConsensusExonView({ data }: ConsensusExonViewProps) {
   const hasConsensus = fasta_available && donor_sites.consensus && acceptor_sites.consensus;
 
   // Build a pseudo-FDR for the arc display — use pct_canonical as a proxy
-  // (higher canonical = darker arc = more "significant" in terms of splice strength)
+  // Map combined canonical percentage to a "significance" score:
+  // 100% canonical → pseudo-FDR 0.001 (very dark arc)
+  // 50% canonical  → pseudo-FDR 0.5 (light arc)
+  const meanCanonical = hasConsensus
+    ? (donor_sites.pct_canonical + acceptor_sites.pct_canonical) / 2
+    : 0;
   const pseudoFdr = hasConsensus
-    ? Math.max(0, 1 - (donor_sites.pct_canonical + acceptor_sites.pct_canonical) / 200)
+    ? Math.max(0.001, 1 - meanCanonical / 100)
     : null;
 
   return (

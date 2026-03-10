@@ -15,9 +15,16 @@ export interface ManhattanPoint {
   inc_level_difference?: number | null;
 }
 
+export interface GeneMarker {
+  symbol: string;
+  ensembl_id?: string;
+}
+
 interface Props {
   data: ManhattanPoint[];
   loading?: boolean;
+  /** Mutated gene symbols to highlight on the plot with vertical markers. */
+  mutatedGenes?: GeneMarker[];
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -54,7 +61,7 @@ const CHR_GAP = 4; // px gap between chromosomes
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function ManhattanPlot({ data, loading }: Props) {
+export function ManhattanPlot({ data, loading, mutatedGenes = [] }: Props) {
   const t = useT();
   const [visibleTypes, setVisibleTypes] = useState<Set<string>>(
     new Set(Object.keys(EVENT_COLORS)),
@@ -133,6 +140,43 @@ export function ManhattanPlot({ data, loading }: Props) {
     if (!ticks.includes(maxY)) ticks.push(maxY);
     return ticks;
   }, [maxY]);
+
+  // Mutated gene position markers — compute median position for each gene from event data
+  const geneMarkers = useMemo(() => {
+    if (!mutatedGenes.length) return [];
+    const xScale = INNER_W / Math.max(totalGenome, 1);
+    const symbols = new Set(mutatedGenes.map((g) => g.symbol.toUpperCase()));
+    // Group events by gene symbol
+    const geneEvents: Record<string, { positions: number[]; chr: string }[]> = {};
+    for (const d of data) {
+      const sym = (d.gene_symbol ?? "").toUpperCase();
+      if (!symbols.has(sym) || !d.chr || d.position == null) continue;
+      if (!geneEvents[sym]) geneEvents[sym] = [];
+      geneEvents[sym].push({ positions: [d.position], chr: normChr(d.chr) });
+    }
+    // Compute median position per gene per chromosome, pick most common chr
+    return mutatedGenes
+      .map((g) => {
+        const sym = g.symbol.toUpperCase();
+        const evts = geneEvents[sym];
+        if (!evts || !evts.length) return null;
+        // Group by chromosome, pick the one with the most events
+        const byChr: Record<string, number[]> = {};
+        for (const e of evts) {
+          if (!byChr[e.chr]) byChr[e.chr] = [];
+          byChr[e.chr].push(...e.positions);
+        }
+        const bestChr = Object.entries(byChr).sort((a, b) => b[1].length - a[1].length)[0];
+        const chr = bestChr[0];
+        const positions = bestChr[1].sort((a, b) => a - b);
+        const median = positions[Math.floor(positions.length / 2)];
+        const offset = chrOffsets[chr];
+        if (offset === undefined) return null;
+        const genomicX = offset + median / 1e6;
+        return { symbol: g.symbol, px: genomicX * xScale, chr, nEvents: positions.length };
+      })
+      .filter(Boolean) as { symbol: string; px: number; chr: string; nEvents: number }[];
+  }, [mutatedGenes, data, chrOffsets, totalGenome, normChr]);
 
   const toggleType = useCallback((type: string) => {
     setVisibleTypes((prev) => {
@@ -255,6 +299,43 @@ export function ManhattanPlot({ data, loading }: Props) {
                 onMouseLeave={() => setHovered(null)}
                 className="cursor-pointer transition-all"
               />
+            ))}
+
+            {/* Mutated gene position markers */}
+            {geneMarkers.map((gm, i) => (
+              <g key={`gene-${gm.symbol}`}>
+                <line
+                  x1={gm.px}
+                  y1={0}
+                  x2={gm.px}
+                  y2={INNER_H}
+                  stroke="#f59e0b"
+                  strokeWidth={1.5}
+                  strokeDasharray="4,3"
+                  opacity={0.7}
+                />
+                <rect
+                  x={gm.px - 2}
+                  y={-14 - i * 14}
+                  width={gm.symbol.length * 7 + 8}
+                  height={13}
+                  rx={3}
+                  fill="#fef3c7"
+                  stroke="#f59e0b"
+                  strokeWidth={0.8}
+                  opacity={0.95}
+                />
+                <text
+                  x={gm.px + 2}
+                  y={-5 - i * 14}
+                  fontSize={8}
+                  fontWeight={700}
+                  fill="#92400e"
+                  fontFamily="sans-serif"
+                >
+                  {gm.symbol}
+                </text>
+              </g>
             ))}
 
             {/* X-axis: chromosome labels */}

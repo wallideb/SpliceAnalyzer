@@ -483,28 +483,30 @@ async def get_splice_patterns(
     # ── Donor (5'SS) ────────────────────────────────────────────────────────
     donor_seqs = [f.donor_seq for f in feats_with_seq if f.donor_seq and len(f.donor_seq) >= 9]
     donor_9    = [s[:9] for s in donor_seqs]
-    n_gt       = sum(1 for f in feats_with_seq if f.donor_is_gt)
+    # Count canonical GT only among events that have a valid donor sequence
+    n_gt       = sum(1 for f in feats_with_seq if f.donor_seq and len(f.donor_seq) >= 9 and f.donor_is_gt)
 
     donor_stats = SiteStats(
         n_sequences   = len(donor_9),
         consensus     = iupac_consensus(donor_9) if donor_9 else None,
         pwm           = compute_pwm(donor_9),
         n_canonical   = n_gt,
-        pct_canonical = round(n_gt / len(feats_with_seq) * 100, 1) if feats_with_seq else 0.0,
+        pct_canonical = round(n_gt / len(donor_9) * 100, 1) if donor_9 else 0.0,
         examples      = donor_9[:8],
     )
 
     # ── Acceptor (3'SS) ─────────────────────────────────────────────────────
     acc_seqs = [f.acceptor_seq for f in feats_with_seq if f.acceptor_seq and len(f.acceptor_seq) >= 23]
     acc_23   = [s[-23:] for s in acc_seqs]
-    n_ag     = sum(1 for f in feats_with_seq if f.acceptor_is_ag)
+    # Count canonical AG only among events that have a valid acceptor sequence
+    n_ag     = sum(1 for f in feats_with_seq if f.acceptor_seq and len(f.acceptor_seq) >= 23 and f.acceptor_is_ag)
 
     acc_stats = SiteStats(
         n_sequences   = len(acc_23),
         consensus     = iupac_consensus(acc_23) if acc_23 else None,
         pwm           = compute_pwm(acc_23),
         n_canonical   = n_ag,
-        pct_canonical = round(n_ag / len(feats_with_seq) * 100, 1) if feats_with_seq else 0.0,
+        pct_canonical = round(n_ag / len(acc_23) * 100, 1) if acc_23 else 0.0,
         examples      = acc_23[:8],
     )
 

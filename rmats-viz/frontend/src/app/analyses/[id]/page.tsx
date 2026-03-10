@@ -428,6 +428,7 @@ export default function AnalysisDetailPage() {
             max={100}
             ticks={["0", "0.1", "0.25", "0.5", "1"]}
             accentClass="accent-violet-600"
+            logScale={false}
           />
         </div>
 
@@ -459,7 +460,11 @@ export default function AnalysisDetailPage() {
       </div>
 
       {showManhattan && (
-        <ManhattanPlot data={manhattanData} loading={loadingManhattan} />
+        <ManhattanPlot
+          data={manhattanData}
+          loading={loadingManhattan}
+          mutatedGenes={mutatedGenes.map((g) => ({ symbol: g.symbol, ensembl_id: g.ensembl_id }))}
+        />
       )}
 
       {/* ── Events table ── */}
@@ -567,6 +572,18 @@ function SpinnerIcon() {
 }
 
 // ── StatSlider component ───────────────────────────────────────────────────────
+
+/** Convert a real value back to slider position (inverse of logSliderToValue). */
+function valueToLogSlider(val: number): number {
+  if (val <= 0 || val >= 1) return 0;
+  return Math.round(-Math.log10(val) * 10);
+}
+
+/** Convert a real ΔPSI value back to slider position (inverse of dpsiSliderToValue). */
+function valueToDpsiSlider(val: number): number {
+  return Math.round(val * 100);
+}
+
 function StatSlider({
   label,
   value,
@@ -576,6 +593,8 @@ function StatSlider({
   max,
   ticks,
   accentClass = "accent-blue-600",
+  /** If true, use log scale (FDR/p-value). If false, use linear (ΔPSI). */
+  logScale = true,
 }: {
   label: string;
   value: number;
@@ -585,26 +604,67 @@ function StatSlider({
   max: number;
   ticks: string[];
   accentClass?: string;
+  logScale?: boolean;
 }) {
   const t = useT();
+  const [inputText, setInputText] = useState("");
+  const [showInput, setShowInput] = useState(false);
   const pct = (value / max) * 100;
   const isViolet = accentClass.includes("violet");
+
+  const handleDirectInput = () => {
+    const num = parseFloat(inputText);
+    if (isNaN(num) || num <= 0) {
+      onChange(0);
+    } else if (logScale) {
+      // Clamp to valid range for log scale
+      const clamped = Math.max(1e-10, Math.min(1, num));
+      onChange(Math.min(max, valueToLogSlider(clamped)));
+    } else {
+      const clamped = Math.max(0, Math.min(1, num));
+      onChange(Math.min(max, valueToDpsiSlider(clamped)));
+    }
+    setShowInput(false);
+    setInputText("");
+  };
 
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-semibold text-foreground">{label}</span>
         <div className="flex items-center gap-1">
-          {displayValue ? (
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${
-              isViolet
-                ? "text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-800"
-                : "text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800"
-            }`}>
+          {showInput ? (
+            <input
+              type="text"
+              autoFocus
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onBlur={handleDirectInput}
+              onKeyDown={(e) => { if (e.key === "Enter") handleDirectInput(); if (e.key === "Escape") { setShowInput(false); setInputText(""); } }}
+              placeholder={logScale ? "e.g. 0.05" : "e.g. 0.1"}
+              className={`w-20 text-xs font-mono px-1.5 py-0.5 rounded-md border bg-background text-foreground focus:outline-none focus:ring-1 ${
+                isViolet ? "border-violet-300 focus:ring-violet-500" : "border-blue-300 focus:ring-blue-500"
+              }`}
+            />
+          ) : displayValue ? (
+            <button
+              onClick={() => setShowInput(true)}
+              title="Click to enter value"
+              className={`text-xs font-bold px-2 py-0.5 rounded-md cursor-text hover:ring-1 transition-shadow ${
+                isViolet
+                  ? "text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-800 hover:ring-violet-400"
+                  : "text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 hover:ring-blue-400"
+              }`}
+            >
               {displayValue}
-            </span>
+            </button>
           ) : (
-            <span className="text-xs text-muted-foreground italic">{noFilterLabel}</span>
+            <button
+              onClick={() => setShowInput(true)}
+              className="text-xs text-muted-foreground italic hover:text-foreground transition-colors cursor-text"
+            >
+              {noFilterLabel}
+            </button>
           )}
           <button
             onClick={() => onChange(0)}
@@ -631,8 +691,8 @@ function StatSlider({
       />
 
       <div className="flex justify-between text-[10px] text-muted-foreground/60 select-none">
-        {ticks.map((t, i) => (
-          <span key={i} className="text-center">{t}</span>
+        {ticks.map((tk, i) => (
+          <span key={i} className="text-center">{tk}</span>
         ))}
       </div>
     </div>

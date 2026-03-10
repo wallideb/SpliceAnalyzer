@@ -17,6 +17,7 @@ import { ExonDiagram } from "./ExonDiagram";
 import { SpliceSiteTrack } from "./SpliceSiteTrack";
 import { PPTTrack } from "./PPTTrack";
 import { MANETranscriptTrack } from "./MANETranscriptTrack";
+import { ZoomableContainer } from "@/components/ZoomableContainer";
 
 // ---------------------------------------------------------------------------
 // Helper — mean of a comma-separated PSI string
@@ -100,6 +101,7 @@ export function SpliceView({
 
   return (
     <div className="space-y-0">
+      <ZoomableContainer>
       <ExonDiagram
         exonSize={data.exon_size}
         upstreamIntronSize={data.upstream_intron_size}
@@ -128,6 +130,7 @@ export function SpliceView({
         bpFound={data.bp_motif_found ?? null}
         bpDistance={data.bp_distance ?? null}
       />
+      </ZoomableContainer>
 
       {/* 1C — MANE transcript linear diagram */}
       <MANETranscriptTrack
@@ -137,13 +140,15 @@ export function SpliceView({
       />
 
       {/* 1B — Splice-site sequence tracks with position axes (always shown) */}
-      <SpliceSiteTrack
-        donorSeq={data.donor_seq ?? null}
-        acceptorSeq={data.acceptor_seq ?? null}
-        upstreamDonorSeq={data.upstream_donor_seq ?? null}
-        downstreamAcceptorSeq={data.downstream_acceptor_seq ?? null}
-        sequenceSource={data.sequence_source ?? null}
-      />
+      <ZoomableContainer>
+        <SpliceSiteTrack
+          donorSeq={data.donor_seq ?? null}
+          acceptorSeq={data.acceptor_seq ?? null}
+          upstreamDonorSeq={data.upstream_donor_seq ?? null}
+          downstreamAcceptorSeq={data.downstream_acceptor_seq ?? null}
+          sequenceSource={data.sequence_source ?? null}
+        />
+      </ZoomableContainer>
 
       {/* 1D — PPT per-nucleotide track */}
       {data.ppt_seq && (

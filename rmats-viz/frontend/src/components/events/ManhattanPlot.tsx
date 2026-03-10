@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import { useT } from "@/contexts/LanguageContext";
+import { EventDetailCard } from "./EventDetailCard";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,6 +26,8 @@ interface Props {
   loading?: boolean;
   /** Mutated gene symbols to highlight on the plot with vertical markers. */
   mutatedGenes?: GeneMarker[];
+  /** Called when a data point is clicked — receives the event ID. */
+  onEventClick?: (eventId: string) => void;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -61,13 +64,16 @@ const CHR_GAP = 4; // px gap between chromosomes
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function ManhattanPlot({ data, loading, mutatedGenes = [] }: Props) {
+export function ManhattanPlot({ data, loading, mutatedGenes = [], onEventClick }: Props) {
   const t = useT();
   const [visibleTypes, setVisibleTypes] = useState<Set<string>>(
     new Set(Object.keys(EVENT_COLORS)),
   );
   const [hovered, setHovered] = useState<ManhattanPoint | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+  const [selected, setSelected] = useState<ManhattanPoint | null>(null);
+  const [selectedAnchor, setSelectedAnchor] = useState({ x: 0, y: 0 });
+  const plotContainerRef = useRef<HTMLDivElement>(null);
 
   // Normalize chromosome names (strip "chr" prefix)
   const normChr = useCallback((c: string) => c.replace(/^chr/i, ""), []);
@@ -233,7 +239,7 @@ export function ManhattanPlot({ data, loading, mutatedGenes = [] }: Props) {
         </div>
       </div>
 
-      <div className="relative overflow-x-auto">
+      <div className="relative overflow-x-auto" ref={plotContainerRef}>
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           className="w-full max-w-[900px]"
@@ -297,6 +303,17 @@ export function ManhattanPlot({ data, loading, mutatedGenes = [] }: Props) {
                   });
                 }}
                 onMouseLeave={() => setHovered(null)}
+                onClick={(e) => {
+                  onEventClick?.(p.id);
+                  const rect = plotContainerRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    setSelected(p);
+                    setSelectedAnchor({
+                      x: e.clientX - rect.left,
+                      y: e.clientY - rect.top,
+                    });
+                  }
+                }}
                 className="cursor-pointer transition-all"
               />
             ))}
@@ -433,10 +450,25 @@ export function ManhattanPlot({ data, loading, mutatedGenes = [] }: Props) {
             )}
           </div>
         )}
+
+        {/* Event detail card (click) */}
+        {selected && !hovered && (
+          <EventDetailCard
+            event={selected}
+            anchor={selectedAnchor}
+            onClose={() => setSelected(null)}
+            onViewInTable={(ev) => {
+              onEventClick?.(ev.id);
+              setSelected(null);
+            }}
+          />
+        )}
       </div>
 
       <p className="text-[10px] text-muted-foreground">
         {t("manhattan.description", { n: filteredPoints.length })}
+        {" · "}
+        <span className="italic">{t("manhattan.clickHint")}</span>
       </p>
     </div>
   );

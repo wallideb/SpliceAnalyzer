@@ -376,10 +376,20 @@ export default function AnalysisDetailPage() {
           data={manhattanData}
           loading={loadingManhattan}
           mutatedGenes={mutatedGenes.map((g) => ({ symbol: g.symbol, ensembl_id: g.ensembl_id }))}
+          onEventClick={(eventId) => {
+            const evt = manhattanData.find((d) => d.id === eventId);
+            if (evt?.gene_symbol) {
+              setGeneFilter(evt.gene_symbol);
+              setPage(1);
+              // Scroll to table
+              document.getElementById("events-table")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+          }}
         />
       )}
 
       {/* ── Events table ── */}
+      <div id="events-table" />
       {eventsPage && (
         <EventsTable
           data={eventsPage.items}

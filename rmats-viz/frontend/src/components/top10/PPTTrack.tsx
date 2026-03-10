@@ -93,26 +93,91 @@ export function PPTTrack({
         )}
       </div>
 
-      {/* Nucleotide sequence — wrapping flex */}
-      <div className="flex flex-wrap gap-[2px]">
-        {seq.split("").map((base, i) => {
-          const isPyr = isPyrimidine(base);
-          const posFromSS = -(seqLen - i); // e.g. −47, −46, … −1
-          return (
-            <span
-              key={i}
-              title={`Position ${posFromSS}: ${base} (${isPyr ? "pyrimidine Y" : "purine R"})`}
-              style={{
-                color:       isPyr ? PYRIMIDINE_COLOR : PURINE_COLOR,
-                borderColor: isPyr ? `${PYRIMIDINE_COLOR}44` : `${PURINE_COLOR}44`,
-                backgroundColor: isPyr ? `${PYRIMIDINE_COLOR}1a` : `${PURINE_COLOR}1a`,
-              }}
-              className="inline-flex items-center justify-center w-4 h-5 text-[9px] font-mono font-bold rounded-sm border cursor-default select-none"
-            >
-              {base}
+      {/* Nucleotide sequence with position numbers and branch point marker */}
+      <div className="overflow-x-auto">
+        {/* Position number row (every 5 nt) */}
+        <div className="flex gap-[2px] mb-0.5">
+          {seq.split("").map((_, i) => {
+            const posFromSS = -(seqLen - i);
+            const showLabel = posFromSS % 5 === 0 || i === 0 || i === seqLen - 1;
+            return (
+              <span
+                key={i}
+                className="inline-flex items-center justify-center w-4 text-[7px] font-mono text-muted-foreground/60 select-none"
+              >
+                {showLabel ? posFromSS : ""}
+              </span>
+            );
+          })}
+        </div>
+
+        {/* Nucleotide cells */}
+        <div className="flex gap-[2px]">
+          {seq.split("").map((base, i) => {
+            const isPyr = isPyrimidine(base);
+            const posFromSS = -(seqLen - i);
+            const isBpSite = bpFound === true && bpDistance != null && posFromSS === -bpDistance;
+            return (
+              <span
+                key={i}
+                title={`Position ${posFromSS}: ${base} (${isPyr ? "pyrimidine Y" : "purine R"})${isBpSite ? " — Branch point" : ""}`}
+                style={{
+                  color:       isPyr ? PYRIMIDINE_COLOR : PURINE_COLOR,
+                  borderColor: isBpSite
+                    ? "#22c55e"
+                    : isPyr ? `${PYRIMIDINE_COLOR}44` : `${PURINE_COLOR}44`,
+                  backgroundColor: isBpSite
+                    ? "#22c55e1a"
+                    : isPyr ? `${PYRIMIDINE_COLOR}1a` : `${PURINE_COLOR}1a`,
+                }}
+                className={`inline-flex items-center justify-center w-4 h-5 text-[9px] font-mono font-bold rounded-sm border cursor-default select-none ${isBpSite ? "border-2 ring-1 ring-green-400/40" : ""}`}
+              >
+                {base}
+              </span>
+            );
+          })}
+        </div>
+
+        {/* Branch point annotation arrow */}
+        {bpFound === true && bpDistance != null && (
+          <div className="flex gap-[2px] mt-0.5">
+            {seq.split("").map((_, i) => {
+              const posFromSS = -(seqLen - i);
+              const isBpSite = posFromSS === -bpDistance;
+              return (
+                <span
+                  key={i}
+                  className="inline-flex items-center justify-center w-4 text-[8px] select-none"
+                >
+                  {isBpSite ? (
+                    <span className="text-green-600 dark:text-green-400 font-bold" title="Branch point adenosine">
+                      BP
+                    </span>
+                  ) : ""}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Legend */}
+        <div className="flex items-center gap-3 mt-1.5 text-[8px] text-muted-foreground select-none">
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: `${PYRIMIDINE_COLOR}33`, border: `1px solid ${PYRIMIDINE_COLOR}44` }} />
+            C/T (pyrimidine)
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: `${PURINE_COLOR}33`, border: `1px solid ${PURINE_COLOR}44` }} />
+            A/G (purine)
+          </span>
+          {bpFound === true && (
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm border-2 border-green-500 bg-green-500/10" />
+              Branch point
             </span>
-          );
-        })}
+          )}
+          <span className="ml-auto italic">positions relative to 3&apos;SS →</span>
+        </div>
       </div>
 
       {/* Score bar + longest run underline */}

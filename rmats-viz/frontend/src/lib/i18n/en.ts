@@ -574,6 +574,8 @@ export const en = {
     xAxis: "Chromosome",
     yAxis: "−log₁₀(FDR)",
     description: "{{n}} events displayed · each dot is a splicing event positioned by genomic coordinate · y-axis = −log₁₀(FDR) · dashed red line = FDR 0.05 threshold",
+    viewInTable: "View in table",
+    clickHint: "Click a dot to inspect event details",
   },
   deepAnalysis: {
     breadcrumb: "Deep Analysis",

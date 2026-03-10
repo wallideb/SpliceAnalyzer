@@ -579,6 +579,8 @@ export const fr: Translations = {
     xAxis: "Chromosome",
     yAxis: "−log₁₀(FDR)",
     description: "{{n}} événements affichés · chaque point est un événement d'épissage positionné par coordonnée génomique · axe y = −log₁₀(FDR) · ligne rouge pointillée = seuil FDR 0.05",
+    viewInTable: "Voir dans le tableau",
+    clickHint: "Cliquez sur un point pour inspecter les détails",
   },
   deepAnalysis: {
     breadcrumb: "Analyse approfondie",

@@ -66,11 +66,11 @@ const BASE_COLORS: Record<string, string> = {
   T: "#ef4444",
 };
 
-const COL_W     = 20;    // px per position column
-const LOGO_H    = 60;    // max logo stack height (= 2 bits)
-const BITS_AXIS_W = 28;  // left margin for bits axis
-const LABEL_H   = 20;    // bottom margin for position labels
-const TOP_PAD   = 4;
+const COL_W     = 28;    // px per position column
+const LOGO_H    = 90;    // max logo stack height (= 2 bits)
+const BITS_AXIS_W = 36;  // left margin for bits axis
+const LABEL_H   = 32;    // bottom margin for position labels + axis title
+const TOP_PAD   = 6;
 const SVG_H     = TOP_PAD + LOGO_H + LABEL_H;
 
 // ---------------------------------------------------------------------------
@@ -101,9 +101,56 @@ function posLabel(pos: number): string {
 // SVG export helper
 // ---------------------------------------------------------------------------
 
-function exportSVG(svgEl: SVGSVGElement, filename: string) {
+function exportSVG(svgEl: SVGSVGElement, filename: string, title: string) {
+  // Clone the SVG and make it self-contained with white background + title
+  const clone = svgEl.cloneNode(true) as SVGSVGElement;
+  const vb = clone.getAttribute("viewBox")?.split(" ").map(Number) ?? [0, 0, 300, 100];
+  const [vx, vy, vw, vh] = vb;
+
+  // Add padding for title at top
+  const PAD_TOP = 18;
+  const PAD_BOTTOM = 14;
+  const newH = vh + PAD_TOP + PAD_BOTTOM;
+  clone.setAttribute("viewBox", `${vx} ${vy - PAD_TOP} ${vw} ${newH}`);
+  clone.setAttribute("width", String(vw * 2));
+  clone.setAttribute("height", String(newH * 2));
+  clone.removeAttribute("style");
+
+  // White background
+  const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  bg.setAttribute("x", String(vx));
+  bg.setAttribute("y", String(vy - PAD_TOP));
+  bg.setAttribute("width", String(vw));
+  bg.setAttribute("height", String(newH));
+  bg.setAttribute("fill", "white");
+  clone.insertBefore(bg, clone.firstChild);
+
+  // Title text
+  const titleEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  titleEl.setAttribute("x", String(vx + vw / 2));
+  titleEl.setAttribute("y", String(vy - 4));
+  titleEl.setAttribute("text-anchor", "middle");
+  titleEl.setAttribute("font-size", "9");
+  titleEl.setAttribute("font-family", "Helvetica, Arial, sans-serif");
+  titleEl.setAttribute("font-weight", "bold");
+  titleEl.setAttribute("fill", "#1e293b");
+  titleEl.textContent = title;
+  clone.appendChild(titleEl);
+
+  // X-axis title
+  const xLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  xLabel.setAttribute("x", String(vx + vw / 2));
+  xLabel.setAttribute("y", String(vy + vh + PAD_BOTTOM - 2));
+  xLabel.setAttribute("text-anchor", "middle");
+  xLabel.setAttribute("font-size", "7");
+  xLabel.setAttribute("font-family", "Helvetica, Arial, sans-serif");
+  xLabel.setAttribute("font-style", "italic");
+  xLabel.setAttribute("fill", "#64748b");
+  xLabel.textContent = "Position relative to splice site";
+  clone.appendChild(xLabel);
+
   const serializer = new XMLSerializer();
-  const svgStr = serializer.serializeToString(svgEl);
+  const svgStr = '<?xml version="1.0" encoding="UTF-8"?>\n' + serializer.serializeToString(clone);
   const blob = new Blob([svgStr], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -142,7 +189,7 @@ export function ConsensusLogoPanel({
           {title}
         </p>
         <button
-          onClick={() => svgRef.current && exportSVG(svgRef.current, `${id}.svg`)}
+          onClick={() => svgRef.current && exportSVG(svgRef.current, `${id}.svg`, title)}
           className="text-[9px] text-muted-foreground hover:text-foreground border border-border rounded px-1.5 py-0.5 transition-colors"
           title={t("eventTable.downloadSvg")}
         >
@@ -177,29 +224,44 @@ export function ConsensusLogoPanel({
           style={{ width: svgW, height: SVG_H, display: "block", overflow: "visible" }}
           aria-label={title}
         >
-          {/* ── Bits Y-axis ── */}
-          {[0, 1, 2].map((bit) => {
+          {/* ── Bits Y-axis with grid lines ── */}
+          {[0, 0.5, 1, 1.5, 2].map((bit) => {
             const y = TOP_PAD + LOGO_H - (bit / 2) * LOGO_H;
+            const isMajor = bit % 1 === 0;
             return (
               <g key={bit}>
+                {/* Grid line across chart area */}
                 <line
-                  x1={BITS_AXIS_W - 4}
+                  x1={BITS_AXIS_W}
+                  y1={y}
+                  x2={BITS_AXIS_W + totalCols * COL_W}
+                  y2={y}
+                  stroke="#e2e8f0"
+                  strokeWidth={isMajor ? 0.5 : 0.3}
+                  strokeDasharray={isMajor ? undefined : "2 2"}
+                />
+                {/* Tick mark */}
+                <line
+                  x1={BITS_AXIS_W - (isMajor ? 4 : 2)}
                   y1={y}
                   x2={BITS_AXIS_W}
                   y2={y}
                   stroke="#475569"
                   strokeWidth={0.8}
                 />
-                <text
-                  x={BITS_AXIS_W - 6}
-                  y={y + 3}
-                  textAnchor="end"
-                  fontSize={6}
-                  fontFamily="monospace"
-                  fill="#64748b"
-                >
-                  {bit}
-                </text>
+                {/* Label (only for whole numbers) */}
+                {isMajor && (
+                  <text
+                    x={BITS_AXIS_W - 6}
+                    y={y + 3}
+                    textAnchor="end"
+                    fontSize={7}
+                    fontFamily="monospace"
+                    fill="#64748b"
+                  >
+                    {bit}
+                  </text>
+                )}
               </g>
             );
           })}
@@ -212,17 +274,18 @@ export function ConsensusLogoPanel({
             stroke="#475569"
             strokeWidth={0.8}
           />
-          {/* "bits" label rotated */}
+          {/* Y-axis label rotated */}
           <text
             x={8}
             y={TOP_PAD + LOGO_H / 2}
             textAnchor="middle"
-            fontSize={6}
+            fontSize={7}
             fontFamily="sans-serif"
+            fontStyle="italic"
             fill="#64748b"
             transform={`rotate(-90, 8, ${TOP_PAD + LOGO_H / 2})`}
           >
-            bits
+            Information (bits)
           </text>
 
           {/* ── Columns ── */}
@@ -308,9 +371,9 @@ export function ConsensusLogoPanel({
                 {/* Position label */}
                 <text
                   x={colX + COL_W / 2}
-                  y={TOP_PAD + LOGO_H + LABEL_H - 4}
+                  y={TOP_PAD + LOGO_H + 14}
                   textAnchor="middle"
-                  fontSize={isCanon ? 7 : 6}
+                  fontSize={isCanon ? 8 : 7}
                   fontFamily="monospace"
                   fontWeight={isCanon ? "700" : "400"}
                   fill={isCanon ? "#b45309" : "#94a3b8"}
@@ -320,6 +383,19 @@ export function ConsensusLogoPanel({
               </g>
             );
           })}
+
+          {/* X-axis title */}
+          <text
+            x={BITS_AXIS_W + (totalCols * COL_W) / 2}
+            y={SVG_H - 2}
+            textAnchor="middle"
+            fontSize={7}
+            fontFamily="sans-serif"
+            fontStyle="italic"
+            fill="#64748b"
+          >
+            Position relative to splice site
+          </text>
         </svg>
       </div>
       <ScienceNote

@@ -1,7 +1,10 @@
 import asyncio
+import gzip
 import logging
 import os
+import shutil
 import subprocess
+import urllib.request
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -31,38 +34,21 @@ def _setup_fasta() -> None:
         logger.info("FASTA already present: %s", fasta)
         return
 
-    gz_path = fasta + ".dl.gz"
     data_dir = os.path.dirname(fasta)
     os.makedirs(data_dir, exist_ok=True)
 
-    logger.info("Downloading chr19 FASTA from NCBI to %s ...", gz_path)
+    logger.info("Downloading chr19 FASTA from NCBI ...")
     try:
-        subprocess.run(
-            ["curl", "-fSL", "--retry", "3", "-o", gz_path, NCBI_CHR19_URL],
-            check=True, timeout=600,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-        logger.warning("curl download failed (%s), trying wget ...", exc)
-        try:
-            subprocess.run(
-                ["wget", "-q", "-O", gz_path, NCBI_CHR19_URL],
-                check=True, timeout=600,
-            )
-        except Exception as exc2:
-            logger.error("FASTA download failed: %s", exc2)
-            return
-
-    logger.info("Decompressing %s → %s ...", gz_path, fasta)
-    try:
-        with open(fasta, "wb") as out_f:
-            subprocess.run(
-                ["gunzip", "-c", gz_path],
-                stdout=out_f,
-                check=True, timeout=120,
-            )
-        os.remove(gz_path)
+        req = urllib.request.Request(NCBI_CHR19_URL, headers={"User-Agent": "rmats-viz/1.0"})
+        with urllib.request.urlopen(req, timeout=300) as resp, open(fasta, "wb") as out_f:
+            # Stream-decompress: download .gz and write decompressed FASTA directly
+            with gzip.GzipFile(fileobj=resp) as gz_in:
+                shutil.copyfileobj(gz_in, out_f)
     except Exception as exc:
-        logger.error("Decompression failed: %s", exc)
+        logger.error("FASTA download/decompress failed: %s", exc)
+        # Clean up partial file
+        if os.path.isfile(fasta):
+            os.remove(fasta)
         return
 
     logger.info("Indexing with samtools faidx ...")

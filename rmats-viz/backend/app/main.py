@@ -80,8 +80,10 @@ def _setup_fasta() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: ensure FASTA is available
-    await asyncio.to_thread(_setup_fasta)
+    # Fire-and-forget: download FASTA in the background so the server starts
+    # accepting requests immediately.  fasta_available() checks the filesystem
+    # on every call, so endpoints automatically pick up the file once ready.
+    asyncio.get_event_loop().run_in_executor(None, _setup_fasta)
     yield
     # Shutdown: nothing to clean up
 

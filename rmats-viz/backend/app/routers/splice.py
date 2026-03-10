@@ -356,12 +356,28 @@ async def get_splice_feature(event_id: uuid.UUID):
     fa_ok = fasta_available()
     feat_data, mane, seq_source = await _fetch_features(event, fa_ok)
 
-    # ── 3. Quick DB write: persist computed result ───────────────────────
-    async with AsyncSessionLocal() as db:
-        feat = await _upsert_feature(event, feat_data, mane, db, seq_source)
-        await db.commit()
+    # ── 3. Persist only if sequences were obtained.  When both FASTA and
+    #    Ensembl fail (e.g. FASTA still downloading, network issue), we
+    #    return a transient size-only response so the next request retries.
+    if seq_source is not None:
+        async with AsyncSessionLocal() as db:
+            feat = await _upsert_feature(event, feat_data, mane, db, seq_source)
+            await db.commit()
+        return _feat_to_response(feat, event)
 
-    return _feat_to_response(feat, event)
+    # Return non-cached size-only placeholder
+    return SpliceFeatureResponse(
+        event_id=str(event.id),
+        event_type=event.event_type,
+        gene_symbol=event.gene_symbol,
+        chr=event.chr,
+        strand=event.strand,
+        exon_size=feat_data.exon_size,
+        upstream_intron_size=feat_data.upstream_intron_size,
+        downstream_intron_size=feat_data.downstream_intron_size,
+        fasta_available=False,
+        sequence_source=None,
+    )
 
 
 # ---------------------------------------------------------------------------

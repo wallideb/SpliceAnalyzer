@@ -82,6 +82,27 @@ async def _get_analysis_with_groups(
     return analysis, g1.group_label if g1 else "Group 1", g2.group_label if g2 else "Group 2"
 
 
+async def _load_events_and_features(
+    db: AsyncSession, analysis_id: uuid.UUID
+) -> tuple[list["SplicingEvent"], dict[uuid.UUID, "EventSpliceFeature"]]:
+    """Fetch all events for an analysis and SE splice features keyed by event_id."""
+    result = await db.execute(
+        select(SplicingEvent).where(SplicingEvent.analysis_id == analysis_id)
+    )
+    events: list[SplicingEvent] = list(result.scalars().all())
+
+    se_event_ids = [e.id for e in events if e.event_type == "SE"]
+    features: dict[uuid.UUID, EventSpliceFeature] = {}
+    if se_event_ids:
+        feat_result = await db.execute(
+            select(EventSpliceFeature).where(EventSpliceFeature.event_id.in_(se_event_ids))
+        )
+        for feat in feat_result.scalars().all():
+            features[feat.event_id] = feat
+
+    return events, features
+
+
 @router.get("/{analysis_id}/excel")
 async def export_analysis_excel(
     analysis_id: uuid.UUID,
@@ -121,21 +142,8 @@ async def export_analysis_excel(
     # ── 1. Verify analysis exists (with sample groups for labels) ────────────
     analysis, group1_label, group2_label = await _get_analysis_with_groups(db, analysis_id)
 
-    # ── 2. Fetch all events ───────────────────────────────────────────────────
-    result = await db.execute(
-        select(SplicingEvent).where(SplicingEvent.analysis_id == analysis_id)
-    )
-    events: list[SplicingEvent] = list(result.scalars().all())
-
-    # ── 3. Fetch SE splice features (keyed by event_id) ──────────────────────
-    se_event_ids = [e.id for e in events if e.event_type == "SE"]
-    features: dict[uuid.UUID, EventSpliceFeature] = {}
-    if se_event_ids:
-        feat_result = await db.execute(
-            select(EventSpliceFeature).where(EventSpliceFeature.event_id.in_(se_event_ids))
-        )
-        for feat in feat_result.scalars().all():
-            features[feat.event_id] = feat
+    # ── 2-3. Fetch all events + SE splice features ────────────────────────────
+    events, features = await _load_events_and_features(db, analysis_id)
 
     # ── 4. Fetch external annotations (per unique gene symbol) ───────────────
     unique_symbols: list[str] = list({
@@ -1481,20 +1489,7 @@ async def export_analysis_pdf(
     """Generate a PDF analysis report for *analysis_id* (all events)."""
 
     analysis, group1_label, group2_label = await _get_analysis_with_groups(db, analysis_id)
-
-    result = await db.execute(
-        select(SplicingEvent).where(SplicingEvent.analysis_id == analysis_id)
-    )
-    events: list[SplicingEvent] = list(result.scalars().all())
-
-    se_event_ids = [e.id for e in events if e.event_type == "SE"]
-    features: dict[uuid.UUID, EventSpliceFeature] = {}
-    if se_event_ids:
-        feat_result = await db.execute(
-            select(EventSpliceFeature).where(EventSpliceFeature.event_id.in_(se_event_ids))
-        )
-        for feat in feat_result.scalars().all():
-            features[feat.event_id] = feat
+    events, features = await _load_events_and_features(db, analysis_id)
 
     pdf_bytes = await asyncio.to_thread(_build_pdf, analysis, events, features, group1_label, group2_label)
 

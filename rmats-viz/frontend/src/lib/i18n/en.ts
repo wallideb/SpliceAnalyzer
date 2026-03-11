@@ -286,6 +286,10 @@ export const en = {
     direction: {
       skippingUp: "↑ Exon skipping in {{group}}",
     },
+    splice: {
+      showDiagram: "Show diagram",
+      hideDiagram: "Hide diagram",
+    },
   },
   motifPanel: {
     notComputed: "Pattern analysis not yet computed",

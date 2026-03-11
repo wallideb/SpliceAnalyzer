@@ -289,6 +289,10 @@ export const fr: Translations = {
     direction: {
       skippingUp: "↑ Saut chez {{group}}",
     },
+    splice: {
+      showDiagram: "Afficher le diagramme",
+      hideDiagram: "Masquer le diagramme",
+    },
   },
   motifPanel: {
     notComputed: "Analyse de patterns non calculée",

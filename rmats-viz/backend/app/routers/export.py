@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
@@ -96,10 +97,18 @@ async def export_analysis_excel(
     # core is always included
     groups: set[str] = requested | {"core"}
 
-    # ── 1. Verify analysis exists ─────────────────────────────────────────────
-    analysis = await db.get(Analysis, analysis_id)
+    # ── 1. Verify analysis exists (with sample groups for labels) ────────────
+    analysis_q = await db.execute(
+        select(Analysis).options(selectinload(Analysis.sample_groups)).where(Analysis.id == analysis_id)
+    )
+    analysis = analysis_q.scalar_one_or_none()
     if not analysis:
         raise HTTPException(status_code=404, detail="Analysis not found")
+
+    g1 = next((g for g in analysis.sample_groups if g.group_index == 1), None)
+    g2 = next((g for g in analysis.sample_groups if g.group_index == 2), None)
+    group1_label = g1.group_label if g1 else "Group 1"
+    group2_label = g2.group_label if g2 else "Group 2"
 
     # ── 2. Fetch all events ───────────────────────────────────────────────────
     result = await db.execute(
@@ -205,7 +214,7 @@ async def export_analysis_excel(
         "Gene", "Gene ID", "Type", "Chromosome", "Strand",
         "Exon Start", "Exon End", "Exon Size",
         "p-value", "FDR", "ΔΨ", "|ΔΨ|",
-        "PSI Group 1", "PSI Group 2",
+        f"PSI {group1_label}", f"PSI {group2_label}",
         # SE splice features
         "Donor Site", "Canonical GT",
         "Acceptor Site", "Canonical AG",
@@ -568,7 +577,7 @@ def _fig_frame_breakdown(n_if: int, n_fs: int, n_nc: int, n_feat: int) -> Drawin
     return d
 
 
-def _fig_dpsi_distribution(events: list) -> Drawing | None:
+def _fig_dpsi_distribution(events: list, group1_label: str = "Group 1", group2_label: str = "Group 2") -> Drawing | None:
     """ΔΨ distribution histogram for all events."""
     dpsi_vals = [e.inc_level_difference for e in events
                  if e.inc_level_difference is not None]
@@ -625,6 +634,15 @@ def _fig_dpsi_distribution(events: list) -> Drawing | None:
                   fontSize=7, fontName="Helvetica-Oblique", fillColor=_colors.HexColor("#475569"),
                   textAnchor="middle"))
 
+    # Y-axis tick labels (0, max/2, max)
+    for val in [0, max_count // 2, max_count]:
+        y = MARGIN_B + (val / max_count) * chart_h
+        d.add(String(MARGIN_L - 4, y - 2, str(val),
+                      fontSize=6, fontName="Helvetica", fillColor=_colors.HexColor("#475569"),
+                      textAnchor="end"))
+        d.add(Line(MARGIN_L, y, MARGIN_L + chart_w, y,
+                    strokeColor=_colors.HexColor("#e2e8f0"), strokeWidth=0.3))
+
     # Y-axis title
     g = Group()
     g.transform = (0, 1, -1, 0, 12, H / 2 - 20)
@@ -644,12 +662,13 @@ def _fig_dpsi_distribution(events: list) -> Drawing | None:
                     strokeColor=_colors.HexColor("#1e293b"), strokeWidth=0.8,
                     strokeDashArray=[3, 2]))
 
-    # Legend
-    d.add(Rect(W - 120, H - 14, 8, 8, fillColor=_colors.HexColor("#ef4444"), strokeColor=None))
-    d.add(String(W - 110, H - 14, "ΔΨ < 0 (more skipping)", fontSize=5.5,
+    # Legend (use actual group names)
+    leg_w = 160
+    d.add(Rect(W - leg_w, H - 14, 8, 8, fillColor=_colors.HexColor("#ef4444"), strokeColor=None))
+    d.add(String(W - leg_w + 10, H - 14, f"ΔΨ < 0 (↑ skipping {group1_label})", fontSize=5.5,
                   fontName="Helvetica", fillColor=_colors.HexColor("#475569")))
-    d.add(Rect(W - 120, H - 24, 8, 8, fillColor=_colors.HexColor("#3b82f6"), strokeColor=None))
-    d.add(String(W - 110, H - 24, "ΔΨ > 0 (more inclusion)", fontSize=5.5,
+    d.add(Rect(W - leg_w, H - 24, 8, 8, fillColor=_colors.HexColor("#3b82f6"), strokeColor=None))
+    d.add(String(W - leg_w + 10, H - 24, f"ΔΨ > 0 (↑ inclusion {group1_label})", fontSize=5.5,
                   fontName="Helvetica", fillColor=_colors.HexColor("#475569")))
 
     return d
@@ -783,7 +802,7 @@ def _fig_splice_site_consensus(features_dict: dict, site: str = "donor") -> Draw
     return d
 
 
-def _build_pdf(analysis, events: list, features: dict) -> bytes:
+def _build_pdf(analysis, events: list, features: dict, group1_label: str = "Group 1", group2_label: str = "Group 2") -> bytes:
     global _FIG_NUM
     _FIG_NUM = 0
 
@@ -825,6 +844,8 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
         p(f"<b>Generated:</b> {_date.today().isoformat()}", "body"),
         p(f"<b>Identifier:</b> {analysis.id}", "small"),
     ]
+
+    story.append(p(f"<b>Groups:</b> {group1_label} vs {group2_label}", "body"))
 
     # Mutated genes
     if analysis.mutated_genes:
@@ -913,15 +934,15 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
     story.append(p("2. Splice Feature Figures", "h2"))
 
     # Figure: ΔΨ distribution
-    dpsi_fig = _fig_dpsi_distribution(events)
+    dpsi_fig = _fig_dpsi_distribution(events, group1_label, group2_label)
     if dpsi_fig:
         story += [
             KeepTogether([
                 dpsi_fig,
                 caption(
                     "Distribution of ΔΨ (inclusion level difference) across all events. "
-                    "Red bars: ΔΨ &lt; 0 (more exon skipping in group 1); "
-                    "blue bars: ΔΨ &gt; 0 (more exon inclusion in group 1). "
+                    f"Red bars: ΔΨ &lt; 0 (more exon skipping in {group1_label}); "
+                    f"blue bars: ΔΨ &gt; 0 (more exon inclusion in {group1_label}). "
                     f"n = {len(events)} events."
                 ),
             ]),
@@ -1146,9 +1167,18 @@ async def export_analysis_pdf(
 ) -> StreamingResponse:
     """Generate a PDF analysis report for *analysis_id*."""
 
-    analysis = await db.get(Analysis, analysis_id)
+    analysis_q = await db.execute(
+        select(Analysis).options(selectinload(Analysis.sample_groups)).where(Analysis.id == analysis_id)
+    )
+    analysis = analysis_q.scalar_one_or_none()
     if not analysis:
         raise HTTPException(status_code=404, detail="Analysis not found")
+
+    # Resolve group labels
+    g1 = next((g for g in analysis.sample_groups if g.group_index == 1), None)
+    g2 = next((g for g in analysis.sample_groups if g.group_index == 2), None)
+    group1_label = g1.group_label if g1 else "Group 1"
+    group2_label = g2.group_label if g2 else "Group 2"
 
     result = await db.execute(
         select(SplicingEvent).where(SplicingEvent.analysis_id == analysis_id)
@@ -1164,7 +1194,7 @@ async def export_analysis_pdf(
         for feat in feat_result.scalars().all():
             features[feat.event_id] = feat
 
-    pdf_bytes = await asyncio.to_thread(_build_pdf, analysis, events, features)
+    pdf_bytes = await asyncio.to_thread(_build_pdf, analysis, events, features, group1_label, group2_label)
 
     return StreamingResponse(
         BytesIO(pdf_bytes),

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import statistics
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -95,7 +96,6 @@ def cluster_se_events(
     uf = _UF(n)
 
     # Group by (gene_symbol, chr, strand) for O(k²) within groups instead of O(n²)
-    from collections import defaultdict
     groups: dict[tuple, list[int]] = defaultdict(list)
     for i, ev in enumerate(se):
         key = (
@@ -118,7 +118,6 @@ def cluster_se_events(
                     uf.union(ia, ib)
 
     # Collect clusters
-    from collections import defaultdict
     cluster_map: dict[int, list[int]] = defaultdict(list)
     for i in range(n):
         cluster_map[uf.find(i)].append(i)

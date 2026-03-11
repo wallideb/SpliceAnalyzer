@@ -73,12 +73,11 @@ async def create_deep_analysis(
 
     for event_id, fdr, inc_level_diff in rows:
         fdr_ok = fdr is not None and fdr <= body.fdr_threshold
-        pval_ok = True  # p-value filter is optional
         dpsi_ok = (
             inc_level_diff is not None
             and abs(inc_level_diff) >= body.delta_psi_min
         )
-        is_sig = fdr_ok and pval_ok and dpsi_ok
+        is_sig = fdr_ok and dpsi_ok
 
         if is_sig:
             n_sig += 1

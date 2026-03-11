@@ -223,7 +223,11 @@ export default function DeepAnalysisDetailPage() {
           <h2 className="text-sm font-bold text-foreground mb-4">
             {t("deepAnalysis.permutationTitle")}
           </h2>
-          <PermutationPanel analysisId={id} />
+          <PermutationPanel
+            analysisId={id}
+            fdrThreshold={deepAnalysis?.fdr_threshold}
+            deltaPsiMin={deepAnalysis?.delta_psi_min}
+          />
         </div>
       )}
     </div>

@@ -138,6 +138,7 @@ class PermutationResponse(BaseModel):
     analysis_id: str
     n_iterations: int
     n_events_tested: int
+    n_total_events: int = 0   # total SE events permuted (before significance filter)
     events: list[EventPermResult] = []
     global_null_hist_bins: list[float] = []
     global_null_hist_counts: list[int] = []

@@ -389,6 +389,7 @@ export const fr: Translations = {
     },
     results: {
       eventsTested: "Événements testés",
+      totalEvents: "Total événements (permutés)",
       iterations: "Itérations",
       sig05: "Sig. p<0.05",
       sig01: "Sig. p<0.01",
@@ -397,9 +398,9 @@ export const fr: Translations = {
       interpretation:
         "<strong>Interprétation :</strong> La distribution bleue représente la distribution nulle sous H₀ (labels aléatoires). La distribution orange représente les ΔΨ observés. Un déplacement vers des valeurs extrêmes (±1) indique un signal biologique réel.",
       interpretationMetric:
-        "<strong>Interprétation :</strong> Le test compare les événements avec ΔΨ &lt; 0 (exon plus sauté en condition 2, groupe G1) vs ΔΨ &gt; 0 (exon plus inclus, groupe G2). La statistique observée est mean(G2) − mean(G1). Si la ligne orange est dans la queue de la distribution bleue, la différence entre les deux groupes est statistiquement significative.",
+        "<strong>Interprétation :</strong> La statistique observée (ligne orange) est comparée à la distribution nulle (bleue). Si la ligne orange est dans la queue de la distribution bleue, la différence observée est statistiquement significative.",
       method:
-        "Test de permutation bilatéral — H₀ : les étiquettes de groupe sont interchangeables — p empirique = (k+1)/(N+1) avec correction de continuité (Phipson & Smyth 2010). Pour les métriques auxiliaires, les groupes G1 (ΔΨ < 0) et G2 (ΔΨ > 0) sont définis par le signe du ΔΨ observé.",
+        "Test de permutation bilatéral — H₀ : les étiquettes de groupe sont interchangeables — p empirique = (k+1)/(N+1) avec correction de continuité (Phipson & Smyth 2010).",
       validEvents: "Événements valides",
       g1: "G1 (ΔΨ<0)",
       g2: "G2 (ΔΨ>0)",

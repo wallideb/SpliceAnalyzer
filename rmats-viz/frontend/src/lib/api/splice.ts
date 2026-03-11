@@ -51,9 +51,14 @@ export function getComputeProgress(analysisId: string): Promise<ComputeProgress>
 export function runPermutationTest(
   analysisId: string,
   nIterations: number = 500,
+  fdrThreshold?: number,
+  deltaPsiMin?: number,
 ): Promise<PermutationResponse> {
+  const params = new URLSearchParams({ n_iterations: String(nIterations) });
+  if (fdrThreshold !== undefined) params.set("fdr_threshold", String(fdrThreshold));
+  if (deltaPsiMin !== undefined) params.set("delta_psi_min", String(deltaPsiMin));
   return fetchJSON<PermutationResponse>(
-    `${BASE}/splice/permutation/${analysisId}?n_iterations=${nIterations}`,
+    `${BASE}/splice/permutation/${analysisId}?${params}`,
     { method: "POST" },
   );
 }

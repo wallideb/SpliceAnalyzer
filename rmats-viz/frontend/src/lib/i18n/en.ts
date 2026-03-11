@@ -385,6 +385,7 @@ export const en = {
     },
     results: {
       eventsTested: "Events tested",
+      totalEvents: "Total events (permuted)",
       iterations: "Iterations",
       sig05: "Sig. p<0.05",
       sig01: "Sig. p<0.01",
@@ -393,9 +394,9 @@ export const en = {
       interpretation:
         "<strong>Interpretation:</strong> The blue distribution represents the null distribution under H₀ (random labels). The orange distribution represents the observed ΔΨ values. A shift toward extreme values (±1) indicates a genuine biological signal.",
       interpretationMetric:
-        "<strong>Interpretation:</strong> The test compares events with ΔΨ &lt; 0 (exon more skipped in condition 2, group G1) vs ΔΨ &gt; 0 (exon more included, group G2). The observed statistic is mean(G2) − mean(G1). If the orange line falls in the tail of the blue distribution, the difference between the two groups is statistically significant.",
+        "<strong>Interpretation:</strong> The observed statistic (orange line) is compared against the null distribution (blue). If the orange line falls in the tail of the blue distribution, the observed difference is statistically significant.",
       method:
-        "Bilateral permutation test — H₀: group labels are exchangeable — empirical p = (k+1)/(N+1) with continuity correction (Phipson & Smyth 2010). For auxiliary metrics, G1 (ΔΨ < 0) and G2 (ΔΨ > 0) groups are defined by the sign of the observed ΔΨ.",
+        "Bilateral permutation test — H₀: group labels are exchangeable — empirical p = (k+1)/(N+1) with continuity correction (Phipson & Smyth 2010).",
       validEvents: "Valid events",
       g1: "G1 (ΔΨ<0)",
       g2: "G2 (ΔΨ>0)",

@@ -726,6 +726,8 @@ async def get_mane_transcript(
 async def run_permutation_test(
     analysis_id: uuid.UUID,
     n_iterations: int = 500,
+    fdr_threshold: float | None = None,
+    delta_psi_min: float | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Run a permutation test for all SE events of an analysis.
@@ -736,7 +738,9 @@ async def run_permutation_test(
 
     Parameters
     ----------
-    n_iterations : number of permutation iterations (default 500, max 2000).
+    n_iterations   : number of permutation iterations (default 500, max 2000).
+    fdr_threshold  : optional FDR threshold to count significant events (from deep analysis).
+    delta_psi_min  : optional |ΔΨ| minimum to count significant events (from deep analysis).
 
     Response
     --------
@@ -773,10 +777,23 @@ async def run_permutation_test(
         run_permutation, se_events, features_list, n_iterations
     )
 
+    # Count significant events using deep analysis thresholds (if provided)
+    n_total = perm_result.n_events_tested
+    if fdr_threshold is not None and delta_psi_min is not None:
+        n_sig = sum(
+            1 for ev in se_events
+            if ev.fdr is not None and ev.fdr <= fdr_threshold
+            and ev.inc_level_difference is not None
+            and abs(ev.inc_level_difference) >= delta_psi_min
+        )
+    else:
+        n_sig = n_total
+
     return PermutationResponse(
         analysis_id             = str(analysis_id),
         n_iterations            = perm_result.n_iterations,
-        n_events_tested         = perm_result.n_events_tested,
+        n_events_tested         = n_sig,
+        n_total_events          = n_total,
         events                  = [
             {
                 "event_id":           r.event_id,

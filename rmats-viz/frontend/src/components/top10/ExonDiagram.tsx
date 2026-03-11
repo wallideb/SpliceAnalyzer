@@ -698,16 +698,6 @@ export function ExonDiagram({
           </g>
         )}
 
-        {/* ── Label brin ── */}
-        {strand && (
-          <text
-            x={W - MARGIN} y={H - 4}
-            textAnchor="end" fontSize={9}
-            fill={COLOR_TEXT_MUTED} fontFamily="monospace"
-          >
-            {strand === "+" ? "5′ → 3′ (+)" : "3′ ← 5′ (−)"}
-          </text>
-        )}
 
         {/* ══════════════════════════════════════════════════════════════════
             HOVER OVERLAYS — rendered last so they appear on top

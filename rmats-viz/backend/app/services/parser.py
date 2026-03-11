@@ -270,12 +270,17 @@ async def parse_and_store(
     if not records:
         return 0
 
-    stmt = (
-        insert(SplicingEvent)
-        .values(records)
-        .on_conflict_do_nothing(constraint="uq_splicing_event_identity")
-    )
-    await db.execute(stmt)
+    # PostgreSQL has a ~32 767 parameter limit per statement.
+    # With ~25 columns per row, batches of 500 stay well within limits.
+    BATCH_SIZE = 500
+    for i in range(0, len(records), BATCH_SIZE):
+        batch = records[i : i + BATCH_SIZE]
+        stmt = (
+            insert(SplicingEvent)
+            .values(batch)
+            .on_conflict_do_nothing(constraint="uq_splicing_event_identity")
+        )
+        await db.execute(stmt)
     await db.flush()
 
     return len(records)

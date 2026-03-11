@@ -1,23 +1,24 @@
 "use client";
 
+import { posNum, posLabel } from "@/lib/utils";
+
 /**
  * SpliceSequenceLogo
  * ==================
- * Minimal sequence logo rendered as inline SVG.
+ * Minimal sequence logo rendered as inline SVG using WebLogo3-standard
+ * stretched letter glyphs.
  *
  * Each position is drawn as a stack of letters whose height is proportional
- * to their frequency in the PWM (position weight matrix).  The total column
- * height is scaled by information content (IC = 2 – entropy) so highly
- * conserved positions are tall and degenerate ones are short.
+ * to their frequency × information content (IC = 2 − H − e_n).
  *
  * Canonical base colours: A=green, C=blue, G=orange, T=red.
  */
 
 const BASE_COLORS: Record<string, string> = {
-  A: "#22c55e",   // green-500
-  C: "#3b82f6",   // blue-500
-  G: "#f97316",   // orange-500
-  T: "#ef4444",   // red-500
+  A: "#22c55e",
+  C: "#3b82f6",
+  G: "#f97316",
+  T: "#ef4444",
 };
 
 interface PWMRow {
@@ -29,12 +30,12 @@ interface PWMRow {
 
 interface SpliceSequenceLogoProps {
   pwm: PWMRow[];
-  /** Optional: highlight these 0-based positions with a yellow tint column */
   highlight?: number[];
-  /** Column width in px */
   colWidth?: number;
-  /** Max logo height in px */
   maxHeight?: number;
+  startPosition?: number;
+  skipZero?: boolean;
+  nSequences?: number;
 }
 
 function entropy(row: PWMRow): number {
@@ -45,17 +46,26 @@ function entropy(row: PWMRow): number {
   }, 0);
 }
 
+function smallSampleCorrection(n: number | undefined): number {
+  if (!n || n <= 0) return 0;
+  return 3 / (2 * Math.LN2 * n);
+}
+
 export function SpliceSequenceLogo({
   pwm,
   highlight = [],
   colWidth = 18,
   maxHeight = 48,
+  startPosition = 1,
+  skipZero = false,
+  nSequences,
 }: SpliceSequenceLogoProps) {
   if (!pwm.length) return null;
 
+  const en = smallSampleCorrection(nSequences);
   const highlightSet = new Set(highlight);
   const W = pwm.length * colWidth;
-  const H = maxHeight + 14; // extra for position labels
+  const H = maxHeight + 14;
 
   return (
     <svg
@@ -66,56 +76,51 @@ export function SpliceSequenceLogo({
       aria-label="Sequence logo"
     >
       {pwm.map((row, posIdx) => {
-        const ic = Math.max(0, 2 - entropy(row)); // bits, 0–2
+        const ic = Math.max(0, 2 - entropy(row) - en);
         const colH = (ic / 2) * maxHeight;
         const x = posIdx * colWidth;
         const isHL = highlightSet.has(posIdx);
 
-        // Sort bases by frequency (ascending) so highest is on top
         const sorted = (["A", "C", "G", "T"] as const)
           .map((b) => ({ b, f: row[b] }))
           .sort((a, z) => a.f - z.f);
 
-        let curY = maxHeight; // draw upward from bottom
-        const rects: React.ReactNode[] = [];
+        let curY = maxHeight;
+        const glyphs: React.ReactNode[] = [];
 
         for (const { b, f } of sorted) {
           if (f <= 0) continue;
           const h = f * colH;
+          if (h < 0.5) { curY -= h; continue; }
           curY -= h;
-          rects.push(
-            <rect
+
+          glyphs.push(
+            <svg
               key={b}
               x={x + 1}
               y={curY}
               width={colWidth - 2}
               height={h}
-              fill={BASE_COLORS[b]}
-              opacity={0.85}
-            />
-          );
-          // Letter label if tall enough
-          if (h >= 10) {
-            rects.push(
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+            >
               <text
-                key={`${b}-txt`}
-                x={x + colWidth / 2}
-                y={curY + h - 2}
+                x="50"
+                y="95"
                 textAnchor="middle"
-                fontSize={Math.min(h - 1, colWidth - 2)}
-                fontFamily="monospace"
-                fontWeight="700"
-                fill="white"
+                fontSize="110"
+                fontFamily="Arial Black, Impact, Helvetica, sans-serif"
+                fontWeight="900"
+                fill={BASE_COLORS[b]}
               >
                 {b}
               </text>
-            );
-          }
+            </svg>,
+          );
         }
 
         return (
           <g key={posIdx}>
-            {/* Highlight background */}
             {isHL && (
               <rect
                 x={x}
@@ -126,8 +131,7 @@ export function SpliceSequenceLogo({
                 opacity={0.4}
               />
             )}
-            {rects}
-            {/* Position label */}
+            {glyphs}
             <text
               x={x + colWidth / 2}
               y={maxHeight + 11}
@@ -136,7 +140,7 @@ export function SpliceSequenceLogo({
               fill="#94a3b8"
               fontFamily="monospace"
             >
-              {posIdx + 1}
+              {posLabel(posNum(posIdx, startPosition, skipZero))}
             </text>
           </g>
         );

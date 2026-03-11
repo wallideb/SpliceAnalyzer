@@ -29,43 +29,78 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
   const t = useT();
   if (!nullBins.length) return null;
 
-  const W = 500;
+  const MARGIN_L = 38;   // left Y-axis space
+  const MARGIN_R = 42;   // right Y-axis space
+  const W = 540;
+  const CHART_W = W - MARGIN_L - MARGIN_R;
   const MARGIN_T = 18;
   const CHART_H = 110;
   const MARGIN_B = 24;
   const SVG_H = MARGIN_T + CHART_H + MARGIN_B;
 
-  const maxCount = Math.max(...nullCounts, ...obsCounts, 1);
+  const maxNullCount = Math.max(...nullCounts, 1);
+  const maxObsCount = Math.max(...obsCounts, 1);
   const n = nullBins.length;
-  const barW = Math.max(3, Math.floor(W / n) - 1);
+  const barW = Math.max(3, Math.floor(CHART_W / n) - 1);
+
+  // Y-axis tick helpers
+  const nullTicks = _niceTicks(maxNullCount, 4);
+  const obsTicks = _niceTicks(maxObsCount, 4);
+
+  // Build outline polyline points connecting tops of orange dashed lines
+  const outlinePoints: string[] = [];
+  obsBins.forEach((_, i) => {
+    const c = obsCounts[i] ?? 0;
+    if (c <= 0) return;
+    const x = MARGIN_L + i * (barW + 1) + barW / 2;
+    const h = Math.round((c / maxObsCount) * CHART_H);
+    outlinePoints.push(`${x},${MARGIN_T + CHART_H - h}`);
+  });
 
   return (
     <div style={{ overflowX: "auto" }}>
       <svg
         viewBox={`0 0 ${W} ${SVG_H}`}
         className="w-full"
-        style={{ maxWidth: W, minWidth: 360, display: "block" }}
+        style={{ maxWidth: W, minWidth: 400, display: "block" }}
         aria-label={t("permutation.results.nullDistribution")}
       >
+        {/* Left Y-axis — iteration counts (blue) */}
+        {nullTicks.map((tick) => {
+          const y = MARGIN_T + CHART_H - Math.round((tick / maxNullCount) * CHART_H);
+          return (
+            <g key={`lyt-${tick}`}>
+              <line x1={MARGIN_L - 3} y1={y} x2={MARGIN_L} y2={y} stroke="#3b82f6" strokeWidth={0.5} />
+              <text x={MARGIN_L - 5} y={y + 3} textAnchor="end" fontSize={7} fontFamily="monospace" fill="#3b82f6">{tick}</text>
+            </g>
+          );
+        })}
+        <text x={4} y={MARGIN_T - 3} fontSize={8} fill="#3b82f6" fontFamily="sans-serif" fontWeight="600">N iter.</text>
+
+        {/* Right Y-axis — observed event counts (orange) */}
+        {obsTicks.map((tick) => {
+          const y = MARGIN_T + CHART_H - Math.round((tick / maxObsCount) * CHART_H);
+          return (
+            <g key={`ryt-${tick}`}>
+              <line x1={MARGIN_L + CHART_W} y1={y} x2={MARGIN_L + CHART_W + 3} y2={y} stroke="#f97316" strokeWidth={0.5} />
+              <text x={MARGIN_L + CHART_W + 5} y={y + 3} textAnchor="start" fontSize={7} fontFamily="monospace" fill="#f97316">{tick}</text>
+            </g>
+          );
+        })}
+        <text x={W - 2} y={MARGIN_T - 3} textAnchor="end" fontSize={8} fill="#f97316" fontFamily="sans-serif" fontWeight="600">N events</text>
+
+        {/* Null distribution bars (blue) */}
         {nullBins.map((bin, i) => {
-          const nullH  = Math.round((nullCounts[i]  / maxCount) * CHART_H);
-          const obsH   = Math.round(((obsCounts[i] ?? 0) / maxCount) * CHART_H);
-          const x = i * (barW + 1);
+          const nullH = Math.round((nullCounts[i] / maxNullCount) * CHART_H);
+          const x = MARGIN_L + i * (barW + 1);
           return (
             <g key={i}>
-              <title>{`ΔΨ ≈ ${bin.toFixed(2)} — H₀: ${nullCounts[i]}, obs: ${obsCounts[i] ?? 0}`}</title>
+              <title>{`ΔΨ ≈ ${bin.toFixed(2)} — H₀: ${nullCounts[i]}`}</title>
               <rect
                 x={x} y={MARGIN_T + CHART_H - nullH}
                 width={barW} height={nullH}
                 fill="#3b82f6" opacity={0.45}
               />
-              {(obsCounts[i] ?? 0) > 0 && (
-                <rect
-                  x={x} y={MARGIN_T + CHART_H - obsH}
-                  width={barW} height={obsH}
-                  fill="#f97316" opacity={0.7}
-                />
-              )}
               {i % 5 === 0 && (
                 <text
                   x={x + barW / 2} y={MARGIN_T + CHART_H + 14}
@@ -78,9 +113,33 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
             </g>
           );
         })}
-        <line x1={0} y1={MARGIN_T + CHART_H} x2={W} y2={MARGIN_T + CHART_H} stroke="var(--svg-panel-border)" strokeWidth={0.5} />
-        <text x={2} y={MARGIN_T - 3} fontSize={8} fill="hsl(var(--muted-foreground))" fontFamily="sans-serif" fontWeight="600">N</text>
-        <text x={W} y={SVG_H - 2} textAnchor="end" fontSize={8} fill="hsl(var(--muted-foreground))" fontFamily="sans-serif" fontStyle="italic" fontWeight="600">ΔΨ</text>
+        {/* Observed ΔΨ — proportionate dashed lines (orange) */}
+        {obsBins.map((bin, i) => {
+          const c = obsCounts[i] ?? 0;
+          if (c <= 0) return null;
+          const x = MARGIN_L + i * (barW + 1) + barW / 2;
+          const h = Math.round((c / maxObsCount) * CHART_H);
+          return (
+            <g key={`obs-${i}`}>
+              <title>{`ΔΨ ≈ ${bin.toFixed(2)} — observed: ${c}`}</title>
+              <line
+                x1={x} y1={MARGIN_T + CHART_H}
+                x2={x} y2={MARGIN_T + CHART_H - h}
+                stroke="#f97316" strokeWidth={1.5}
+                strokeDasharray="4 3" opacity={0.85}
+              />
+            </g>
+          );
+        })}
+        {/* Outline connecting tops of orange dashed lines */}
+        {outlinePoints.length > 1 && (
+          <polyline
+            points={outlinePoints.join(" ")}
+            fill="none" stroke="#f97316" strokeWidth={1.5} opacity={0.9}
+          />
+        )}
+        <line x1={MARGIN_L} y1={MARGIN_T + CHART_H} x2={MARGIN_L + CHART_W} y2={MARGIN_T + CHART_H} stroke="var(--svg-panel-border)" strokeWidth={0.5} />
+        <text x={MARGIN_L + CHART_W / 2} y={SVG_H - 2} textAnchor="middle" fontSize={8} fill="hsl(var(--muted-foreground))" fontFamily="sans-serif" fontStyle="italic" fontWeight="600">ΔΨ</text>
       </svg>
       <div className="flex items-center gap-4 text-[11px] text-muted-foreground mt-1.5">
         <span className="flex items-center gap-1">
@@ -88,12 +147,27 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
           {t("permutation.results.nullDistribution")} (permutations)
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block w-4 h-2.5 rounded-sm bg-orange-500/70" />
+          <span className="inline-block w-4 h-0.5 border-t-2 border-dashed border-orange-500" />
           ΔΨ {t("permutation.results.observedDeltaPsi").toLowerCase()}
         </span>
       </div>
     </div>
   );
+}
+
+/** Generate nice round tick values for a Y-axis. */
+function _niceTicks(maxVal: number, count: number): number[] {
+  if (maxVal <= 0) return [0];
+  const rough = maxVal / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  const residual = rough / mag;
+  const nice = residual <= 1.5 ? 1 : residual <= 3.5 ? 2 : residual <= 7.5 ? 5 : 10;
+  const step = nice * mag;
+  const ticks: number[] = [];
+  for (let v = step; v <= maxVal * 1.01; v += step) {
+    ticks.push(Math.round(v));
+  }
+  return ticks.length ? ticks : [Math.round(maxVal)];
 }
 
 // ---------------------------------------------------------------------------
@@ -167,13 +241,19 @@ function TopEventsTable({ events }: { events: PermutationResponse["events"] }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export function PermutationPanel({ analysisId }: { analysisId: string }) {
+interface PermutationPanelProps {
+  analysisId: string;
+  fdrThreshold?: number;
+  deltaPsiMin?: number;
+}
+
+export function PermutationPanel({ analysisId, fdrThreshold, deltaPsiMin }: PermutationPanelProps) {
   const t = useT();
   const [nIterations, setNIterations] = useState(500);
   const [result, setResult] = useState<PermutationResponse | null>(null);
 
   const { mutate, isPending, isError } = useMutation({
-    mutationFn: () => runPermutationTest(analysisId, nIterations),
+    mutationFn: () => runPermutationTest(analysisId, nIterations, fdrThreshold, deltaPsiMin),
     onSuccess: (data) => setResult(data),
   });
 
@@ -235,6 +315,12 @@ export function PermutationPanel({ analysisId }: { analysisId: string }) {
               <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{t("permutation.results.eventsTested")}</p>
               <p className="text-base font-bold tabular-nums">{result.n_events_tested}</p>
             </div>
+            {result.n_total_events > 0 && result.n_total_events !== result.n_events_tested && (
+              <div className="text-center px-3 py-2 rounded-lg bg-muted/40 border border-border">
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{t("permutation.results.totalEvents")}</p>
+                <p className="text-base font-bold tabular-nums text-muted-foreground">{result.n_total_events}</p>
+              </div>
+            )}
             <div className="text-center px-3 py-2 rounded-lg bg-muted/40 border border-border">
               <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{t("permutation.results.iterations")}</p>
               <p className="text-base font-bold tabular-nums">{result.n_iterations}</p>

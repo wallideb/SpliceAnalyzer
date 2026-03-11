@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
@@ -60,6 +61,48 @@ def _apply_row_banding(ws) -> None:
                 cell.fill = ROW_FILL_ALT
 
 
+async def _get_analysis_with_groups(
+    db: AsyncSession, analysis_id: uuid.UUID
+) -> tuple["Analysis", str, str]:
+    """Load an Analysis with its sample groups, returning group labels.
+
+    Raises HTTPException(404) if not found.
+    """
+    q = await db.execute(
+        select(Analysis)
+        .options(joinedload(Analysis.sample_groups))
+        .where(Analysis.id == analysis_id)
+    )
+    analysis = q.unique().scalar_one_or_none()
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    g1 = next((g for g in analysis.sample_groups if g.group_index == 1), None)
+    g2 = next((g for g in analysis.sample_groups if g.group_index == 2), None)
+    return analysis, g1.group_label if g1 else "Group 1", g2.group_label if g2 else "Group 2"
+
+
+async def _load_events_and_features(
+    db: AsyncSession, analysis_id: uuid.UUID
+) -> tuple[list["SplicingEvent"], dict[uuid.UUID, "EventSpliceFeature"]]:
+    """Fetch all events for an analysis and SE splice features keyed by event_id."""
+    result = await db.execute(
+        select(SplicingEvent).where(SplicingEvent.analysis_id == analysis_id)
+    )
+    events: list[SplicingEvent] = list(result.scalars().all())
+
+    se_event_ids = [e.id for e in events if e.event_type == "SE"]
+    features: dict[uuid.UUID, EventSpliceFeature] = {}
+    if se_event_ids:
+        feat_result = await db.execute(
+            select(EventSpliceFeature).where(EventSpliceFeature.event_id.in_(se_event_ids))
+        )
+        for feat in feat_result.scalars().all():
+            features[feat.event_id] = feat
+
+    return events, features
+
+
 @router.get("/{analysis_id}/excel")
 async def export_analysis_excel(
     analysis_id: uuid.UUID,
@@ -96,26 +139,11 @@ async def export_analysis_excel(
     # core is always included
     groups: set[str] = requested | {"core"}
 
-    # ── 1. Verify analysis exists ─────────────────────────────────────────────
-    analysis = await db.get(Analysis, analysis_id)
-    if not analysis:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+    # ── 1. Verify analysis exists (with sample groups for labels) ────────────
+    analysis, group1_label, group2_label = await _get_analysis_with_groups(db, analysis_id)
 
-    # ── 2. Fetch all events ───────────────────────────────────────────────────
-    result = await db.execute(
-        select(SplicingEvent).where(SplicingEvent.analysis_id == analysis_id)
-    )
-    events: list[SplicingEvent] = list(result.scalars().all())
-
-    # ── 3. Fetch SE splice features (keyed by event_id) ──────────────────────
-    se_event_ids = [e.id for e in events if e.event_type == "SE"]
-    features: dict[uuid.UUID, EventSpliceFeature] = {}
-    if se_event_ids:
-        feat_result = await db.execute(
-            select(EventSpliceFeature).where(EventSpliceFeature.event_id.in_(se_event_ids))
-        )
-        for feat in feat_result.scalars().all():
-            features[feat.event_id] = feat
+    # ── 2-3. Fetch all events + SE splice features ────────────────────────────
+    events, features = await _load_events_and_features(db, analysis_id)
 
     # ── 4. Fetch external annotations (per unique gene symbol) ───────────────
     unique_symbols: list[str] = list({
@@ -205,7 +233,7 @@ async def export_analysis_excel(
         "Gene", "Gene ID", "Type", "Chromosome", "Strand",
         "Exon Start", "Exon End", "Exon Size",
         "p-value", "FDR", "ΔΨ", "|ΔΨ|",
-        "PSI Group 1", "PSI Group 2",
+        f"PSI {group1_label}", f"PSI {group2_label}",
         # SE splice features
         "Donor Site", "Canonical GT",
         "Acceptor Site", "Canonical AG",
@@ -336,11 +364,13 @@ async def export_analysis_excel(
 # 3C — PDF Rapport d'analyse
 # ===========================================================================
 
+import math as _math
 import statistics as _statistics
+from collections import Counter
 from datetime import date as _date
 
 from reportlab.lib import colors as _colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4 as _A4
 from reportlab.lib.styles import getSampleStyleSheet as _getStyles, ParagraphStyle
 from reportlab.lib.units import cm as _cm
@@ -350,9 +380,7 @@ from reportlab.platypus import (
 )
 from reportlab.graphics.shapes import Drawing, Rect, String, Line, Group
 from reportlab.graphics.charts.barcharts import VerticalBarChart
-from reportlab.graphics import renderPDF
-
-_W, _H = _A4
+_W, _ = _A4
 _MARGIN = 2 * _cm
 
 
@@ -384,10 +412,6 @@ def _build_styles() -> dict:
         "code": ParagraphStyle(
             "Code", parent=base["Code"],
             fontSize=8, leading=11, textColor=_colors.HexColor("#0f172a"),
-        ),
-        "center": ParagraphStyle(
-            "Center", parent=base["Normal"],
-            fontSize=9, alignment=TA_CENTER,
         ),
     }
     return styles
@@ -428,7 +452,7 @@ def _fig_exon_size_histogram(exon_sizes: list[int]) -> Drawing | None:
     if not exon_sizes:
         return None
 
-    import math as _math
+
 
     BIN = 25
     max_size = max(exon_sizes)
@@ -568,14 +592,14 @@ def _fig_frame_breakdown(n_if: int, n_fs: int, n_nc: int, n_feat: int) -> Drawin
     return d
 
 
-def _fig_dpsi_distribution(events: list) -> Drawing | None:
+def _fig_dpsi_distribution(events: list, group1_label: str = "Group 1") -> Drawing | None:
     """ΔΨ distribution histogram for all events."""
     dpsi_vals = [e.inc_level_difference for e in events
                  if e.inc_level_difference is not None]
     if len(dpsi_vals) < 3:
         return None
 
-    import math as _math
+
 
     BIN_W = 0.1
     bins = {}  # rounded bin_start → count
@@ -625,6 +649,15 @@ def _fig_dpsi_distribution(events: list) -> Drawing | None:
                   fontSize=7, fontName="Helvetica-Oblique", fillColor=_colors.HexColor("#475569"),
                   textAnchor="middle"))
 
+    # Y-axis tick labels (0, max/2, max)
+    for val in [0, max_count // 2, max_count]:
+        y = MARGIN_B + (val / max_count) * chart_h
+        d.add(String(MARGIN_L - 4, y - 2, str(val),
+                      fontSize=6, fontName="Helvetica", fillColor=_colors.HexColor("#475569"),
+                      textAnchor="end"))
+        d.add(Line(MARGIN_L, y, MARGIN_L + chart_w, y,
+                    strokeColor=_colors.HexColor("#e2e8f0"), strokeWidth=0.3))
+
     # Y-axis title
     g = Group()
     g.transform = (0, 1, -1, 0, 12, H / 2 - 20)
@@ -644,62 +677,77 @@ def _fig_dpsi_distribution(events: list) -> Drawing | None:
                     strokeColor=_colors.HexColor("#1e293b"), strokeWidth=0.8,
                     strokeDashArray=[3, 2]))
 
-    # Legend
-    d.add(Rect(W - 120, H - 14, 8, 8, fillColor=_colors.HexColor("#ef4444"), strokeColor=None))
-    d.add(String(W - 110, H - 14, "ΔΨ < 0 (more skipping)", fontSize=5.5,
+    # Legend (use actual group names)
+    leg_w = 160
+    d.add(Rect(W - leg_w, H - 14, 8, 8, fillColor=_colors.HexColor("#ef4444"), strokeColor=None))
+    d.add(String(W - leg_w + 10, H - 14, f"ΔΨ < 0 (↑ skipping {group1_label})", fontSize=5.5,
                   fontName="Helvetica", fillColor=_colors.HexColor("#475569")))
-    d.add(Rect(W - 120, H - 24, 8, 8, fillColor=_colors.HexColor("#3b82f6"), strokeColor=None))
-    d.add(String(W - 110, H - 24, "ΔΨ > 0 (more inclusion)", fontSize=5.5,
+    d.add(Rect(W - leg_w, H - 24, 8, 8, fillColor=_colors.HexColor("#3b82f6"), strokeColor=None))
+    d.add(String(W - leg_w + 10, H - 24, f"ΔΨ > 0 (↑ inclusion {group1_label})", fontSize=5.5,
                   fontName="Helvetica", fillColor=_colors.HexColor("#475569")))
 
     return d
 
 
-def _fig_splice_site_consensus(features_dict: dict, site: str = "donor") -> Drawing | None:
-    """Simple PWM bar chart for donor (9 nt) or acceptor (23 nt) splice sites.
+def _fig_splice_site_consensus(
+    features_dict: dict,
+    site: str = "donor",
+    *,
+    pwm_data: list[dict[str, float]] | None = None,
+    n_sequences: int | None = None,
+    max_width: float = 440,
+) -> Drawing | None:
+    """WebLogo3-standard sequence logo for donor (9 nt) or acceptor (23 nt).
 
-    Renders each position as stacked coloured bars (height ∝ freq × IC)
-    following the sequence logo convention.
+    Letter height = frequency × R_i where R_i = 2 − H_i − e_n (bits).
+    Small-sample correction: e_n = (s−1) / (2·ln2·n)  (Schneider et al. 1986).
+
+    If *pwm_data* is provided, it is used directly; otherwise PWM is computed
+    from the splice features in *features_dict*.
     """
-    import math as _math
-    from collections import Counter
 
-    sequences = []
-    for f in features_dict.values():
-        seq = f.donor_seq if site == "donor" else f.acceptor_seq
-        if seq:
-            expected_len = 9 if site == "donor" else 23
-            if len(seq) >= expected_len:
-                sequences.append(seq[:expected_len].upper())
-    if len(sequences) < 3:
-        return None
 
-    seq_len = len(sequences[0])
-    # Compute PWM
-    pwm: list[dict[str, float]] = []
-    for pos in range(seq_len):
-        counts = Counter(seq[pos] for seq in sequences)
-        total = sum(counts.values())
-        freqs = {b: counts.get(b, 0) / total for b in "ACGT"}
-        pwm.append(freqs)
 
+    if pwm_data:
+        pwm = pwm_data
+        n_seq = n_sequences or 100
+    else:
+        sequences = []
+        for f in features_dict.values():
+            seq = f.donor_seq if site == "donor" else f.acceptor_seq
+            if seq:
+                expected_len = 9 if site == "donor" else 23
+                if len(seq) >= expected_len:
+                    sequences.append(seq[:expected_len].upper())
+        if len(sequences) < 3:
+            return None
+        n_seq = len(sequences)
+
+        seq_len = len(sequences[0])
+        pwm = []
+        for pos in range(seq_len):
+            counts = Counter(seq[pos] for seq in sequences)
+            total = sum(counts.values())
+            freqs = {b: counts.get(b, 0) / total for b in "ACGT"}
+            pwm.append(freqs)
+
+    # Small-sample correction (Schneider et al. 1986)
+    e_n = 3 / (2 * _math.log(2) * n_seq) if n_seq > 0 else 0
+
+    seq_len = len(pwm)
     BASE_COLORS = {"A": "#22c55e", "C": "#3b82f6", "G": "#f97316", "T": "#ef4444"}
 
-    COL_W = 22
-    LOGO_H = 80  # max stack height = 2 bits
+    COL_W = min(22, int((max_width - 52) / seq_len))
+    LOGO_H = 80
     MARGIN_L, MARGIN_B, MARGIN_T = 32, 24, 8
-    W = MARGIN_L + seq_len * COL_W + 20
+    W = min(max_width, MARGIN_L + seq_len * COL_W + 20)
     H = MARGIN_T + LOGO_H + MARGIN_B
 
     d = Drawing(W, H)
     d.add(Rect(0, 0, W, H, fillColor=_colors.HexColor("#fafafa"),
                strokeColor=_colors.HexColor("#e2e8f0"), strokeWidth=0.5))
 
-    # Position labels — splice site convention
-    if site == "donor":
-        start_pos = -3
-    else:
-        start_pos = -20
+    start_pos = -3 if site == "donor" else -20
 
     # Bits Y-axis
     for bit in [0, 1, 2]:
@@ -712,56 +760,47 @@ def _fig_splice_site_consensus(features_dict: dict, site: str = "donor") -> Draw
     d.add(Line(MARGIN_L, MARGIN_B, MARGIN_L, MARGIN_B + LOGO_H,
                 strokeColor=_colors.HexColor("#475569"), strokeWidth=0.8))
 
-    # Y-axis label
     g = Group()
     g.transform = (0, 1, -1, 0, 10, MARGIN_B + LOGO_H / 2 - 10)
     g.add(String(0, 0, "bits", fontSize=7, fontName="Helvetica-Oblique",
                   fillColor=_colors.HexColor("#475569"), textAnchor="middle"))
     d.add(g)
 
-    # Canonical positions to highlight
-    if site == "donor":
-        canonical = {1, 2}  # GT at +1, +2
-    else:
-        canonical = {-2, -1}  # AG at -2, -1
+    canonical = {1, 2} if site == "donor" else {-2, -1}
 
     for col_idx, freqs in enumerate(pwm):
         x = MARGIN_L + col_idx * COL_W
-
-        # Position number (skip zero)
         pos = start_pos + col_idx
         if pos >= 0:
             pos += 1
 
-        # Highlight canonical
         if pos in canonical:
             d.add(Rect(x, MARGIN_B, COL_W, LOGO_H,
                         fillColor=_colors.HexColor("#fef08a"), fillOpacity=0.3,
                         strokeColor=None))
 
-        # Compute IC
+        # IC with small-sample correction
         entropy_val = sum(-f * _math.log2(f) if f > 0 else 0 for f in freqs.values())
-        ic = max(0, 2 - entropy_val)
+        ic = max(0, 2 - entropy_val - e_n)
         col_h = (ic / 2) * LOGO_H
 
-        # Stack bases sorted by frequency (smallest at bottom)
         sorted_bases = sorted(freqs.items(), key=lambda kv: kv[1])
         cur_y = MARGIN_B
         for base, freq in sorted_bases:
             if freq <= 0:
                 continue
             h = freq * col_h
-            d.add(Rect(x + 1, cur_y, COL_W - 2, h,
-                        fillColor=_colors.HexColor(BASE_COLORS[base]),
-                        strokeColor=None, fillOpacity=0.85))
-            if h > 7:
-                d.add(String(x + COL_W / 2, cur_y + 1.5,
-                              base, fontSize=min(h - 1, COL_W - 4),
-                              fontName="Courier-Bold", fillColor=_colors.white,
-                              textAnchor="middle"))
+            if h < 0.5:
+                cur_y += h
+                continue
+            # Stretched letter glyph
+            d.add(String(x + COL_W / 2, cur_y + 1,
+                          base, fontSize=max(h * 0.9, 5),
+                          fontName="Courier-Bold",
+                          fillColor=_colors.HexColor(BASE_COLORS[base]),
+                          textAnchor="middle"))
             cur_y += h
 
-        # Position label
         label = f"+{pos}" if pos > 0 else str(pos)
         is_canon = pos in canonical
         d.add(String(x + COL_W / 2, MARGIN_B - 12, label,
@@ -770,31 +809,60 @@ def _fig_splice_site_consensus(features_dict: dict, site: str = "donor") -> Draw
                       fillColor=_colors.HexColor("#b45309") if is_canon else _colors.HexColor("#94a3b8"),
                       textAnchor="middle"))
 
-    # X-axis title
     site_label = "5'SS donor position" if site == "donor" else "3'SS acceptor position"
     d.add(String(MARGIN_L + seq_len * COL_W / 2, 3, site_label,
                   fontSize=7, fontName="Helvetica-Oblique", fillColor=_colors.HexColor("#475569"),
                   textAnchor="middle"))
 
-    # Baseline
     d.add(Line(MARGIN_L, MARGIN_B, MARGIN_L + seq_len * COL_W, MARGIN_B,
                 strokeColor=_colors.HexColor("#475569"), strokeWidth=0.8))
 
     return d
 
 
-def _build_pdf(analysis, events: list, features: dict) -> bytes:
+def _build_pdf(
+    analysis,
+    events: list,
+    features: dict,
+    group1_label: str = "Group 1",
+    group2_label: str = "Group 2",
+    *,
+    deep_analysis=None,
+    comparison=None,
+    sig_map: dict | None = None,
+    permutation_table: list[dict] | None = None,
+) -> bytes:
+    """Build PDF report.
+
+    Parameters
+    ----------
+    deep_analysis : DeepAnalysis | None
+        If provided, the report is scoped to this deep analysis (its events).
+    comparison : dict | None
+        Pattern comparison data with keys: "significant", "not_significant",
+        "statistical_tests" — same shape as PatternComparisonResponse.
+    sig_map : dict | None
+        Mapping of event_id → bool (is_significant).  Used to build
+        the "Significant Events" section in deep-analysis reports.
+    permutation_table : list[dict] | None
+        ΔΨ permutation results at multiple iteration counts.
+        Each dict: {"iterations": int, "n_tested": int,
+                     "pct_p05": float, "pct_p01": float}.
+    """
     global _FIG_NUM
     _FIG_NUM = 0
 
     buf = BytesIO()
+    USABLE_W = _W - 2 * _MARGIN          # ~15.27 cm
+    FIG_MAX_W = USABLE_W                  # figures must not exceed this
+
     doc = SimpleDocTemplate(
         buf, pagesize=_A4,
         leftMargin=_MARGIN, rightMargin=_MARGIN,
         topMargin=_MARGIN, bottomMargin=_MARGIN,
     )
     S = _build_styles()
-    story = []
+    story: list = []
 
     def p(text: str, style: str = "body") -> Paragraph:
         return Paragraph(text, S[style])
@@ -806,7 +874,6 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
         return HRFlowable(width="100%", thickness=0.5, color=_colors.HexColor("#e2e8f0"), spaceAfter=6)
 
     def caption(text: str) -> Paragraph:
-        """Figure caption with auto-numbering."""
         n = _next_fig()
         return Paragraph(
             f"<b>Figure {n}.</b> {text}",
@@ -815,10 +882,13 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
                            textColor=_colors.HexColor("#475569")),
         )
 
+    is_deep = deep_analysis is not None
+
     # ── Title page ──────────────────────────────────────────────────────────
+    title = "rMATS-Viz Deep Analysis Report" if is_deep else "rMATS-Viz Analysis Report"
     story += [
         sp(3),
-        p("rMATS-Viz Analysis Report", "h1"),
+        p(title, "h1"),
         hr(),
         sp(0.3),
         p(f"<b>Analysis:</b> {analysis.name}", "body"),
@@ -826,7 +896,15 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
         p(f"<b>Identifier:</b> {analysis.id}", "small"),
     ]
 
-    # Mutated genes
+    story.append(p(f"<b>Groups:</b> {group1_label} vs {group2_label}", "body"))
+
+    if is_deep:
+        story += [
+            p(f"<b>Deep analysis:</b> {deep_analysis.name or '—'}", "body"),
+            p(f"<b>Thresholds:</b> FDR ≤ {deep_analysis.fdr_threshold}, "
+              f"|ΔΨ| ≥ {deep_analysis.delta_psi_min}", "body"),
+        ]
+
     if analysis.mutated_genes:
         gene_names = ", ".join(g.get("symbol", "?") for g in analysis.mutated_genes if g.get("symbol"))
         if gene_names:
@@ -838,169 +916,385 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
             "This report summarises the alternative splicing events identified "
             "by rMATS and annotated via rMATS-Viz (splice sites, reading frame, "
             "MANE transcript, PPT regions, branch point). "
-            "All figures are generated from computed splice features and are "
-            "suitable for publication (vector graphics, labeled axes).",
+            + ("Events are filtered by the deep analysis thresholds above. "
+               if is_deep else "")
+            + "All figures are vector graphics suitable for publication.",
             "body",
         ),
         PageBreak(),
     ]
 
-    # ── 1. Summary ──────────────────────────────────────────────────────────
-    story.append(p("1. Analysis Summary", "h2"))
+    # ── Helper: build stats table + figures for a feature subset ──────────
+    def _add_stats_and_figures(
+        subset_features: dict,
+        subset_events: list,
+        section_num: int,
+        section_title: str,
+        include_figures: bool = True,
+    ) -> int:
+        """Append summary statistics table and (optionally) figures.
 
-    se_events  = [e for e in events if e.event_type == "SE"]
-    type_counts: dict[str, int] = {}
-    for ev in events:
-        type_counts[ev.event_type] = type_counts.get(ev.event_type, 0) + 1
+        Returns section_num + 1 for chaining.
+        """
+        nonlocal story
+        story.append(p(f"{section_num}. {section_title}", "h2"))
 
-    story += [
-        p(f"Total events: <b>{len(events)}</b>", "body"),
-        p(f"SE events: <b>{len(se_events)}</b> · "
-          f"RI: {type_counts.get('RI', 0)} · "
-          f"A3SS: {type_counts.get('A3SS', 0)} · "
-          f"A5SS: {type_counts.get('A5SS', 0)} · "
-          f"MXE: {type_counts.get('MXE', 0)}", "body"),
-    ]
+        se_evts = [e for e in subset_events if e.event_type == "SE"]
 
-    # Event-type table
-    type_tbl = Table(
-        [["Type", "Event Count", "% of Total"]] +
-        [
-            [etype,
-             type_counts.get(etype, 0),
-             f"{type_counts.get(etype, 0) / max(len(events), 1) * 100:.1f}%"]
-            for etype in ["SE", "RI", "A3SS", "A5SS", "MXE"]
-        ] +
-        [["<b>Total</b>", f"<b>{len(events)}</b>", "<b>100%</b>"]],
-        colWidths=[4 * _cm, 4 * _cm, 4 * _cm],
-    )
-    type_tbl.setStyle(_tbl_style())
-    story += [sp(), type_tbl, sp()]
+        if not is_deep or section_num == 1:
+            # Type breakdown only for the global section
+            type_cnts: dict[str, int] = {}
+            for ev in subset_events:
+                type_cnts[ev.event_type] = type_cnts.get(ev.event_type, 0) + 1
+            story += [
+                p(f"Total events: <b>{len(subset_events)}</b>", "body"),
+                p(f"SE events: <b>{len(se_evts)}</b> · "
+                  f"RI: {type_cnts.get('RI', 0)} · "
+                  f"A3SS: {type_cnts.get('A3SS', 0)} · "
+                  f"A5SS: {type_cnts.get('A5SS', 0)} · "
+                  f"MXE: {type_cnts.get('MXE', 0)}", "body"),
+            ]
+            type_tbl = Table(
+                [["Type", "Event Count", "% of Total"]] +
+                [
+                    [etype,
+                     type_cnts.get(etype, 0),
+                     f"{type_cnts.get(etype, 0) / max(len(subset_events), 1) * 100:.1f}%"]
+                    for etype in ["SE", "RI", "A3SS", "A5SS", "MXE"]
+                ] +
+                [["<b>Total</b>", f"<b>{len(subset_events)}</b>", "<b>100%</b>"]],
+                colWidths=[4 * _cm, 4 * _cm, 4 * _cm],
+            )
+            type_tbl.setStyle(_tbl_style())
+            story += [sp(), type_tbl, sp()]
 
-    # SE-specific stats
-    if features:
-        n_feat = len(features)
-        n_gt   = sum(1 for f in features.values() if f.donor_is_gt is True)
-        n_ag   = sum(1 for f in features.values() if f.acceptor_is_ag is True)
-        n_if   = sum(1 for f in features.values() if f.frame_class == "in_frame")
-        n_fs   = sum(1 for f in features.values() if f.frame_class == "frameshift")
-        n_nc   = sum(1 for f in features.values() if f.frame_class == "non_coding")
-        n_bp   = sum(1 for f in features.values() if f.bp_motif_found is True)
-        ppt_scores = [f.ppt_score for f in features.values() if f.ppt_score is not None]
-        exon_sizes = [f.exon_size for f in features.values() if f.exon_size is not None]
+        if subset_features:
+            n_f  = len(subset_features)
+            n_gt = sum(1 for f in subset_features.values() if f.donor_is_gt is True)
+            n_ag = sum(1 for f in subset_features.values() if f.acceptor_is_ag is True)
+            n_if = sum(1 for f in subset_features.values() if f.frame_class == "in_frame")
+            n_fs = sum(1 for f in subset_features.values() if f.frame_class == "frameshift")
+            n_nc = sum(1 for f in subset_features.values() if f.frame_class == "non_coding")
+            n_bp = sum(1 for f in subset_features.values() if f.bp_motif_found is True)
+            ppt_vals = [f.ppt_score for f in subset_features.values() if f.ppt_score is not None]
+            exsz_vals = [f.exon_size for f in subset_features.values() if f.exon_size is not None]
 
+            story.append(p("SE Splice Feature Statistics:", "h3"))
+            stat_tbl = Table([
+                ["Metric", "Value"],
+                ["SE events with features", n_f],
+                ["Canonical GT (5'SS)", f"{n_gt} / {n_f} ({n_gt / n_f * 100:.1f}%)" if n_f else "—"],
+                ["Canonical AG (3'SS)", f"{n_ag} / {n_f} ({n_ag / n_f * 100:.1f}%)" if n_f else "—"],
+                ["In-frame",   f"{n_if} ({n_if / n_f * 100:.0f}%)" if n_f else "—"],
+                ["Frameshift", f"{n_fs} ({n_fs / n_f * 100:.0f}%)" if n_f else "—"],
+                ["Non-coding", f"{n_nc} ({n_nc / n_f * 100:.0f}%)" if n_f else "—"],
+                ["Branch point detected", f"{n_bp} / {n_f} ({n_bp / n_f * 100:.1f}%)" if n_f else "—"],
+                ["Exon size (mean / median)",
+                 f"{_statistics.mean(exsz_vals):.0f} / {_statistics.median(exsz_vals):.0f} nt" if exsz_vals else "—"],
+                ["Mean PPT score",
+                 f"{_statistics.mean(ppt_vals) * 100:.1f}% pyrimidine content" if ppt_vals else "—"],
+            ], colWidths=[9 * _cm, 7 * _cm])
+            stat_tbl.setStyle(_tbl_style())
+            story += [stat_tbl, sp()]
+
+            if include_figures:
+                dpsi_fig = _fig_dpsi_distribution(subset_events, group1_label)
+                if dpsi_fig:
+                    story += [
+                        KeepTogether([
+                            dpsi_fig,
+                            caption(
+                                "Distribution of ΔΨ (inclusion level difference). "
+                                f"Red bars: ΔΨ &lt; 0 (more exon skipping in {group1_label}); "
+                                f"blue bars: ΔΨ &gt; 0 (more exon inclusion in {group1_label}). "
+                                f"n = {len(subset_events)} events."
+                            ),
+                        ]),
+                        sp(),
+                    ]
+
+                hist_fig = _fig_exon_size_histogram(exsz_vals)
+                if hist_fig:
+                    story += [
+                        KeepTogether([
+                            hist_fig,
+                            caption(
+                                f"Skipped exon size distribution (25 nt bins). "
+                                f"Mean = {_statistics.mean(exsz_vals):.0f} nt (red dashed), "
+                                f"median = {_statistics.median(exsz_vals):.0f} nt (orange dashed). "
+                                f"n = {len(exsz_vals)} SE events."
+                            ),
+                        ]),
+                        sp(),
+                    ]
+
+                frame_fig = _fig_frame_breakdown(n_if, n_fs, n_nc, n_f)
+                if frame_fig:
+                    story += [
+                        KeepTogether([
+                            frame_fig,
+                            caption(
+                                "Reading-frame classification of skipped exons. "
+                                "In-frame: CDS length divisible by 3; frameshift: not divisible by 3; "
+                                f"non-coding: exon entirely within UTR. n = {n_f} SE events."
+                            ),
+                        ]),
+                        sp(),
+                    ]
+
+                n_donor = sum(1 for f in subset_features.values() if f.donor_seq and len(f.donor_seq) >= 9)
+                donor_logo = _fig_splice_site_consensus(subset_features, site="donor", n_sequences=n_donor, max_width=FIG_MAX_W)
+                if donor_logo:
+                    story += [
+                        KeepTogether([
+                            donor_logo,
+                            caption(
+                                "5'SS donor splice site sequence logo (9 nt: 3 nt exon + 6 nt intron). "
+                                "Letter height = frequency × R<sub>i</sub> (bits), with small-sample correction "
+                                "e<sub>n</sub> = (s−1)/(2·ln2·n). Canonical GT at +1/+2 highlighted. "
+                                f"n = {n_donor} sequences. "
+                                "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+                            ),
+                        ]),
+                        sp(),
+                    ]
+
+                n_acc = sum(1 for f in subset_features.values() if f.acceptor_seq and len(f.acceptor_seq) >= 23)
+                acceptor_logo = _fig_splice_site_consensus(subset_features, site="acceptor", n_sequences=n_acc, max_width=FIG_MAX_W)
+                if acceptor_logo:
+                    story += [
+                        KeepTogether([
+                            acceptor_logo,
+                            caption(
+                                "3'SS acceptor splice site sequence logo (23 nt: 20 nt intron + 3 nt exon). "
+                                "Letter height = frequency × R<sub>i</sub> (bits), with small-sample correction. "
+                                "Canonical AG at −2/−1 highlighted. "
+                                f"n = {n_acc} sequences. "
+                                "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+                            ),
+                        ]),
+                        sp(),
+                    ]
+
+        return section_num + 1
+
+    # ── Section A: Global Analysis Summary ─────────────────────────────────
+    section_n = _add_stats_and_figures(features, events, 1, "Global Analysis Summary")
+
+    # ── Section B: Significant Events (deep analysis only) ─────────────────
+    if is_deep and sig_map:
+        story.append(PageBreak())
+        sig_feat_dict = {eid: f for eid, f in features.items() if sig_map.get(eid)}
+        sig_evts = [e for e in events if sig_map.get(e.id)]
+        section_n = _add_stats_and_figures(
+            sig_feat_dict, sig_evts, section_n,
+            f"Significant Events (FDR ≤ {deep_analysis.fdr_threshold}, |ΔΨ| ≥ {deep_analysis.delta_psi_min})",
+        )
+
+    # ── Section C: Comparison (deep analysis only) ─────────────────────────
+    if comparison:
+        story.append(PageBreak())
+        cmp_sec = section_n
+        story.append(p(f"{cmp_sec}. Significant vs Non-Significant Comparison", "h2"))
+        section_n += 1
+
+        sig = comparison["significant"]
+        nonsig = comparison["not_significant"]
+        tests = comparison.get("statistical_tests", [])
+        test_map = {t["feature"]: t for t in tests}
+
+        def _fmt_pval(pv):
+            if pv is None:
+                return "—"
+            if pv < 0.0001:
+                return f"{pv:.2e}"
+            return f"{pv:.4f}"
+
+        def _sig_str(t):
+            if t is None:
+                return ""
+            return "★" if t.get("significant") else "n.s."
+
+        # Ca. Feature comparison table
+        story.append(p(f"{cmp_sec}.1 Feature Comparison", "h3"))
+        cmp_headers = ["Feature", f"Significant (n={sig['n_se_with_features']})",
+                        f"Non-significant (n={nonsig['n_se_with_features']})", "Test", "p-value", ""]
+        cmp_rows = [cmp_headers]
+
+        def _row(label, sig_val, nonsig_val, test_key):
+            t = test_map.get(test_key)
+            cmp_rows.append([
+                label,
+                sig_val if sig_val is not None else "—",
+                nonsig_val if nonsig_val is not None else "—",
+                t["test_name"] if t else "—",
+                _fmt_pval(t["p_value"] if t else None),
+                _sig_str(t),
+            ])
+
+        def _pct(v):
+            return f"{v:.1f}%" if v is not None else "—"
+
+        _row("Exon size (mean)", f"{sig['exon_size_mean']:.0f} nt" if sig.get("exon_size_mean") else "—",
+             f"{nonsig['exon_size_mean']:.0f} nt" if nonsig.get("exon_size_mean") else "—", "exon_size")
+        _row("Canonical GT", _pct(sig.get("pct_canonical_gt")), _pct(nonsig.get("pct_canonical_gt")), "canonical_gt")
+        _row("Canonical AG", _pct(sig.get("pct_canonical_ag")), _pct(nonsig.get("pct_canonical_ag")), "canonical_ag")
+        _row("Mean PPT score", _pct(sig["ppt_mean_score"] * 100 if sig.get("ppt_mean_score") is not None else None),
+             _pct(nonsig["ppt_mean_score"] * 100 if nonsig.get("ppt_mean_score") is not None else None), "ppt_score")
+        _row("In-frame %", _pct(sig["frame_in_frame"] / max(sig["n_se_with_features"], 1) * 100 if sig["n_se_with_features"] else None),
+             _pct(nonsig["frame_in_frame"] / max(nonsig["n_se_with_features"], 1) * 100 if nonsig["n_se_with_features"] else None), "in_frame_pct")
+        _row("Branch point found", _pct(sig.get("bp_found_pct")), _pct(nonsig.get("bp_found_pct")), "bp_found")
+        _row("Mean ΔΨ",
+             f"{sig['mean_delta_psi']:+.3f}" if sig.get("mean_delta_psi") is not None else "—",
+             f"{nonsig['mean_delta_psi']:+.3f}" if nonsig.get("mean_delta_psi") is not None else "—",
+             "mean_delta_psi")
+
+        cmp_tbl = Table(cmp_rows, colWidths=[3.2*_cm, 3.5*_cm, 3.5*_cm, 2.8*_cm, 2.2*_cm, 1*_cm])
+        cmp_tbl.setStyle(_tbl_style())
+        story += [cmp_tbl, sp()]
+        story.append(p("★ = p &lt; 0.05; n.s. = not significant", "small"))
+        story.append(sp())
+
+        # Cb. Comparison logos — donor
+        story.append(p(f"{cmp_sec}.2 5'SS Donor Logo: Significant vs Non-Significant", "h3"))
+        half_w = FIG_MAX_W * 0.48
+        if sig.get("donor_pwm"):
+            d_sig = _fig_splice_site_consensus(
+                {}, site="donor", pwm_data=sig["donor_pwm"],
+                n_sequences=sig["n_se_with_features"], max_width=half_w,
+            )
+            if d_sig:
+                story += [
+                    p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
+                    d_sig,
+                ]
+        if nonsig.get("donor_pwm"):
+            d_nonsig = _fig_splice_site_consensus(
+                {}, site="donor", pwm_data=nonsig["donor_pwm"],
+                n_sequences=nonsig["n_se_with_features"], max_width=half_w,
+            )
+            if d_nonsig:
+                story += [
+                    p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
+                    d_nonsig,
+                ]
+        t_gt = test_map.get("canonical_gt")
+        if t_gt:
+            story.append(p(
+                f"Canonical GT proportion — {t_gt['test_name']}: "
+                f"p = {_fmt_pval(t_gt['p_value'])} "
+                f"({'significant' if t_gt['significant'] else 'not significant'})",
+                "small",
+            ))
         story += [
-            p("SE Splice Feature Statistics:", "h3"),
-        ]
-        stat_tbl = Table([
-            ["Metric", "Value"],
-            ["SE events with features", n_feat],
-            ["Canonical GT (5'SS)", f"{n_gt} / {n_feat} ({n_gt / n_feat * 100:.1f}%)" if n_feat else "—"],
-            ["Canonical AG (3'SS)", f"{n_ag} / {n_feat} ({n_ag / n_feat * 100:.1f}%)" if n_feat else "—"],
-            ["In-frame",   f"{n_if} ({n_if / n_feat * 100:.0f}%)" if n_feat else "—"],
-            ["Frameshift", f"{n_fs} ({n_fs / n_feat * 100:.0f}%)" if n_feat else "—"],
-            ["Non-coding", f"{n_nc} ({n_nc / n_feat * 100:.0f}%)" if n_feat else "—"],
-            ["Branch point detected", f"{n_bp} / {n_feat} ({n_bp / n_feat * 100:.1f}%)" if n_feat else "—"],
-            ["Exon size (mean / median)",
-             f"{_statistics.mean(exon_sizes):.0f} / {_statistics.median(exon_sizes):.0f} nt" if exon_sizes else "—"],
-            ["Mean PPT score",
-             f"{_statistics.mean(ppt_scores) * 100:.1f}% pyrimidine content" if ppt_scores else "—"],
-        ], colWidths=[9 * _cm, 7 * _cm])
-        stat_tbl.setStyle(_tbl_style())
-        story += [stat_tbl, sp()]
-
-    # ── 2. Figures ─────────────────────────────────────────────────────────
-    story.append(p("2. Splice Feature Figures", "h2"))
-
-    # Figure: ΔΨ distribution
-    dpsi_fig = _fig_dpsi_distribution(events)
-    if dpsi_fig:
-        story += [
-            KeepTogether([
-                dpsi_fig,
-                caption(
-                    "Distribution of ΔΨ (inclusion level difference) across all events. "
-                    "Red bars: ΔΨ &lt; 0 (more exon skipping in group 1); "
-                    "blue bars: ΔΨ &gt; 0 (more exon inclusion in group 1). "
-                    f"n = {len(events)} events."
-                ),
-            ]),
+            caption(
+                "5'SS donor sequence logos: significant vs non-significant events. "
+                "Letter height = frequency × R<sub>i</sub> (bits) with small-sample correction. "
+                "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+            ),
             sp(),
         ]
 
-    if features:
-        exon_sizes_list = [f.exon_size for f in features.values() if f.exon_size is not None]
+        # Cc. Comparison logos — acceptor
+        story.append(p(f"{cmp_sec}.3 3'SS Acceptor Logo: Significant vs Non-Significant", "h3"))
+        if sig.get("acceptor_pwm"):
+            a_sig = _fig_splice_site_consensus(
+                {}, site="acceptor", pwm_data=sig["acceptor_pwm"],
+                n_sequences=sig["n_se_with_features"], max_width=half_w,
+            )
+            if a_sig:
+                story += [
+                    p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
+                    a_sig,
+                ]
+        if nonsig.get("acceptor_pwm"):
+            a_nonsig = _fig_splice_site_consensus(
+                {}, site="acceptor", pwm_data=nonsig["acceptor_pwm"],
+                n_sequences=nonsig["n_se_with_features"], max_width=half_w,
+            )
+            if a_nonsig:
+                story += [
+                    p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
+                    a_nonsig,
+                ]
+        t_ag = test_map.get("canonical_ag")
+        if t_ag:
+            story.append(p(
+                f"Canonical AG proportion — {t_ag['test_name']}: "
+                f"p = {_fmt_pval(t_ag['p_value'])} "
+                f"({'significant' if t_ag['significant'] else 'not significant'})",
+                "small",
+            ))
+        story += [
+            caption(
+                "3'SS acceptor sequence logos: significant vs non-significant events. "
+                "Canonical AG at −2/−1 highlighted."
+            ),
+            sp(),
+        ]
 
-        # Figure: Exon size histogram
-        hist_fig = _fig_exon_size_histogram(exon_sizes_list)
-        if hist_fig:
-            story += [
-                KeepTogether([
-                    hist_fig,
-                    caption(
-                        f"Skipped exon size distribution (25 nt bins). "
-                        f"Mean = {_statistics.mean(exon_sizes_list):.0f} nt (red dashed), "
-                        f"median = {_statistics.median(exon_sizes_list):.0f} nt (orange dashed). "
-                        f"n = {len(exon_sizes_list)} SE events."
-                    ),
-                ]),
-                sp(),
-            ]
+        # Cd. Frame comparison
+        story.append(p(f"{cmp_sec}.4 Reading Frame Comparison", "h3"))
+        frame_sig = _fig_frame_breakdown(sig["frame_in_frame"], sig["frame_frameshift"], sig["frame_non_coding"], sig["n_se_with_features"])
+        if frame_sig:
+            story += [p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"), frame_sig]
+        frame_nonsig = _fig_frame_breakdown(nonsig["frame_in_frame"], nonsig["frame_frameshift"], nonsig["frame_non_coding"], nonsig["n_se_with_features"])
+        if frame_nonsig:
+            story += [p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"), frame_nonsig]
+        t_frame = test_map.get("in_frame_pct")
+        if t_frame:
+            story.append(p(
+                f"In-frame proportion — {t_frame['test_name']}: "
+                f"p = {_fmt_pval(t_frame['p_value'])} "
+                f"({'significant' if t_frame['significant'] else 'not significant'})",
+                "small",
+            ))
+        story += [
+            caption("Reading-frame breakdown: significant vs non-significant events."),
+            sp(),
+        ]
 
-        # Figure: Frame breakdown
-        frame_fig = _fig_frame_breakdown(n_if, n_fs, n_nc, n_feat)
-        if frame_fig:
-            story += [
-                KeepTogether([
-                    frame_fig,
-                    caption(
-                        "Reading-frame classification of skipped exons. "
-                        "In-frame: CDS length divisible by 3; "
-                        "frameshift: not divisible by 3; "
-                        "non-coding: exon entirely within UTR. "
-                        f"n = {n_feat} SE events."
-                    ),
-                ]),
-                sp(),
-            ]
+    # ── Section D: Permutation Test (deep analysis only) ──────────────────
+    if permutation_table:
+        story.append(PageBreak())
+        perm_sec = section_n
+        story.append(p(f"{perm_sec}. Permutation Test — ΔΨ Significance", "h2"))
+        section_n += 1
 
-        # Figure: 5'SS donor sequence logo
-        donor_logo = _fig_splice_site_consensus(features, site="donor")
-        if donor_logo:
-            story += [
-                KeepTogether([
-                    donor_logo,
-                    caption(
-                        "5'SS donor splice site sequence logo (9 nt window: 3 nt exon + 6 nt intron). "
-                        "Letter height ∝ frequency × information content (bits). "
-                        "Canonical GT dinucleotide at positions +1/+2 highlighted in amber. "
-                        f"n = {sum(1 for f in features.values() if f.donor_seq and len(f.donor_seq) >= 9)} sequences. "
-                        "Method: Schneider &amp; Stephens (1990)."
-                    ),
-                ]),
-                sp(),
-            ]
+        story.append(p(
+            "The permutation test evaluates whether the observed ΔΨ for each event is "
+            "statistically significant by randomly permuting sample labels and computing "
+            "a null distribution.  The table below shows the percentage of events reaching "
+            "significance at different iteration counts, providing insight into result "
+            "stability as the number of permutations increases.",
+            "body",
+        ))
+        story.append(sp())
 
-        # Figure: 3'SS acceptor sequence logo
-        acceptor_logo = _fig_splice_site_consensus(features, site="acceptor")
-        if acceptor_logo:
-            story += [
-                KeepTogether([
-                    acceptor_logo,
-                    caption(
-                        "3'SS acceptor splice site sequence logo (23 nt window: 20 nt intron + 3 nt exon). "
-                        "Letter height ∝ frequency × information content (bits). "
-                        "Canonical AG dinucleotide at positions −2/−1 highlighted in amber. "
-                        f"n = {sum(1 for f in features.values() if f.acceptor_seq and len(f.acceptor_seq) >= 23)} sequences. "
-                        "Method: Schneider &amp; Stephens (1990)."
-                    ),
-                ]),
-                sp(),
-            ]
+        perm_headers = ["Iterations", "Events Tested", "% p < 0.05", "% p < 0.01"]
+        perm_rows = [perm_headers]
+        for pt in permutation_table:
+            perm_rows.append([
+                f"{pt['iterations']:,}",
+                f"{pt['n_tested']:,}",
+                f"{pt['pct_p05']:.1f}%" if pt.get("pct_p05") is not None else "—",
+                f"{pt['pct_p01']:.1f}%" if pt.get("pct_p01") is not None else "—",
+            ])
+        perm_tbl = Table(perm_rows, colWidths=[3.5 * _cm, 3.5 * _cm, 4 * _cm, 4 * _cm])
+        perm_tbl.setStyle(_tbl_style())
+        story += [perm_tbl, sp()]
 
-    # ── 3. Top SE events ──────────────────────────────────────────────────
+        story.append(p(
+            "As the number of permutation iterations increases, the empirical p-value "
+            "estimates become more precise.  Convergence of the significance percentages "
+            "across iterations indicates stable results.",
+            "small",
+        ))
+        story.append(sp())
+
+    # ── Top SE events ──────────────────────────────────────────────────────
     story.append(PageBreak())
-    story.append(p("3. Top SE Events (ranked by FDR, |ΔΨ|)", "h2"))
+    story.append(p(f"{section_n}. Top SE Events (ranked by FDR, |ΔΨ|)", "h2"))
     top_se = sorted(
         [e for e in events if e.event_type == "SE" and e.fdr is not None],
         key=lambda e: (e.fdr or 1, -(abs(e.inc_level_difference or 0))),
@@ -1040,63 +1334,97 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
         hr(),
         p("<b>1. Splicing Event Detection — rMATS</b>", "h3"),
         p("Alternative splicing events (SE, RI, A3SS, A5SS, MXE) are detected by "
-          "<b>rMATS</b> (Shen et al., 2014) from aligned RNA-seq data. The output "
-          "files used are junction read counts (<i>.MATS.JC.txt</i>). Events are "
-          "filtered according to FDR and |ΔΨ| thresholds set at import.", "body"),
+          "<b>rMATS</b> (Shen et al., 2014) from aligned RNA-seq data. rMATS applies "
+          "a multivariate uniform prior with a Bayesian framework to compute the "
+          "posterior probability that ΔΨ exceeds a cutoff (default 0). Junction and "
+          "exon-body read counts are combined in the JCEC model, while JC mode uses "
+          "junction reads only. Output files used here are junction counts "
+          "(<i>.MATS.JC.txt</i>).", "body"),
         p("<b>2. Splice Site Annotation</b>", "h3"),
         p("For each SE event, rMATS-Viz extracts flanking genomic sequences from "
-          "the GRCh38 (hg38) reference genome indexed with <b>samtools faidx</b>. "
-          "Extracted windows are:", "body"),
-        p("• <b>5'SS donor:</b> 3 nt exon + 6 nt intron (9 nt window) — see Figure for sequence logo", "body"),
-        p("• <b>3'SS acceptor:</b> 20 nt intron + 3 nt exon (23 nt window) — see Figure for sequence logo", "body"),
+          "the GRCh38 (hg38) reference genome indexed with <b>samtools faidx</b>:", "body"),
+        p("• <b>5'SS donor:</b> 3 nt exon + 6 nt intron (9 nt window)", "body"),
+        p("• <b>3'SS acceptor:</b> 20 nt intron + 3 nt exon (23 nt window)", "body"),
         p("• <b>PPT:</b> ~47 nt upstream of the acceptor site", "body"),
-        p("The canonical GT-AG rule is verified for each event. The PPT score is "
-          "defined as the fraction of pyrimidine nucleotides (C, T) in the PPT "
-          "window. The branch point is searched by matching the YNYURAY motif in "
-          "the PPT region.", "body"),
-        p("<b>3. Reading Frame Classification</b>", "h3"),
-        p("The skipped exon is classified by its reading-frame impact "
-          "(see Figure for proportions):", "body"),
-        p("• <b>in_frame:</b> CDS length of the exon divisible by 3 — protein domain loss without frameshift", "body"),
+        p("The canonical GT-AG splice site rule (Shapiro &amp; Senapathy, 1987; "
+          "Burge &amp; Karlin, 1997) is verified at the first two intronic positions "
+          "of the 5'SS (GT at +1/+2) and last two of the 3'SS (AG at −2/−1). "
+          "The PPT score is the fraction of pyrimidine nucleotides (C, T) in the PPT "
+          "window. The branch point is searched by matching the YNYURAY motif "
+          "(Coolidge et al., 1997).", "body"),
+        p("<b>3. Sequence Logos</b>", "h3"),
+        p("Position weight matrices (PWMs) are computed from all extracted "
+          "sequences per group. Information content at each position follows the "
+          "Schneider &amp; Stephens (1990) formulation: R<sub>i</sub> = 2 − H<sub>i</sub> − e<sub>n</sub>, "
+          "where H<sub>i</sub> = −Σ p<sub>b</sub> log<sub>2</sub> p<sub>b</sub> (Shannon entropy) "
+          "and e<sub>n</sub> = (s−1)/(2·ln 2·n) is the small-sample correction "
+          "(Schneider et al., 1986; s = 4 for DNA, n = number of sequences). "
+          "Letter height = frequency × R<sub>i</sub>. This is consistent with "
+          "WebLogo 3 (Crooks et al., 2004).", "body"),
+        p("<b>4. Reading Frame Classification</b>", "h3"),
+        p("The skipped exon is classified by reading-frame impact using the "
+          "MANE Select transcript (Morales et al., 2022) when available:", "body"),
+        p("• <b>in_frame:</b> CDS length divisible by 3 — protein domain loss without frameshift", "body"),
         p("• <b>frameshift:</b> CDS length not divisible by 3 — likely NMD or truncated protein", "body"),
-        p("• <b>non_coding:</b> exon entirely within a UTR region — regulatory impact", "body"),
-        p("<b>4. MANE Select Annotation</b>", "h3"),
-        p("The <b>MANE Select</b> transcript is identified via the Ensembl REST "
-          "API (/lookup/id). The skipped exon is mapped onto the transcript. "
-          "Ensembl results are cached in a local SQLite database to avoid "
-          "repeated API calls.", "body"),
-        p("<b>5. Deep Analysis (Significant vs Non-Significant)</b>", "h3"),
-        p("Events are classified as significant (FDR ≤ threshold, |ΔΨ| ≥ minimum) "
-          "and compared using Welch's t-test (continuous features) and two-proportion "
-          "z-test (categorical features). This enables identification of splice-signal "
-          "differences between differentially spliced and background events.", "body"),
-        sp(),
+        p("• <b>non_coding:</b> exon entirely within UTR — regulatory impact", "body"),
+        p("<b>5. MANE Select Annotation</b>", "h3"),
+        p("The MANE Select transcript is identified via the Ensembl REST API "
+          "(Cunningham et al., 2022). The skipped exon is mapped to transcript "
+          "coordinates to determine exon rank, CDS overlap, and frame impact. "
+          "Results are cached in a local SQLite database.", "body"),
     ]
+    if is_deep:
+        story += [
+            p("<b>6. Deep Analysis</b>", "h3"),
+            p(f"Events are classified as <b>significant</b> (FDR ≤ {deep_analysis.fdr_threshold}, "
+              f"|ΔΨ| ≥ {deep_analysis.delta_psi_min}) or <b>non-significant</b> (all others). "
+              "Splice features are compared between the two groups using:", "body"),
+            p("• <b>Welch's t-test</b> (unequal variances, two-tailed): mean ΔΨ, exon size, PPT score", "body"),
+            p("• <b>Two-proportion z-test</b> (two-tailed): canonical GT/AG rates, in-frame proportion, "
+              "branch-point detection rate", "body"),
+            p("Welch-Satterthwaite degrees of freedom are used for the t-distribution. "
+              "No multiple-testing correction is applied within the comparison (7 tests); "
+              "the user should interpret results in light of the number of comparisons.", "body"),
+            p("<b>7. Permutation Test</b>", "h3"),
+            p("For each significant SE event, sample labels are randomly permuted (keeping "
+              "group sizes fixed) to build a null distribution of ΔΨ. The empirical two-tailed "
+              "p-value equals the fraction of permuted |ΔΨ| values ≥ the observed |ΔΨ|, "
+              "plus one (Phipson &amp; Smyth, 2010). The test is run at multiple iteration "
+              "counts (50, 100, 250, 500) to assess convergence.", "body"),
+        ]
+    story.append(sp())
 
     # ── Appendix B — References ──────────────────────────────────────────────
     story += [
         p("Appendix B — Bibliographic References", "h2"),
         hr(),
         p("[1] Shen S et al. <i>rMATS: robust and flexible detection of differential "
-          "alternative splicing from replicate RNA-Seq data.</i> PNAS. 2014.", "body"),
+          "alternative splicing from replicate RNA-Seq data.</i> PNAS. 2014;111(51):E5593-E5601.", "body"),
         p("[2] Schneider TD, Stephens RM. <i>Sequence logos: a new way to display "
           "consensus sequences.</i> Nucleic Acids Res. 1990;18(20):6097-6100.", "body"),
-        p("[3] Burge C, Karlin S. <i>Prediction of complete gene structures in human "
+        p("[3] Crooks GE, Hon G, Chandonia JM, Brenner SE. <i>WebLogo: a sequence logo "
+          "generator.</i> Genome Research. 2004;14(6):1188-1190.", "body"),
+        p("[4] Schneider TD, Stormo GD, Gold L, Ehrenfeucht A. <i>Information content "
+          "of binding sites on nucleotide sequences.</i> J Mol Biol. 1986;188(3):415-431.", "body"),
+        p("[5] Burge C, Karlin S. <i>Prediction of complete gene structures in human "
           "genomic DNA.</i> J Mol Biol. 1997;268(1):78-94.", "body"),
-        p("[4] Shapiro MB, Senapathy P. <i>RNA splice junctions of different classes "
+        p("[6] Shapiro MB, Senapathy P. <i>RNA splice junctions of different classes "
           "of eukaryotes: sequence statistics and functional implications in gene "
           "expression.</i> Nucleic Acids Res. 1987;15(17):7155-7174.", "body"),
-        p("[5] Ensembl REST API: https://rest.ensembl.org", "body"),
-        p("[6] MANE Select: Morales J et al. <i>A joint NCBI and EMBL-EBI "
-          "transcript set for clinical genomics and research.</i> Nature. 2022.", "body"),
-        p("[7] Gene Ontology Consortium. <i>The Gene Ontology resource.</i> "
-          "Nucleic Acids Res. 2021.", "body"),
-        p("[8] Szklarczyk D et al. <i>STRING v12: protein–protein association "
-          "networks with increased coverage.</i> Nucleic Acids Res. 2023.", "body"),
-        p("[9] Coolidge CJ, Seely RJ, Bhatt H. <i>Functional analysis of the "
-          "polypyrimidine tract in pre-mRNA splicing.</i> Nucleic Acids Res. 1997.", "body"),
-        p("[10] Padgett RA et al. <i>Lariat RNAs as intermediates and products in the "
-          "splicing of messenger RNA precursors.</i> Science. 1984.", "body"),
+        p("[7] Morales J et al. <i>A joint NCBI and EMBL-EBI transcript set for "
+          "clinical genomics and research.</i> Nature. 2022;604:310-315.", "body"),
+        p("[8] Cunningham F et al. <i>Ensembl 2022.</i> Nucleic Acids Res. "
+          "2022;50(D1):D988-D995.", "body"),
+        p("[9] Gene Ontology Consortium. <i>The Gene Ontology resource: enriching a "
+          "GOld mine.</i> Nucleic Acids Res. 2021;49(D1):D331-D338.", "body"),
+        p("[10] Szklarczyk D et al. <i>The STRING database in 2023: protein–protein "
+          "association networks with increased coverage.</i> Nucleic Acids Res. "
+          "2023;51(D1):D483-D489.", "body"),
+        p("[11] Coolidge CJ, Seely RJ, Bhatt H. <i>Functional analysis of the "
+          "polypyrimidine tract in pre-mRNA splicing.</i> Nucleic Acids Res. "
+          "1997;25(4):888-896.", "body"),
+        p("[12] Padgett RA et al. <i>Lariat RNAs as intermediates and products in the "
+          "splicing of messenger RNA precursors.</i> Science. 1984;225(4665):898-903.", "body"),
         sp(),
     ]
 
@@ -1104,36 +1432,50 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
     story += [
         p("Appendix C — Statistical Methods", "h2"),
         hr(),
-        p("<b>Splicing Event Statistic (rMATS)</b>", "h3"),
+        p("<b>C.1 Splicing Event Statistics (rMATS)</b>", "h3"),
         p("rMATS computes for each event:", "body"),
-        p("• <b>ΔΨ (delta-PSI)</b>: inclusion difference between the two "
-          "conditions (Group 2 − Group 1). Ranges from −1 to +1.", "body"),
-        p("• <b>p-value</b>: based on a Bayesian permutation test or a t-test "
-          "on replicates.", "body"),
-        p("• <b>FDR</b>: Benjamini-Hochberg correction applied across all "
-          "p-values of the analysis. Canonical threshold: FDR &lt; 0.05.", "body"),
-        p("<b>Motif Analysis (rMATS-Viz)</b>", "h3"),
-        p("• <b>PWM (Position Weight Matrix)</b>: computed over all 5'SS (9 nt) "
-          "and 3'SS (23 nt) sequences from analysed SE events. Each position is "
-          "normalised to base frequencies (A, C, G, T).", "body"),
-        p("• <b>Information content</b>: IC = 2 − H(p) bits per position, "
-          "where H(p) is the Shannon entropy. Sequence logos follow the WebLogo "
-          "convention (Schneider &amp; Stephens, 1990).", "body"),
-        p("• <b>PPT score</b>: fraction of pyrimidine nucleotides (C, T) in "
-          "the ~47 nt window upstream of the acceptor site.", "body"),
-        p("<b>Deep Analysis — Statistical Tests</b>", "h3"),
-        p("Events are separated into significant and non-significant groups "
-          "based on user-defined FDR and |ΔΨ| thresholds. The following tests "
-          "compare splice features between groups:", "body"),
-        p("• <b>Welch's t-test</b> (unequal variances): compares mean ΔΨ, exon size, "
-          "and PPT score between groups.", "body"),
-        p("• <b>Two-proportion z-test</b>: compares rates of canonical GT, canonical AG, "
-          "in-frame exons, and branch-point detection between groups.", "body"),
-        p("P-values are two-tailed. Welch-Satterthwaite degrees of freedom are used "
-          "for the t-distribution approximation. The regularised incomplete beta function "
-          "is computed via Lentz's continued fraction algorithm.", "body"),
-        sp(),
+        p("• <b>ΔΨ (delta-PSI)</b>: ΔΨ = Ψ<sub>sample1</sub> − Ψ<sub>sample2</sub>, "
+          "where Ψ is the percent spliced in (PSI). Range: [−1, +1].", "body"),
+        p("• <b>p-value</b>: likelihood-ratio test comparing a model with ΔΨ ≠ 0 "
+          "against a null model (ΔΨ = 0), using a multivariate uniform prior "
+          "on the individual sample PSI values.", "body"),
+        p("• <b>FDR</b>: Benjamini-Hochberg correction across all events.", "body"),
+        p("<b>C.2 Sequence Logos</b>", "h3"),
+        p("The information content R<sub>i</sub> at position i is:", "body"),
+        p("&nbsp;&nbsp;&nbsp;R<sub>i</sub> = log<sub>2</sub>(s) − H<sub>i</sub> − e<sub>n</sub>", "code"),
+        p("where s = 4 (DNA alphabet), H<sub>i</sub> = −Σ<sub>b</sub> f(b,i)·log<sub>2</sub> f(b,i) "
+          "is the Shannon entropy at position i, and e<sub>n</sub> = (s−1)/(2·ln2·n) is the "
+          "small-sample correction (Schneider et al., 1986). "
+          "The height of each letter b at position i is: height(b,i) = f(b,i) × R<sub>i</sub>. "
+          "This standard is consistent with WebLogo 3 (Crooks et al., 2004) and "
+          "seqLogo (Bioconductor).", "body"),
+        p("<b>C.3 PPT Score</b>", "h3"),
+        p("The polypyrimidine tract (PPT) score is the fraction of pyrimidine "
+          "nucleotides (C, T) in the ~47 nt window upstream of the acceptor site. "
+          "The branch point is detected by matching the YNYURAY motif within the "
+          "PPT window (Coolidge et al., 1997).", "body"),
     ]
+    if is_deep:
+        story += [
+            p("<b>C.4 Deep Analysis Statistical Tests</b>", "h3"),
+            p("Events are split into significant and non-significant groups. "
+              "The following two-tailed tests compare splice features:", "body"),
+            p("• <b>Welch's t-test</b>: for continuous features (mean ΔΨ, exon size, "
+              "PPT score). Uses Welch-Satterthwaite approximation for degrees of "
+              "freedom: ν = (s₁²/n₁ + s₂²/n₂)² / [(s₁²/n₁)²/(n₁−1) + (s₂²/n₂)²/(n₂−1)].", "body"),
+            p("• <b>Two-proportion z-test</b>: for proportions (canonical GT, canonical AG, "
+              "in-frame %, branch-point detection). "
+              "z = (p̂₁ − p̂₂) / √[p̂(1−p̂)(1/n₁ + 1/n₂)] where p̂ is the pooled proportion.", "body"),
+            p("All p-values are two-tailed. The regularised incomplete beta function "
+              "is computed via Lentz's continued fraction algorithm for the t-distribution CDF.", "body"),
+            p("<b>C.5 Permutation Test</b>", "h3"),
+            p("For each significant SE event, sample-label permutation generates a null ΔΨ "
+              "distribution.  The empirical p-value is: p = (r + 1) / (K + 1), where r is "
+              "the number of permuted |ΔΨ| ≥ observed |ΔΨ| and K is the number of iterations.  "
+              "The +1 correction avoids p = 0 (Phipson &amp; Smyth, 2010).  "
+              "The test is run at 50, 100, 250 and 500 iterations to demonstrate convergence.", "body"),
+        ]
+    story.append(sp())
 
     doc.build(story)
     return buf.getvalue()
@@ -1144,17 +1486,52 @@ async def export_analysis_pdf(
     analysis_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    """Generate a PDF analysis report for *analysis_id*."""
+    """Generate a PDF analysis report for *analysis_id* (all events)."""
 
-    analysis = await db.get(Analysis, analysis_id)
-    if not analysis:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+    analysis, group1_label, group2_label = await _get_analysis_with_groups(db, analysis_id)
+    events, features = await _load_events_and_features(db, analysis_id)
 
-    result = await db.execute(
-        select(SplicingEvent).where(SplicingEvent.analysis_id == analysis_id)
+    pdf_bytes = await asyncio.to_thread(_build_pdf, analysis, events, features, group1_label, group2_label)
+
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="rmats_{analysis_id}.pdf"'
+        },
     )
-    events: list[SplicingEvent] = list(result.scalars().all())
 
+
+@router.get("/{analysis_id}/deep-analysis/{deep_analysis_id}/pdf")
+async def export_deep_analysis_pdf(
+    analysis_id: uuid.UUID,
+    deep_analysis_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Generate a PDF report scoped to a deep analysis (filtered events + comparison)."""
+    from app.models.deep_analysis import DeepAnalysis, DeepAnalysisEvent
+    from app.routers.deep_analyses import _compute_group_stats, _compute_stat_tests
+
+    analysis, group1_label, group2_label = await _get_analysis_with_groups(db, analysis_id)
+
+    # Fetch deep analysis record
+    deep = (await db.execute(
+        select(DeepAnalysis).where(DeepAnalysis.id == deep_analysis_id)
+    )).scalar_one_or_none()
+    if not deep:
+        raise HTTPException(status_code=404, detail="Deep analysis not found")
+
+    # Fetch all events tagged in this deep analysis
+    q = (
+        select(SplicingEvent, DeepAnalysisEvent.is_significant)
+        .join(DeepAnalysisEvent, DeepAnalysisEvent.event_id == SplicingEvent.id)
+        .where(DeepAnalysisEvent.deep_analysis_id == deep_analysis_id)
+    )
+    rows = (await db.execute(q)).all()
+    events = [ev for ev, _ in rows]
+    sig_map = {ev.id: is_sig for ev, is_sig in rows}
+
+    # Fetch splice features for SE events
     se_event_ids = [e.id for e in events if e.event_type == "SE"]
     features: dict[uuid.UUID, EventSpliceFeature] = {}
     if se_event_ids:
@@ -1164,12 +1541,56 @@ async def export_analysis_pdf(
         for feat in feat_result.scalars().all():
             features[feat.event_id] = feat
 
-    pdf_bytes = await asyncio.to_thread(_build_pdf, analysis, events, features)
+    # Compute pattern comparison (reusing deep_analyses helpers)
+    sig_feats = [features[eid] for eid in se_event_ids if sig_map.get(eid) and eid in features]
+    nonsig_feats = [features[eid] for eid in se_event_ids if not sig_map.get(eid) and eid in features]
+    sig_events = [e for e in events if e.event_type == "SE" and sig_map.get(e.id)]
+    nonsig_events = [e for e in events if e.event_type == "SE" and not sig_map.get(e.id)]
+
+    stat_tests = _compute_stat_tests(sig_events, sig_feats, nonsig_events, nonsig_feats)
+
+    comparison = {
+        "significant": _compute_group_stats(sig_events, sig_feats).model_dump(),
+        "not_significant": _compute_group_stats(nonsig_events, nonsig_feats).model_dump(),
+        "statistical_tests": [
+            {"feature": t.feature, "test_name": t.test_name,
+             "statistic": t.statistic, "p_value": t.p_value, "significant": t.significant}
+            for t in stat_tests
+        ],
+    }
+
+    # ── Permutation test (single run at 500 iterations) ─────────────────
+    from app.services.permutation import run_permutation
+
+    # Build parallel feature list aligned with sig_events
+    sig_features_list = [features.get(e.id) for e in sig_events]
+    permutation_table: list[dict] = []
+    if sig_events:
+        perm_res = await asyncio.to_thread(
+            run_permutation,
+            sig_events,
+            sig_features_list,
+            n_iterations=500,
+            only_se=True,
+            seed=42,
+        )
+        permutation_table.append({
+            "iterations": 500,
+            "n_tested": perm_res.n_events_tested,
+            "pct_p05": perm_res.pct_p05,
+            "pct_p01": perm_res.pct_p01,
+        })
+
+    pdf_bytes = await asyncio.to_thread(
+        _build_pdf, analysis, events, features, group1_label, group2_label,
+        deep_analysis=deep, comparison=comparison,
+        sig_map=sig_map, permutation_table=permutation_table,
+    )
 
     return StreamingResponse(
         BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="rmats_{analysis_id}.pdf"'
+            "Content-Disposition": f'attachment; filename="rmats_deep_{deep_analysis_id}.pdf"'
         },
     )

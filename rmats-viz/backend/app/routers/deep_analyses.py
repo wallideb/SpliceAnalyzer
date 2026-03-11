@@ -15,14 +15,10 @@ import math
 import statistics
 import uuid
 from collections import Counter
-from datetime import datetime
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select, and_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.analysis import Analysis
@@ -77,12 +73,11 @@ async def create_deep_analysis(
 
     for event_id, fdr, inc_level_diff in rows:
         fdr_ok = fdr is not None and fdr <= body.fdr_threshold
-        pval_ok = True  # p-value filter is optional
         dpsi_ok = (
             inc_level_diff is not None
             and abs(inc_level_diff) >= body.delta_psi_min
         )
-        is_sig = fdr_ok and pval_ok and dpsi_ok
+        is_sig = fdr_ok and dpsi_ok
 
         if is_sig:
             n_sig += 1

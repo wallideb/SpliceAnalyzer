@@ -124,6 +124,7 @@ export interface PermutationResponse {
   analysis_id: string;
   n_iterations: number;
   n_events_tested: number;
+  n_total_events: number;
   events: EventPermResult[];
   global_null_hist_bins: number[];
   global_null_hist_counts: number[];

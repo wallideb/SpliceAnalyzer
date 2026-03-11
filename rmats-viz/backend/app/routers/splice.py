@@ -389,11 +389,55 @@ async def get_splice_feature(event_id: uuid.UUID):
             select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
         )
         feat = feat_res.scalar_one_or_none()
+
+        # If feature exists AND already has MANE data (or gene_id is missing),
+        # return immediately.  Otherwise retry MANE lookup.
         if feat is not None:
-            return _feat_to_response(feat, event)
+            has_mane = feat.mane_transcript_id is not None
+            can_retry_mane = (not has_mane) and bool(event.gene_id)
+            if not can_retry_mane:
+                return _feat_to_response(feat, event)
+            # Retry MANE in background — return current data but schedule update
+            _retry_event = event   # snapshot for closure
     # ── session closed — connection returned to pool ─────────────────────
 
     # ── 2. Slow I/O (no DB held): samtools / Ensembl / MANE ─────────────
+    if feat is not None:
+        # Retry MANE only (sequences already computed)
+        try:
+            mane = await asyncio.to_thread(
+                annotate_mane,
+                _retry_event.gene_id,
+                _retry_event.chr or "",
+                _retry_event.strand or "+",
+                _retry_event.exon_start or 0,
+                _retry_event.exon_end or 0,
+            )
+            if mane.get("transcript_id"):
+                async with AsyncSessionLocal() as db:
+                    from sqlalchemy import update
+                    await db.execute(
+                        update(EventSpliceFeature)
+                        .where(EventSpliceFeature.event_id == event_id)
+                        .values(
+                            mane_transcript_id=mane["transcript_id"],
+                            exon_rank=mane.get("exon_rank"),
+                            frame_region=mane.get("frame_region", "unknown"),
+                            frame_class=mane.get("frame_class") or feat.frame_class,
+                            cds_exon_length=mane.get("cds_exon_length"),
+                        )
+                    )
+                    await db.commit()
+                    # Re-read updated feature
+                    feat_res = await db.execute(
+                        select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
+                    )
+                    feat = feat_res.scalar_one()
+                    return _feat_to_response(feat, _retry_event)
+        except Exception as exc:
+            logger.debug("MANE retry failed for %s: %s", event_id, exc)
+        return _feat_to_response(feat, _retry_event)
+
     fa_ok = fasta_available()
     feat_data, mane, seq_source = await _fetch_features(event, fa_ok)
 
@@ -682,6 +726,8 @@ async def get_mane_transcript(
 async def run_permutation_test(
     analysis_id: uuid.UUID,
     n_iterations: int = 500,
+    fdr_threshold: float | None = None,
+    delta_psi_min: float | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Run a permutation test for all SE events of an analysis.
@@ -692,7 +738,9 @@ async def run_permutation_test(
 
     Parameters
     ----------
-    n_iterations : number of permutation iterations (default 500, max 2000).
+    n_iterations   : number of permutation iterations (default 500, max 2000).
+    fdr_threshold  : optional FDR threshold to count significant events (from deep analysis).
+    delta_psi_min  : optional |ΔΨ| minimum to count significant events (from deep analysis).
 
     Response
     --------
@@ -729,10 +777,23 @@ async def run_permutation_test(
         run_permutation, se_events, features_list, n_iterations
     )
 
+    # Count significant events using deep analysis thresholds (if provided)
+    n_total = perm_result.n_events_tested
+    if fdr_threshold is not None and delta_psi_min is not None:
+        n_sig = sum(
+            1 for ev in se_events
+            if ev.fdr is not None and ev.fdr <= fdr_threshold
+            and ev.inc_level_difference is not None
+            and abs(ev.inc_level_difference) >= delta_psi_min
+        )
+    else:
+        n_sig = n_total
+
     return PermutationResponse(
         analysis_id             = str(analysis_id),
         n_iterations            = perm_result.n_iterations,
-        n_events_tested         = perm_result.n_events_tested,
+        n_events_tested         = n_sig,
+        n_total_events          = n_total,
         events                  = [
             {
                 "event_id":           r.event_id,

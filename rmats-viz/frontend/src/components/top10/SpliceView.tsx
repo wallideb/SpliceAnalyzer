@@ -38,9 +38,13 @@ function meanPsi(s: string | null | undefined): number | null {
 export function SpliceView({
   event: ev,
   analysisId,
+  group1Label,
+  group2Label,
 }: {
   event: SplicingEvent;
   analysisId?: string;
+  group1Label?: string;
+  group2Label?: string;
 }) {
   const t = useT();
   const qc = useQueryClient();
@@ -184,6 +188,8 @@ export function SpliceView({
         pptSeq={data.ppt_seq ?? null}
         bpFound={data.bp_motif_found ?? null}
         bpDistance={data.bp_distance ?? null}
+        group1Label={group1Label}
+        group2Label={group2Label}
       />
       </ZoomableContainer>
       </div>

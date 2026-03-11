@@ -3,7 +3,7 @@ import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getAnalysis, listEvents, downloadAnalysisExcel, downloadAnalysisPDF, getManhattanData } from "@/lib/api";
+import { getAnalysis, listEvents, downloadAnalysisExcel, getManhattanData } from "@/lib/api";
 import { EventsTable } from "@/components/events/EventsTable";
 import { ManhattanPlot } from "@/components/events/ManhattanPlot";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
@@ -45,7 +45,6 @@ export default function AnalysisDetailPage() {
   const [dpsiSlider, setDpsiSlider] = useState(0);
 
   const [isExporting, setIsExporting] = useState(false);
-  const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [showExcelModal, setShowExcelModal] = useState(false);
   const [showIncLevel, setShowIncLevel] = useState(false);
 
@@ -112,16 +111,6 @@ export default function AnalysisDetailPage() {
     }
   }, [id, t]);
 
-  const handleExportPDF = useCallback(async () => {
-    setIsExportingPDF(true);
-    try {
-      await downloadAnalysisPDF(id);
-    } catch {
-      alert(t("analysisDetail.pdfError"));
-    } finally {
-      setIsExportingPDF(false);
-    }
-  }, [id]);
 
   return (
     <div className="flex gap-6 items-start">
@@ -205,14 +194,6 @@ export default function AnalysisDetailPage() {
           >
             {isExporting ? <SpinnerIcon /> : <DownloadIcon />}
             {isExporting ? "Export…" : t("analysisDetail.excel")}
-          </button>
-          <button
-            onClick={handleExportPDF}
-            disabled={isExportingPDF}
-            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg disabled:opacity-50 transition-colors"
-          >
-            {isExportingPDF ? <SpinnerIcon /> : <DownloadIcon />}
-            {isExportingPDF ? "PDF…" : t("analysisDetail.pdf")}
           </button>
           <Link
             href={`/analyses/${id}/deep-analysis`}
@@ -329,6 +310,7 @@ export default function AnalysisDetailPage() {
             noFilterLabel={t("analysisDetail.filters.noFilter")}
             max={100}
             ticks={["1", "0.1", "0.01", "1e-5", "1e-10"]}
+            tickPositions={[0, 10, 20, 50, 100]}
           />
           <StatSlider
             label="p-value max"
@@ -338,6 +320,7 @@ export default function AnalysisDetailPage() {
             noFilterLabel={t("analysisDetail.filters.noFilter")}
             max={100}
             ticks={["1", "0.1", "0.01", "1e-5", "1e-10"]}
+            tickPositions={[0, 10, 20, 50, 100]}
           />
           <StatSlider
             label="|ΔPSI| min"
@@ -346,7 +329,8 @@ export default function AnalysisDetailPage() {
             displayValue={dpsiSlider > 0 ? `≥ ${dpsiSliderToValue(dpsiSlider).toFixed(2)}` : undefined}
             noFilterLabel={t("analysisDetail.filters.noFilter")}
             max={100}
-            ticks={["0", "0.1", "0.25", "0.5", "1"]}
+            ticks={["0", "0.10", "0.25", "0.50", "1.00"]}
+            tickPositions={[0, 10, 25, 50, 100]}
             accentClass="accent-violet-600"
             logScale={false}
           />
@@ -470,6 +454,7 @@ function StatSlider({
   noFilterLabel,
   max,
   ticks,
+  tickPositions,
   accentClass = "accent-blue-600",
   /** If true, use log scale (FDR/p-value). If false, use linear (ΔPSI). */
   logScale = true,
@@ -481,6 +466,8 @@ function StatSlider({
   noFilterLabel: string;
   max: number;
   ticks: string[];
+  /** Slider positions (0–max) where each tick label should appear. If omitted, ticks are spread evenly. */
+  tickPositions?: number[];
   accentClass?: string;
   logScale?: boolean;
 }) {
@@ -568,11 +555,25 @@ function StatSlider({
         style={{ "--val": `${pct}%` } as React.CSSProperties}
       />
 
-      <div className="flex justify-between text-[10px] text-muted-foreground/60 select-none">
-        {ticks.map((tk, i) => (
-          <span key={i} className="text-center">{tk}</span>
-        ))}
-      </div>
+      {tickPositions ? (
+        <div className="relative h-3 text-[10px] text-muted-foreground/60 select-none">
+          {ticks.map((tk, i) => (
+            <span
+              key={i}
+              className="absolute text-center"
+              style={{ left: `${(tickPositions[i] / max) * 100}%`, transform: "translateX(-50%)" }}
+            >
+              {tk}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="flex justify-between text-[10px] text-muted-foreground/60 select-none">
+          {ticks.map((tk, i) => (
+            <span key={i} className="text-center">{tk}</span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

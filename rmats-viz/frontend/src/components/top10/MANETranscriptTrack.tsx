@@ -125,11 +125,6 @@ function TranscriptDiagram({
         <code className="text-[9px] text-blue-500 dark:text-blue-400 font-mono">
           {transcriptId}
         </code>
-        {strand && (
-          <span className="text-[9px] text-muted-foreground font-mono">
-            {strand === "+" ? "5′→3′ (+)" : "3′←5′ (−)"}
-          </span>
-        )}
       </div>
 
       <div style={{ overflowX: "auto" }}>

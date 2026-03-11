@@ -546,6 +546,8 @@ export const en = {
     exonRank: "Exon rank: {{n}}",
     psiGroup1: "PSI group 1 (mean): {{v}}",
     psiGroup2: "PSI group 2 (mean): {{v}}",
+    psiGroup1Label: "group 1",
+    psiGroup2Label: "group 2",
     donor5ssCanonical: "5′SS donor site — canonical GT",
     donor5ssNonGt: "5′SS donor site ⚠ non-GT",
     donor5ss: "5′SS donor site",

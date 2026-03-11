@@ -720,7 +720,7 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
         </div>
         {/* Diagramme plein format */}
         <div className="px-2 py-3">
-          <SpliceView event={ev} analysisId={analysisId} />
+          <SpliceView event={ev} analysisId={analysisId} group1Label={group1Label} group2Label={group2Label} />
         </div>
       </div>
     );

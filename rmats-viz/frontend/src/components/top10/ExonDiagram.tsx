@@ -51,6 +51,8 @@ export interface ExonDiagramProps {
   pptSeq?: string | null;
   bpFound?: boolean | null;
   bpDistance?: number | null;
+  group1Label?: string;
+  group2Label?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +285,8 @@ export function ExonDiagram({
   pptSeq,
   bpFound,
   bpDistance,
+  group1Label,
+  group2Label,
 }: ExonDiagramProps) {
   const t = useT();
 
@@ -312,8 +316,8 @@ export function ExonDiagram({
     fdr !== null              ? `FDR: ${fmtPval(fdr)}`                                                    : null,
     incLevelDifference !== null ? `ΔΨ: ${fmtDelta(incLevelDifference)}`                                   : null,
     pValue !== null           ? `p-value: ${fmtPval(pValue)}`                                             : null,
-    psi1 != null              ? t("exonDiagram.psiGroup1", { v: psi1.toFixed(3) })                        : null,
-    psi2 != null              ? t("exonDiagram.psiGroup2", { v: psi2.toFixed(3) })                        : null,
+    psi1 != null              ? `PSI ${group1Label ?? t("exonDiagram.psiGroup1Label")} (mean): ${psi1.toFixed(3)}` : null,
+    psi2 != null              ? `PSI ${group2Label ?? t("exonDiagram.psiGroup2Label")} (mean): ${psi2.toFixed(3)}` : null,
   ].filter(Boolean).join("\n");
 
   const skipTooltip = [

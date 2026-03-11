@@ -551,6 +551,8 @@ export const fr: Translations = {
     exonRank: "Rang exon : {{n}}",
     psiGroup1: "PSI groupe 1 (moy.) : {{v}}",
     psiGroup2: "PSI groupe 2 (moy.) : {{v}}",
+    psiGroup1Label: "groupe 1",
+    psiGroup2Label: "groupe 2",
     donor5ssCanonical: "Site donneur 5'SS — GT canonique",
     donor5ssNonGt: "Site donneur 5'SS ⚠ non-GT",
     donor5ss: "Site donneur 5'SS",

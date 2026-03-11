@@ -112,7 +112,7 @@ export function ZoomableContainer({
   return (
     <div
       ref={containerRef}
-      className={`relative overflow-hidden ${className}`}
+      className={`relative ${className}`}
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -122,22 +122,28 @@ export function ZoomableContainer({
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onDoubleClick={reset}
-      style={{ cursor: isZoomed ? "grab" : undefined, touchAction: "pan-x pan-y" }}
+      style={{
+        cursor: isZoomed ? "grab" : undefined,
+        touchAction: "pan-x pan-y",
+        overflow: isZoomed ? "hidden" : "visible",
+      }}
     >
       <div
         style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: "center center",
           transition: dragRef.current ? undefined : "transform 0.15s ease-out",
+          /* Extra padding prevents edge clipping for SVG overflow:visible content */
+          padding: "4px 8px",
         }}
       >
         {children}
       </div>
 
-      {/* Zoom indicator badge */}
+      {/* Zoom indicator badge — larger hit targets */}
       {isZoomed && (
         <div className="absolute top-2 right-2 flex items-center gap-1.5 z-10">
-          <span className="text-[10px] font-bold text-muted-foreground bg-card/90 backdrop-blur-sm border border-border rounded px-1.5 py-0.5 tabular-nums">
+          <span className="text-[10px] font-bold text-muted-foreground bg-card/90 backdrop-blur-sm border border-border rounded px-2 py-1 tabular-nums">
             {zoom.toFixed(1)}x
           </span>
           <button
@@ -145,7 +151,7 @@ export function ZoomableContainer({
               e.stopPropagation();
               reset();
             }}
-            className="text-[9px] text-muted-foreground hover:text-foreground bg-card/90 backdrop-blur-sm border border-border rounded px-1.5 py-0.5 transition-colors"
+            className="text-[10px] text-muted-foreground hover:text-foreground bg-card/90 backdrop-blur-sm border border-border rounded px-2 py-1 transition-colors min-w-[28px] text-center"
             title="Reset zoom"
           >
             1:1

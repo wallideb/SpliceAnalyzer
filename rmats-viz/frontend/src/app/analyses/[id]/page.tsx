@@ -3,7 +3,7 @@ import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getAnalysis, listEvents, downloadAnalysisExcel, downloadAnalysisPDF, getManhattanData } from "@/lib/api";
+import { getAnalysis, listEvents, downloadAnalysisExcel, getManhattanData } from "@/lib/api";
 import { EventsTable } from "@/components/events/EventsTable";
 import { ManhattanPlot } from "@/components/events/ManhattanPlot";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
@@ -45,7 +45,6 @@ export default function AnalysisDetailPage() {
   const [dpsiSlider, setDpsiSlider] = useState(0);
 
   const [isExporting, setIsExporting] = useState(false);
-  const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [showExcelModal, setShowExcelModal] = useState(false);
   const [showIncLevel, setShowIncLevel] = useState(false);
 
@@ -112,16 +111,6 @@ export default function AnalysisDetailPage() {
     }
   }, [id, t]);
 
-  const handleExportPDF = useCallback(async () => {
-    setIsExportingPDF(true);
-    try {
-      await downloadAnalysisPDF(id);
-    } catch {
-      alert(t("analysisDetail.pdfError"));
-    } finally {
-      setIsExportingPDF(false);
-    }
-  }, [id]);
 
   return (
     <div className="flex gap-6 items-start">
@@ -205,14 +194,6 @@ export default function AnalysisDetailPage() {
           >
             {isExporting ? <SpinnerIcon /> : <DownloadIcon />}
             {isExporting ? "Export…" : t("analysisDetail.excel")}
-          </button>
-          <button
-            onClick={handleExportPDF}
-            disabled={isExportingPDF}
-            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg disabled:opacity-50 transition-colors"
-          >
-            {isExportingPDF ? <SpinnerIcon /> : <DownloadIcon />}
-            {isExportingPDF ? "PDF…" : t("analysisDetail.pdf")}
           </button>
           <Link
             href={`/analyses/${id}/deep-analysis`}

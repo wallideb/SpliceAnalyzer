@@ -35,6 +35,10 @@ interface SpliceSequenceLogoProps {
   colWidth?: number;
   /** Max logo height in px */
   maxHeight?: number;
+  /** Position number assigned to the first column (e.g. -3 for donor, -20 for acceptor). Default 1. */
+  startPosition?: number;
+  /** If true, skip position 0 in the numbering (splice-site convention). Default false. */
+  skipZero?: boolean;
 }
 
 function entropy(row: PWMRow): number {
@@ -45,11 +49,20 @@ function entropy(row: PWMRow): number {
   }, 0);
 }
 
+/** Position number for column index i, skipping zero if requested. */
+function posNum(i: number, start: number, skip0: boolean): number {
+  let pos = start + i;
+  if (skip0 && pos >= 0) pos += 1;
+  return pos;
+}
+
 export function SpliceSequenceLogo({
   pwm,
   highlight = [],
   colWidth = 18,
   maxHeight = 48,
+  startPosition = 1,
+  skipZero = false,
 }: SpliceSequenceLogoProps) {
   if (!pwm.length) return null;
 
@@ -136,7 +149,7 @@ export function SpliceSequenceLogo({
               fill="#94a3b8"
               fontFamily="monospace"
             >
-              {posIdx + 1}
+              {(() => { const p = posNum(posIdx, startPosition, skipZero); return p > 0 ? `+${p}` : p; })()}
             </text>
           </g>
         );

@@ -15,14 +15,10 @@ import math
 import statistics
 import uuid
 from collections import Counter
-from datetime import datetime
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select, and_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.analysis import Analysis

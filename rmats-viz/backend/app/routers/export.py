@@ -1513,7 +1513,7 @@ async def export_deep_analysis_pdf(
 ) -> StreamingResponse:
     """Generate a PDF report scoped to a deep analysis (filtered events + comparison)."""
     from app.models.deep_analysis import DeepAnalysis, DeepAnalysisEvent
-    from app.services.splice_features import compute_pwm, iupac_consensus
+    from app.routers.deep_analyses import _compute_group_stats, _compute_stat_tests
 
     analysis, group1_label, group2_label = await _get_analysis_with_groups(db, analysis_id)
 
@@ -1544,52 +1544,17 @@ async def export_deep_analysis_pdf(
         for feat in feat_result.scalars().all():
             features[feat.event_id] = feat
 
-    # Compute pattern comparison (reusing deep_analyses logic inline)
+    # Compute pattern comparison (reusing deep_analyses helpers)
     sig_feats = [features[eid] for eid in se_event_ids if sig_map.get(eid) and eid in features]
     nonsig_feats = [features[eid] for eid in se_event_ids if not sig_map.get(eid) and eid in features]
     sig_events = [e for e in events if e.event_type == "SE" and sig_map.get(e.id)]
     nonsig_events = [e for e in events if e.event_type == "SE" and not sig_map.get(e.id)]
 
-    def _group_stats(evts, feats):
-        n_f = len(feats)
-        result = {
-            "n_events": len(evts),
-            "n_se_with_features": n_f,
-            "frame_in_frame": sum(1 for f in feats if f.frame_class == "in_frame"),
-            "frame_frameshift": sum(1 for f in feats if f.frame_class == "frameshift"),
-            "frame_non_coding": sum(1 for f in feats if f.frame_class == "non_coding"),
-        }
-        if n_f > 0:
-            gt = sum(1 for f in feats if f.donor_is_gt)
-            ag = sum(1 for f in feats if f.acceptor_is_ag)
-            result["pct_canonical_gt"] = gt / n_f * 100
-            result["pct_canonical_ag"] = ag / n_f * 100
-            bp = sum(1 for f in feats if f.bp_motif_found)
-            result["bp_found_pct"] = bp / n_f * 100
-            ppt = [f.ppt_score for f in feats if f.ppt_score is not None]
-            result["ppt_mean_score"] = _statistics.mean(ppt) if ppt else None
-            exsz = [f.exon_size for f in feats if f.exon_size is not None]
-            result["exon_size_mean"] = _statistics.mean(exsz) if exsz else None
-            result["exon_size_median"] = _statistics.median(exsz) if exsz else None
-            dpsi = [e.inc_level_difference for e in evts if e.inc_level_difference is not None]
-            result["mean_delta_psi"] = _statistics.mean(dpsi) if dpsi else None
-            # PWM
-            result["donor_pwm"] = compute_pwm([f.donor_seq[:9] for f in feats if f.donor_seq and len(f.donor_seq) >= 9])
-            result["acceptor_pwm"] = compute_pwm([f.acceptor_seq[:23] for f in feats if f.acceptor_seq and len(f.acceptor_seq) >= 23])
-        else:
-            for k in ["pct_canonical_gt", "pct_canonical_ag", "bp_found_pct",
-                       "ppt_mean_score", "exon_size_mean", "exon_size_median",
-                       "mean_delta_psi", "donor_pwm", "acceptor_pwm"]:
-                result[k] = None
-        return result
-
-    # Import stat test computation from deep_analyses router
-    from app.routers.deep_analyses import _compute_stat_tests
     stat_tests = _compute_stat_tests(sig_events, sig_feats, nonsig_events, nonsig_feats)
 
     comparison = {
-        "significant": _group_stats(sig_events, sig_feats),
-        "not_significant": _group_stats(nonsig_events, nonsig_feats),
+        "significant": _compute_group_stats(sig_events, sig_feats).model_dump(),
+        "not_significant": _compute_group_stats(nonsig_events, nonsig_feats).model_dump(),
         "statistical_tests": [
             {"feature": t.feature, "test_name": t.test_name,
              "statistic": t.statistic, "p_value": t.p_value, "significant": t.significant}

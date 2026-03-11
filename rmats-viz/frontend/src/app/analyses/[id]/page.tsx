@@ -78,15 +78,15 @@ export default function AnalysisDetailPage() {
     enabled: !!id,
   });
 
-  // Manhattan plot data (all events, lightweight)
+  const [showManhattan, setShowManhattan] = useState(false);
+
+  // Manhattan plot data – only fetch when panel is open (lazy-load)
   const { data: manhattanData = [], isLoading: loadingManhattan } = useQuery({
     queryKey: ["manhattan", id],
     queryFn: () => getManhattanData(id),
-    enabled: !!id,
+    enabled: !!id && showManhattan,
     staleTime: 5 * 60 * 1000, // 5 min cache
   });
-
-  const [showManhattan, setShowManhattan] = useState(false);
 
   const group1 = analysis?.sample_groups.find((g) => g.group_index === 1);
   const group2 = analysis?.sample_groups.find((g) => g.group_index === 2);

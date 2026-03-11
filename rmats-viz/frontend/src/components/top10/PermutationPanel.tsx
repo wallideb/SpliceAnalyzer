@@ -35,7 +35,7 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
   const MARGIN_B = 24;
   const SVG_H = MARGIN_T + CHART_H + MARGIN_B;
 
-  const maxCount = Math.max(...nullCounts, ...obsCounts, 1);
+  const maxNullCount = Math.max(...nullCounts, 1);
   const n = nullBins.length;
   const barW = Math.max(3, Math.floor(W / n) - 1);
 
@@ -47,25 +47,18 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
         style={{ maxWidth: W, minWidth: 360, display: "block" }}
         aria-label={t("permutation.results.nullDistribution")}
       >
+        {/* Null distribution bars (blue) */}
         {nullBins.map((bin, i) => {
-          const nullH  = Math.round((nullCounts[i]  / maxCount) * CHART_H);
-          const obsH   = Math.round(((obsCounts[i] ?? 0) / maxCount) * CHART_H);
+          const nullH = Math.round((nullCounts[i] / maxNullCount) * CHART_H);
           const x = i * (barW + 1);
           return (
             <g key={i}>
-              <title>{`ΔΨ ≈ ${bin.toFixed(2)} — H₀: ${nullCounts[i]}, obs: ${obsCounts[i] ?? 0}`}</title>
+              <title>{`ΔΨ ≈ ${bin.toFixed(2)} — H₀: ${nullCounts[i]}`}</title>
               <rect
                 x={x} y={MARGIN_T + CHART_H - nullH}
                 width={barW} height={nullH}
                 fill="#3b82f6" opacity={0.45}
               />
-              {(obsCounts[i] ?? 0) > 0 && (
-                <rect
-                  x={x} y={MARGIN_T + CHART_H - obsH}
-                  width={barW} height={obsH}
-                  fill="#f97316" opacity={0.7}
-                />
-              )}
               {i % 5 === 0 && (
                 <text
                   x={x + barW / 2} y={MARGIN_T + CHART_H + 14}
@@ -75,6 +68,29 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
                   {bin.toFixed(1)}
                 </text>
               )}
+            </g>
+          );
+        })}
+        {/* Observed ΔΨ as vertical dashed lines (orange) */}
+        {obsBins.map((bin, i) => {
+          if ((obsCounts[i] ?? 0) <= 0) return null;
+          const x = i * (barW + 1) + barW / 2;
+          return (
+            <g key={`obs-${i}`}>
+              <title>{`ΔΨ ≈ ${bin.toFixed(2)} — observed: ${obsCounts[i]}`}</title>
+              <line
+                x1={x} y1={MARGIN_T}
+                x2={x} y2={MARGIN_T + CHART_H}
+                stroke="#f97316" strokeWidth={1.5}
+                strokeDasharray="4 3" opacity={0.85}
+              />
+              <text
+                x={x} y={MARGIN_T - 2}
+                textAnchor="middle" fontSize={7}
+                fontFamily="monospace" fill="#f97316" fontWeight="600"
+              >
+                {obsCounts[i]}
+              </text>
             </g>
           );
         })}
@@ -88,7 +104,7 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
           {t("permutation.results.nullDistribution")} (permutations)
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block w-4 h-2.5 rounded-sm bg-orange-500/70" />
+          <span className="inline-block w-4 h-0.5 border-t-2 border-dashed border-orange-500" />
           ΔΨ {t("permutation.results.observedDeltaPsi").toLowerCase()}
         </span>
       </div>

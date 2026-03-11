@@ -932,6 +932,7 @@ def _build_pdf(
 
         Returns section_num + 1 for chaining.
         """
+        nonlocal story
         story.append(p(f"{section_num}. {section_title}", "h2"))
 
         se_evts = [e for e in subset_events if e.event_type == "SE"]

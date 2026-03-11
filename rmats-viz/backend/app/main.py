@@ -18,16 +18,18 @@ from app.routers import analyses, annotations, deep_analyses, events, export, ge
 
 logger = logging.getLogger(__name__)
 
-NCBI_CHR19_URL = (
-    "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/"
-    "GCF_000001405.39_GRCh38.p13/"
-    "GCF_000001405.39_GRCh38.p13_assembly_structure/"
-    "Primary_Assembly/assembled_chromosomes/FASTA/chr19.fna.gz"
+GRCH38_GENOME_URL = (
+    "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/"
+    "GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/"
+    "GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz"
 )
 
 
 def _setup_fasta() -> None:
-    """Download and index chr19 FASTA if not already present (runs inside container)."""
+    """Download and index full GRCh38 FASTA if not already present (runs inside container).
+
+    If the FASTA exists but the .fai index is missing, only the indexing step runs.
+    """
     fasta = settings.GRCH38_FASTA
     fai = fasta + ".fai"
 
@@ -38,25 +40,28 @@ def _setup_fasta() -> None:
     data_dir = os.path.dirname(fasta)
     os.makedirs(data_dir, exist_ok=True)
 
-    logger.info("Downloading chr19 FASTA from NCBI ...")
-    try:
-        req = urllib.request.Request(NCBI_CHR19_URL, headers={"User-Agent": "rmats-viz/1.0"})
-        with urllib.request.urlopen(req, timeout=300) as resp, open(fasta, "wb") as out_f:
-            # Stream-decompress: download .gz and write decompressed FASTA directly
-            with gzip.GzipFile(fileobj=resp) as gz_in:
-                shutil.copyfileobj(gz_in, out_f)
-    except Exception as exc:
-        logger.error("FASTA download/decompress failed: %s", exc)
-        # Clean up partial file
-        if os.path.isfile(fasta):
-            os.remove(fasta)
-        return
+    # Download only if the FASTA file itself is missing
+    if not os.path.isfile(fasta):
+        logger.info("Downloading full GRCh38 genome FASTA (~800 MB compressed) ...")
+        try:
+            req = urllib.request.Request(GRCH38_GENOME_URL, headers={"User-Agent": "rmats-viz/1.0"})
+            with urllib.request.urlopen(req, timeout=1800) as resp, open(fasta, "wb") as out_f:
+                with gzip.GzipFile(fileobj=resp) as gz_in:
+                    shutil.copyfileobj(gz_in, out_f)
+        except Exception as exc:
+            logger.error("FASTA download/decompress failed: %s", exc)
+            if os.path.isfile(fasta):
+                os.remove(fasta)
+            return
+        logger.info("Download complete.")
+    else:
+        logger.info("FASTA exists but index is missing — indexing only.")
 
     logger.info("Indexing with samtools faidx ...")
     try:
         subprocess.run(
             [settings.SAMTOOLS_BIN, "faidx", fasta],
-            check=True, timeout=120,
+            check=True, timeout=600,
         )
     except Exception as exc:
         logger.error("samtools faidx failed: %s", exc)
@@ -137,7 +142,7 @@ async def debug_fasta():
     if info["fasta_exists"] and info["fai_exists"] and info["samtools_rc"] == 0:
         try:
             r2 = subprocess.run(
-                [samtools_bin, "faidx", fasta, "NC_000019.10:1000000-1000010"],
+                [samtools_bin, "faidx", fasta, "chr19:1000000-1000010"],
                 capture_output=True, text=True, timeout=10,
             )
             info["faidx_test_rc"] = r2.returncode

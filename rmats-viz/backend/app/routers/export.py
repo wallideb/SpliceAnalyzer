@@ -825,6 +825,8 @@ def _build_pdf(
     *,
     deep_analysis=None,
     comparison=None,
+    sig_map: dict | None = None,
+    permutation_table: list[dict] | None = None,
 ) -> bytes:
     """Build PDF report.
 
@@ -835,6 +837,13 @@ def _build_pdf(
     comparison : dict | None
         Pattern comparison data with keys: "significant", "not_significant",
         "statistical_tests" — same shape as PatternComparisonResponse.
+    sig_map : dict | None
+        Mapping of event_id → bool (is_significant).  Used to build
+        the "Significant Events" section in deep-analysis reports.
+    permutation_table : list[dict] | None
+        ΔΨ permutation results at multiple iteration counts.
+        Each dict: {"iterations": int, "n_tested": int,
+                     "pct_p05": float, "pct_p01": float}.
     """
     global _FIG_NUM
     _FIG_NUM = 0
@@ -911,155 +920,178 @@ def _build_pdf(
         PageBreak(),
     ]
 
-    # ── 1. Summary ──────────────────────────────────────────────────────────
-    story.append(p("1. Analysis Summary", "h2"))
+    # ── Helper: build stats table + figures for a feature subset ──────────
+    def _add_stats_and_figures(
+        subset_features: dict,
+        subset_events: list,
+        section_num: int,
+        section_title: str,
+        include_figures: bool = True,
+    ) -> int:
+        """Append summary statistics table and (optionally) figures.
 
-    se_events = [e for e in events if e.event_type == "SE"]
-    type_counts: dict[str, int] = {}
-    for ev in events:
-        type_counts[ev.event_type] = type_counts.get(ev.event_type, 0) + 1
+        Returns section_num + 1 for chaining.
+        """
+        story.append(p(f"{section_num}. {section_title}", "h2"))
 
-    story += [
-        p(f"Total events: <b>{len(events)}</b>", "body"),
-        p(f"SE events: <b>{len(se_events)}</b> · "
-          f"RI: {type_counts.get('RI', 0)} · "
-          f"A3SS: {type_counts.get('A3SS', 0)} · "
-          f"A5SS: {type_counts.get('A5SS', 0)} · "
-          f"MXE: {type_counts.get('MXE', 0)}", "body"),
-    ]
+        se_evts = [e for e in subset_events if e.event_type == "SE"]
 
-    type_tbl = Table(
-        [["Type", "Event Count", "% of Total"]] +
-        [
-            [etype,
-             type_counts.get(etype, 0),
-             f"{type_counts.get(etype, 0) / max(len(events), 1) * 100:.1f}%"]
-            for etype in ["SE", "RI", "A3SS", "A5SS", "MXE"]
-        ] +
-        [["<b>Total</b>", f"<b>{len(events)}</b>", "<b>100%</b>"]],
-        colWidths=[4 * _cm, 4 * _cm, 4 * _cm],
-    )
-    type_tbl.setStyle(_tbl_style())
-    story += [sp(), type_tbl, sp()]
-
-    # SE-specific stats
-    if features:
-        n_feat = len(features)
-        n_gt   = sum(1 for f in features.values() if f.donor_is_gt is True)
-        n_ag   = sum(1 for f in features.values() if f.acceptor_is_ag is True)
-        n_if   = sum(1 for f in features.values() if f.frame_class == "in_frame")
-        n_fs   = sum(1 for f in features.values() if f.frame_class == "frameshift")
-        n_nc   = sum(1 for f in features.values() if f.frame_class == "non_coding")
-        n_bp   = sum(1 for f in features.values() if f.bp_motif_found is True)
-        ppt_scores = [f.ppt_score for f in features.values() if f.ppt_score is not None]
-        exon_sizes = [f.exon_size for f in features.values() if f.exon_size is not None]
-
-        story.append(p("SE Splice Feature Statistics:", "h3"))
-        stat_tbl = Table([
-            ["Metric", "Value"],
-            ["SE events with features", n_feat],
-            ["Canonical GT (5'SS)", f"{n_gt} / {n_feat} ({n_gt / n_feat * 100:.1f}%)" if n_feat else "—"],
-            ["Canonical AG (3'SS)", f"{n_ag} / {n_feat} ({n_ag / n_feat * 100:.1f}%)" if n_feat else "—"],
-            ["In-frame",   f"{n_if} ({n_if / n_feat * 100:.0f}%)" if n_feat else "—"],
-            ["Frameshift", f"{n_fs} ({n_fs / n_feat * 100:.0f}%)" if n_feat else "—"],
-            ["Non-coding", f"{n_nc} ({n_nc / n_feat * 100:.0f}%)" if n_feat else "—"],
-            ["Branch point detected", f"{n_bp} / {n_feat} ({n_bp / n_feat * 100:.1f}%)" if n_feat else "—"],
-            ["Exon size (mean / median)",
-             f"{_statistics.mean(exon_sizes):.0f} / {_statistics.median(exon_sizes):.0f} nt" if exon_sizes else "—"],
-            ["Mean PPT score",
-             f"{_statistics.mean(ppt_scores) * 100:.1f}% pyrimidine content" if ppt_scores else "—"],
-        ], colWidths=[9 * _cm, 7 * _cm])
-        stat_tbl.setStyle(_tbl_style())
-        story += [stat_tbl, sp()]
-
-    # ── 2. Figures ─────────────────────────────────────────────────────────
-    story.append(p("2. Splice Feature Figures", "h2"))
-
-    dpsi_fig = _fig_dpsi_distribution(events, group1_label)
-    if dpsi_fig:
-        story += [
-            KeepTogether([
-                dpsi_fig,
-                caption(
-                    "Distribution of ΔΨ (inclusion level difference). "
-                    f"Red bars: ΔΨ &lt; 0 (more exon skipping in {group1_label}); "
-                    f"blue bars: ΔΨ &gt; 0 (more exon inclusion in {group1_label}). "
-                    f"n = {len(events)} events."
-                ),
-            ]),
-            sp(),
-        ]
-
-    if features:
-        exon_sizes_list = [f.exon_size for f in features.values() if f.exon_size is not None]
-
-        hist_fig = _fig_exon_size_histogram(exon_sizes_list)
-        if hist_fig:
+        if not is_deep or section_num == 1:
+            # Type breakdown only for the global section
+            type_cnts: dict[str, int] = {}
+            for ev in subset_events:
+                type_cnts[ev.event_type] = type_cnts.get(ev.event_type, 0) + 1
             story += [
-                KeepTogether([
-                    hist_fig,
-                    caption(
-                        f"Skipped exon size distribution (25 nt bins). "
-                        f"Mean = {_statistics.mean(exon_sizes_list):.0f} nt (red dashed), "
-                        f"median = {_statistics.median(exon_sizes_list):.0f} nt (orange dashed). "
-                        f"n = {len(exon_sizes_list)} SE events."
-                    ),
-                ]),
-                sp(),
+                p(f"Total events: <b>{len(subset_events)}</b>", "body"),
+                p(f"SE events: <b>{len(se_evts)}</b> · "
+                  f"RI: {type_cnts.get('RI', 0)} · "
+                  f"A3SS: {type_cnts.get('A3SS', 0)} · "
+                  f"A5SS: {type_cnts.get('A5SS', 0)} · "
+                  f"MXE: {type_cnts.get('MXE', 0)}", "body"),
             ]
+            type_tbl = Table(
+                [["Type", "Event Count", "% of Total"]] +
+                [
+                    [etype,
+                     type_cnts.get(etype, 0),
+                     f"{type_cnts.get(etype, 0) / max(len(subset_events), 1) * 100:.1f}%"]
+                    for etype in ["SE", "RI", "A3SS", "A5SS", "MXE"]
+                ] +
+                [["<b>Total</b>", f"<b>{len(subset_events)}</b>", "<b>100%</b>"]],
+                colWidths=[4 * _cm, 4 * _cm, 4 * _cm],
+            )
+            type_tbl.setStyle(_tbl_style())
+            story += [sp(), type_tbl, sp()]
 
-        frame_fig = _fig_frame_breakdown(n_if, n_fs, n_nc, n_feat)
-        if frame_fig:
-            story += [
-                KeepTogether([
-                    frame_fig,
-                    caption(
-                        "Reading-frame classification of skipped exons. "
-                        "In-frame: CDS length divisible by 3; frameshift: not divisible by 3; "
-                        f"non-coding: exon entirely within UTR. n = {n_feat} SE events."
-                    ),
-                ]),
-                sp(),
-            ]
+        if subset_features:
+            n_f  = len(subset_features)
+            n_gt = sum(1 for f in subset_features.values() if f.donor_is_gt is True)
+            n_ag = sum(1 for f in subset_features.values() if f.acceptor_is_ag is True)
+            n_if = sum(1 for f in subset_features.values() if f.frame_class == "in_frame")
+            n_fs = sum(1 for f in subset_features.values() if f.frame_class == "frameshift")
+            n_nc = sum(1 for f in subset_features.values() if f.frame_class == "non_coding")
+            n_bp = sum(1 for f in subset_features.values() if f.bp_motif_found is True)
+            ppt_vals = [f.ppt_score for f in subset_features.values() if f.ppt_score is not None]
+            exsz_vals = [f.exon_size for f in subset_features.values() if f.exon_size is not None]
 
-        n_donor = sum(1 for f in features.values() if f.donor_seq and len(f.donor_seq) >= 9)
-        donor_logo = _fig_splice_site_consensus(features, site="donor", n_sequences=n_donor, max_width=FIG_MAX_W)
-        if donor_logo:
-            story += [
-                KeepTogether([
-                    donor_logo,
-                    caption(
-                        "5'SS donor splice site sequence logo (9 nt: 3 nt exon + 6 nt intron). "
-                        "Letter height = frequency × R<sub>i</sub> (bits), with small-sample correction "
-                        "e<sub>n</sub> = (s−1)/(2·ln2·n). Canonical GT at +1/+2 highlighted. "
-                        f"n = {n_donor} sequences. "
-                        "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
-                    ),
-                ]),
-                sp(),
-            ]
+            story.append(p("SE Splice Feature Statistics:", "h3"))
+            stat_tbl = Table([
+                ["Metric", "Value"],
+                ["SE events with features", n_f],
+                ["Canonical GT (5'SS)", f"{n_gt} / {n_f} ({n_gt / n_f * 100:.1f}%)" if n_f else "—"],
+                ["Canonical AG (3'SS)", f"{n_ag} / {n_f} ({n_ag / n_f * 100:.1f}%)" if n_f else "—"],
+                ["In-frame",   f"{n_if} ({n_if / n_f * 100:.0f}%)" if n_f else "—"],
+                ["Frameshift", f"{n_fs} ({n_fs / n_f * 100:.0f}%)" if n_f else "—"],
+                ["Non-coding", f"{n_nc} ({n_nc / n_f * 100:.0f}%)" if n_f else "—"],
+                ["Branch point detected", f"{n_bp} / {n_f} ({n_bp / n_f * 100:.1f}%)" if n_f else "—"],
+                ["Exon size (mean / median)",
+                 f"{_statistics.mean(exsz_vals):.0f} / {_statistics.median(exsz_vals):.0f} nt" if exsz_vals else "—"],
+                ["Mean PPT score",
+                 f"{_statistics.mean(ppt_vals) * 100:.1f}% pyrimidine content" if ppt_vals else "—"],
+            ], colWidths=[9 * _cm, 7 * _cm])
+            stat_tbl.setStyle(_tbl_style())
+            story += [stat_tbl, sp()]
 
-        n_acc = sum(1 for f in features.values() if f.acceptor_seq and len(f.acceptor_seq) >= 23)
-        acceptor_logo = _fig_splice_site_consensus(features, site="acceptor", n_sequences=n_acc, max_width=FIG_MAX_W)
-        if acceptor_logo:
-            story += [
-                KeepTogether([
-                    acceptor_logo,
-                    caption(
-                        "3'SS acceptor splice site sequence logo (23 nt: 20 nt intron + 3 nt exon). "
-                        "Letter height = frequency × R<sub>i</sub> (bits), with small-sample correction. "
-                        "Canonical AG at −2/−1 highlighted. "
-                        f"n = {n_acc} sequences. "
-                        "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
-                    ),
-                ]),
-                sp(),
-            ]
+            if include_figures:
+                dpsi_fig = _fig_dpsi_distribution(subset_events, group1_label)
+                if dpsi_fig:
+                    story += [
+                        KeepTogether([
+                            dpsi_fig,
+                            caption(
+                                "Distribution of ΔΨ (inclusion level difference). "
+                                f"Red bars: ΔΨ &lt; 0 (more exon skipping in {group1_label}); "
+                                f"blue bars: ΔΨ &gt; 0 (more exon inclusion in {group1_label}). "
+                                f"n = {len(subset_events)} events."
+                            ),
+                        ]),
+                        sp(),
+                    ]
 
-    # ── 3. Comparison (deep analysis only) ─────────────────────────────────
+                hist_fig = _fig_exon_size_histogram(exsz_vals)
+                if hist_fig:
+                    story += [
+                        KeepTogether([
+                            hist_fig,
+                            caption(
+                                f"Skipped exon size distribution (25 nt bins). "
+                                f"Mean = {_statistics.mean(exsz_vals):.0f} nt (red dashed), "
+                                f"median = {_statistics.median(exsz_vals):.0f} nt (orange dashed). "
+                                f"n = {len(exsz_vals)} SE events."
+                            ),
+                        ]),
+                        sp(),
+                    ]
+
+                frame_fig = _fig_frame_breakdown(n_if, n_fs, n_nc, n_f)
+                if frame_fig:
+                    story += [
+                        KeepTogether([
+                            frame_fig,
+                            caption(
+                                "Reading-frame classification of skipped exons. "
+                                "In-frame: CDS length divisible by 3; frameshift: not divisible by 3; "
+                                f"non-coding: exon entirely within UTR. n = {n_f} SE events."
+                            ),
+                        ]),
+                        sp(),
+                    ]
+
+                n_donor = sum(1 for f in subset_features.values() if f.donor_seq and len(f.donor_seq) >= 9)
+                donor_logo = _fig_splice_site_consensus(subset_features, site="donor", n_sequences=n_donor, max_width=FIG_MAX_W)
+                if donor_logo:
+                    story += [
+                        KeepTogether([
+                            donor_logo,
+                            caption(
+                                "5'SS donor splice site sequence logo (9 nt: 3 nt exon + 6 nt intron). "
+                                "Letter height = frequency × R<sub>i</sub> (bits), with small-sample correction "
+                                "e<sub>n</sub> = (s−1)/(2·ln2·n). Canonical GT at +1/+2 highlighted. "
+                                f"n = {n_donor} sequences. "
+                                "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+                            ),
+                        ]),
+                        sp(),
+                    ]
+
+                n_acc = sum(1 for f in subset_features.values() if f.acceptor_seq and len(f.acceptor_seq) >= 23)
+                acceptor_logo = _fig_splice_site_consensus(subset_features, site="acceptor", n_sequences=n_acc, max_width=FIG_MAX_W)
+                if acceptor_logo:
+                    story += [
+                        KeepTogether([
+                            acceptor_logo,
+                            caption(
+                                "3'SS acceptor splice site sequence logo (23 nt: 20 nt intron + 3 nt exon). "
+                                "Letter height = frequency × R<sub>i</sub> (bits), with small-sample correction. "
+                                "Canonical AG at −2/−1 highlighted. "
+                                f"n = {n_acc} sequences. "
+                                "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+                            ),
+                        ]),
+                        sp(),
+                    ]
+
+        return section_num + 1
+
+    # ── Section A: Global Analysis Summary ─────────────────────────────────
+    section_n = _add_stats_and_figures(features, events, 1, "Global Analysis Summary")
+
+    # ── Section B: Significant Events (deep analysis only) ─────────────────
+    if is_deep and sig_map:
+        story.append(PageBreak())
+        sig_feat_dict = {eid: f for eid, f in features.items() if sig_map.get(eid)}
+        sig_evts = [e for e in events if sig_map.get(e.id)]
+        section_n = _add_stats_and_figures(
+            sig_feat_dict, sig_evts, section_n,
+            f"Significant Events (FDR ≤ {deep_analysis.fdr_threshold}, |ΔΨ| ≥ {deep_analysis.delta_psi_min})",
+        )
+
+    # ── Section C: Comparison (deep analysis only) ─────────────────────────
     if comparison:
         story.append(PageBreak())
-        story.append(p("3. Significant vs Non-Significant Comparison", "h2"))
+        cmp_sec = section_n
+        story.append(p(f"{cmp_sec}. Significant vs Non-Significant Comparison", "h2"))
+        section_n += 1
 
         sig = comparison["significant"]
         nonsig = comparison["not_significant"]
@@ -1078,8 +1110,8 @@ def _build_pdf(
                 return ""
             return "★" if t.get("significant") else "n.s."
 
-        # 3a. Feature comparison table
-        story.append(p("3.1 Feature Comparison", "h3"))
+        # Ca. Feature comparison table
+        story.append(p(f"{cmp_sec}.1 Feature Comparison", "h3"))
         cmp_headers = ["Feature", f"Significant (n={sig['n_se_with_features']})",
                         f"Non-significant (n={nonsig['n_se_with_features']})", "Test", "p-value", ""]
         cmp_rows = [cmp_headers]
@@ -1118,8 +1150,8 @@ def _build_pdf(
         story.append(p("★ = p &lt; 0.05; n.s. = not significant", "small"))
         story.append(sp())
 
-        # 3b. Comparison logos — donor
-        story.append(p("3.2 5'SS Donor Logo: Significant vs Non-Significant", "h3"))
+        # Cb. Comparison logos — donor
+        story.append(p(f"{cmp_sec}.2 5'SS Donor Logo: Significant vs Non-Significant", "h3"))
         half_w = FIG_MAX_W * 0.48
         if sig.get("donor_pwm"):
             d_sig = _fig_splice_site_consensus(
@@ -1158,8 +1190,8 @@ def _build_pdf(
             sp(),
         ]
 
-        # 3c. Comparison logos — acceptor
-        story.append(p("3.3 3'SS Acceptor Logo: Significant vs Non-Significant", "h3"))
+        # Cc. Comparison logos — acceptor
+        story.append(p(f"{cmp_sec}.3 3'SS Acceptor Logo: Significant vs Non-Significant", "h3"))
         if sig.get("acceptor_pwm"):
             a_sig = _fig_splice_site_consensus(
                 {}, site="acceptor", pwm_data=sig["acceptor_pwm"],
@@ -1196,8 +1228,8 @@ def _build_pdf(
             sp(),
         ]
 
-        # 3d. Frame comparison
-        story.append(p("3.4 Reading Frame Comparison", "h3"))
+        # Cd. Frame comparison
+        story.append(p(f"{cmp_sec}.4 Reading Frame Comparison", "h3"))
         frame_sig = _fig_frame_breakdown(sig["frame_in_frame"], sig["frame_frameshift"], sig["frame_non_coding"], sig["n_se_with_features"])
         if frame_sig:
             story += [p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"), frame_sig]
@@ -1217,8 +1249,45 @@ def _build_pdf(
             sp(),
         ]
 
+    # ── Section D: Permutation Test (deep analysis only) ──────────────────
+    if permutation_table:
+        story.append(PageBreak())
+        perm_sec = section_n
+        story.append(p(f"{perm_sec}. Permutation Test — ΔΨ Significance", "h2"))
+        section_n += 1
+
+        story.append(p(
+            "The permutation test evaluates whether the observed ΔΨ for each event is "
+            "statistically significant by randomly permuting sample labels and computing "
+            "a null distribution.  The table below shows the percentage of events reaching "
+            "significance at different iteration counts, providing insight into result "
+            "stability as the number of permutations increases.",
+            "body",
+        ))
+        story.append(sp())
+
+        perm_headers = ["Iterations", "Events Tested", "% p &lt; 0.05", "% p &lt; 0.01"]
+        perm_rows = [perm_headers]
+        for pt in permutation_table:
+            perm_rows.append([
+                f"{pt['iterations']:,}",
+                f"{pt['n_tested']:,}",
+                f"{pt['pct_p05']:.1f}%" if pt.get("pct_p05") is not None else "—",
+                f"{pt['pct_p01']:.1f}%" if pt.get("pct_p01") is not None else "—",
+            ])
+        perm_tbl = Table(perm_rows, colWidths=[3.5 * _cm, 3.5 * _cm, 4 * _cm, 4 * _cm])
+        perm_tbl.setStyle(_tbl_style())
+        story += [perm_tbl, sp()]
+
+        story.append(p(
+            "As the number of permutation iterations increases, the empirical p-value "
+            "estimates become more precise.  Convergence of the significance percentages "
+            "across iterations indicates stable results.",
+            "small",
+        ))
+        story.append(sp())
+
     # ── Top SE events ──────────────────────────────────────────────────────
-    section_n = 4 if comparison else 3
     story.append(PageBreak())
     story.append(p(f"{section_n}. Top SE Events (ranked by FDR, |ΔΨ|)", "h2"))
     top_se = sorted(
@@ -1311,6 +1380,12 @@ def _build_pdf(
             p("Welch-Satterthwaite degrees of freedom are used for the t-distribution. "
               "No multiple-testing correction is applied within the comparison (7 tests); "
               "the user should interpret results in light of the number of comparisons.", "body"),
+            p("<b>7. Permutation Test</b>", "h3"),
+            p("For each significant SE event, sample labels are randomly permuted (keeping "
+              "group sizes fixed) to build a null distribution of ΔΨ. The empirical two-tailed "
+              "p-value equals the fraction of permuted |ΔΨ| values ≥ the observed |ΔΨ|, "
+              "plus one (Phipson &amp; Smyth, 2010). The test is run at multiple iteration "
+              "counts (50, 100, 250, 500) to assess convergence.", "body"),
         ]
     story.append(sp())
 
@@ -1388,6 +1463,12 @@ def _build_pdf(
               "z = (p̂₁ − p̂₂) / √[p̂(1−p̂)(1/n₁ + 1/n₂)] where p̂ is the pooled proportion.", "body"),
             p("All p-values are two-tailed. The regularised incomplete beta function "
               "is computed via Lentz's continued fraction algorithm for the t-distribution CDF.", "body"),
+            p("<b>C.5 Permutation Test</b>", "h3"),
+            p("For each significant SE event, sample-label permutation generates a null ΔΨ "
+              "distribution.  The empirical p-value is: p = (r + 1) / (K + 1), where r is "
+              "the number of permuted |ΔΨ| ≥ observed |ΔΨ| and K is the number of iterations.  "
+              "The +1 correction avoids p = 0 (Phipson &amp; Smyth, 2010).  "
+              "The test is run at 50, 100, 250 and 500 iterations to demonstrate convergence.", "body"),
         ]
     story.append(sp())
 
@@ -1521,9 +1602,32 @@ async def export_deep_analysis_pdf(
         ],
     }
 
+    # ── Permutation tests at multiple iteration counts ──────────────────
+    from app.services.permutation import run_permutation
+
+    # Build parallel feature list aligned with sig_events
+    sig_features_list = [features.get(e.id) for e in sig_events]
+    permutation_table: list[dict] = []
+    for n_iter in (50, 100, 250, 500):
+        perm_res = await asyncio.to_thread(
+            run_permutation,
+            sig_events,
+            sig_features_list,
+            n_iterations=n_iter,
+            only_se=True,
+            seed=42,
+        )
+        permutation_table.append({
+            "iterations": n_iter,
+            "n_tested": perm_res.n_events_tested,
+            "pct_p05": perm_res.pct_p05,
+            "pct_p01": perm_res.pct_p01,
+        })
+
     pdf_bytes = await asyncio.to_thread(
         _build_pdf, analysis, events, features, group1_label, group2_label,
         deep_analysis=deep, comparison=comparison,
+        sig_map=sig_map, permutation_table=permutation_table,
     )
 
     return StreamingResponse(

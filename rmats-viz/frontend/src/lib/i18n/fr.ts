@@ -95,6 +95,8 @@ export const fr: Translations = {
       cancel: "Annuler",
     },
     loading: "Chargement des événements…",
+    loadingAnalysis: "Récupération des métadonnées…",
+    loadingEvents: "Chargement de la première page…",
     filters: {
       allTypes: "Tous les types",
       genePlaceholder: "Gène (ex: PCBP1)",

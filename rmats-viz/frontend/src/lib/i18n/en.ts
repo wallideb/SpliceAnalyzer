@@ -94,6 +94,8 @@ export const en = {
       cancel: "Cancel",
     },
     loading: "Loading events…",
+    loadingAnalysis: "Fetching analysis metadata…",
+    loadingEvents: "Loading first page of events…",
     filters: {
       allTypes: "All types",
       genePlaceholder: "Gene (e.g. PCBP1)",

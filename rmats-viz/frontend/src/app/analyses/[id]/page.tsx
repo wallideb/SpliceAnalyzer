@@ -112,6 +112,21 @@ export default function AnalysisDetailPage() {
   }, [id, t]);
 
 
+  // Show loading overlay until analysis metadata + first page of events are ready
+  if (!analysis || !eventsPage) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
+        <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm font-medium text-muted-foreground">
+          {t("analysisDetail.loading")}
+        </p>
+        <p className="text-xs text-muted-foreground/60">
+          {analysis ? t("analysisDetail.loadingEvents") : t("analysisDetail.loadingAnalysis")}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex gap-6 items-start">
 

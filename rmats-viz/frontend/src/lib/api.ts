@@ -11,9 +11,3 @@
  */
 
 export * from "./api/index";
-
-import { fetchJSON, BASE } from "./api/client";
-
-export async function getHealth(): Promise<{ status: string; db: string }> {
-  return fetchJSON(`${BASE}/health`);
-}

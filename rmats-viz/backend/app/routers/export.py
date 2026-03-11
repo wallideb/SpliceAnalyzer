@@ -356,7 +356,9 @@ async def export_analysis_excel(
 # 3C — PDF Rapport d'analyse
 # ===========================================================================
 
+import math as _math
 import statistics as _statistics
+from collections import Counter
 from datetime import date as _date
 
 from reportlab.lib import colors as _colors
@@ -442,7 +444,7 @@ def _fig_exon_size_histogram(exon_sizes: list[int]) -> Drawing | None:
     if not exon_sizes:
         return None
 
-    import math as _math
+
 
     BIN = 25
     max_size = max(exon_sizes)
@@ -589,7 +591,7 @@ def _fig_dpsi_distribution(events: list, group1_label: str = "Group 1") -> Drawi
     if len(dpsi_vals) < 3:
         return None
 
-    import math as _math
+
 
     BIN_W = 0.1
     bins = {}  # rounded bin_start → count
@@ -695,8 +697,8 @@ def _fig_splice_site_consensus(
     If *pwm_data* is provided, it is used directly; otherwise PWM is computed
     from the splice features in *features_dict*.
     """
-    import math as _math
-    from collections import Counter
+
+
 
     if pwm_data:
         pwm = pwm_data

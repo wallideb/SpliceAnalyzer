@@ -360,6 +360,204 @@ async def export_analysis_excel(
         },
     )
 
+@router.get("/{analysis_id}/deep-analysis/{deep_analysis_id}/excel")
+async def export_deep_analysis_excel(
+    analysis_id: uuid.UUID,
+    deep_analysis_id: uuid.UUID,
+    include: str = Query("core", description="Comma-separated column groups: core, panelapp, go, stringdb"),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Export only significant events from a deep analysis as Excel.
+
+    Identical format to the full analysis export but scoped to
+    events that passed the deep analysis thresholds.
+    """
+    from app.models.deep_analysis import DeepAnalysis, DeepAnalysisEvent
+
+    # Validate
+    requested: set[str] = {g.strip().lower() for g in include.split(",")}
+    unknown = requested - set(ALL_GROUPS)
+    if unknown:
+        raise HTTPException(422, f"Unknown column group(s): {', '.join(sorted(unknown))}")
+    groups: set[str] = requested | {"core"}
+
+    analysis, group1_label, group2_label = await _get_analysis_with_groups(db, analysis_id)
+
+    deep = (await db.execute(
+        select(DeepAnalysis).where(DeepAnalysis.id == deep_analysis_id)
+    )).scalar_one_or_none()
+    if not deep:
+        raise HTTPException(404, "Deep analysis not found")
+
+    # Fetch only significant events
+    sig_q = (
+        select(SplicingEvent)
+        .join(DeepAnalysisEvent, DeepAnalysisEvent.event_id == SplicingEvent.id)
+        .where(
+            DeepAnalysisEvent.deep_analysis_id == deep_analysis_id,
+            DeepAnalysisEvent.is_significant == True,
+        )
+        .order_by(SplicingEvent.fdr.asc().nulls_last())
+    )
+    events = list((await db.execute(sig_q)).scalars().all())
+
+    # Load features for SE events
+    se_event_ids = [e.id for e in events if e.event_type == "SE"]
+    features: dict[uuid.UUID, EventSpliceFeature] = {}
+    if se_event_ids:
+        feat_result = await db.execute(
+            select(EventSpliceFeature).where(EventSpliceFeature.event_id.in_(se_event_ids))
+        )
+        for feat in feat_result.scalars().all():
+            features[feat.event_id] = feat
+
+    # External annotations
+    unique_symbols = list({e.gene_symbol for e in events if e.gene_symbol})
+    panelapp_data: dict[str, dict] = {}
+    go_data: dict[str, dict] = {}
+    stringdb_data: dict[str, float | None] = {}
+
+    if "panelapp" in groups and unique_symbols:
+        pa_results = await asyncio.gather(
+            *[get_panels_for_gene(sym) for sym in unique_symbols],
+            return_exceptions=True,
+        )
+        for sym, res in zip(unique_symbols, pa_results):
+            if isinstance(res, list) and res:
+                conf_order = {"green": 0, "amber": 1, "red": 2}
+                top = min(res, key=lambda p: conf_order.get(p.get("confidence_label", ""), 3))
+                panelapp_data[sym] = {
+                    "confidence": top.get("confidence_label", ""),
+                    "panels": ", ".join(p.get("panel_name", "") for p in res[:3]),
+                }
+            else:
+                panelapp_data[sym] = {"confidence": "", "panels": ""}
+
+    if "go" in groups and unique_symbols:
+        go_results = await asyncio.gather(
+            *[get_go_terms(sym, None) for sym in unique_symbols],
+            return_exceptions=True,
+        )
+        for sym, res in zip(unique_symbols, go_results):
+            if isinstance(res, list):
+                by_cat: dict[str, list[str]] = {"BP": [], "MF": [], "CC": []}
+                for term in res:
+                    cat = term.get("category", "")
+                    if cat in by_cat:
+                        by_cat[cat].append(term.get("term", ""))
+                go_data[sym] = {
+                    "BP": "; ".join(by_cat["BP"][:3]),
+                    "MF": "; ".join(by_cat["MF"][:3]),
+                    "CC": "; ".join(by_cat["CC"][:3]),
+                }
+            else:
+                go_data[sym] = {"BP": "", "MF": "", "CC": ""}
+
+    if "stringdb" in groups and unique_symbols:
+        mutated_genes_list: list[str] = [
+            g.get("symbol", "") for g in (analysis.mutated_genes or []) if g.get("symbol")
+        ]
+        if mutated_genes_list:
+            pairs = [
+                (sym, mut) for sym in unique_symbols for mut in mutated_genes_list
+                if sym.upper() != mut.upper()
+            ]
+            if pairs:
+                interaction_results = await asyncio.gather(
+                    *[get_interaction(sym, mut) for sym, mut in pairs],
+                    return_exceptions=True,
+                )
+                for (sym, _), res in zip(pairs, interaction_results):
+                    if isinstance(res, dict) and res.get("has_interaction"):
+                        score = res.get("combined_score", 0.0) or 0.0
+                        current = stringdb_data.get(sym)
+                        if current is None or score > current:
+                            stringdb_data[sym] = score
+                    elif sym not in stringdb_data:
+                        stringdb_data[sym] = None
+
+    # Build workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Significant Events"
+
+    headers = [
+        "Gene", "Gene ID", "Type", "Chromosome", "Strand",
+        "Exon Start", "Exon End", "Exon Size",
+        "p-value", "FDR", "ΔΨ", "|ΔΨ|",
+        f"PSI {group1_label}", f"PSI {group2_label}",
+        "Donor Site", "Canonical GT", "Acceptor Site", "Canonical AG",
+        "PPT Score", "Max Y Run", "BP Found", "BP Distance",
+        "Frame", "Region", "CDS Length", "MANE Transcript", "Exon Rank",
+    ]
+    if "panelapp" in groups:
+        headers += ["PanelApp Confidence", "PanelApp Panels"]
+    if "go" in groups:
+        headers += ["GO:BP", "GO:MF", "GO:CC"]
+    if "stringdb" in groups:
+        headers += ["STRING Max Score"]
+
+    ws.append(headers)
+    for event in events:
+        feat = features.get(event.id) if event.event_type == "SE" else None
+        sym = event.gene_symbol or ""
+        row = [
+            event.gene_symbol, event.gene_id, event.event_type,
+            event.chr, event.strand, event.exon_start, event.exon_end,
+            feat.exon_size if feat else None,
+            event.p_value, event.fdr, event.inc_level_difference, event.abs_inc_level_diff,
+            event.inc_level_1, event.inc_level_2,
+            feat.donor_seq if feat else None, feat.donor_is_gt if feat else None,
+            feat.acceptor_seq if feat else None, feat.acceptor_is_ag if feat else None,
+            feat.ppt_score if feat else None, feat.ppt_longest_run if feat else None,
+            feat.bp_motif_found if feat else None, feat.bp_distance if feat else None,
+            feat.frame_class if feat else None, feat.frame_region if feat else None,
+            feat.cds_exon_length if feat else None, feat.mane_transcript_id if feat else None,
+            feat.exon_rank if feat else None,
+        ]
+        if "panelapp" in groups:
+            pa = panelapp_data.get(sym, {"confidence": "", "panels": ""})
+            row += [pa["confidence"], pa["panels"]]
+        if "go" in groups:
+            go = go_data.get(sym, {"BP": "", "MF": "", "CC": ""})
+            row += [go["BP"], go["MF"], go["CC"]]
+        if "stringdb" in groups:
+            row += [round(stringdb_data.get(sym), 3) if stringdb_data.get(sym) is not None else None]
+        ws.append(row)
+
+    _style_header_row(ws)
+    _apply_row_banding(ws)
+    _auto_size_columns(ws)
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+
+    # Summary sheet
+    ws_sum = wb.create_sheet("Summary")
+    ws_sum.append(["Deep Analysis", deep.name or str(deep_analysis_id)])
+    ws_sum.append(["FDR threshold", deep.fdr_threshold])
+    ws_sum.append(["|ΔΨ| minimum", deep.delta_psi_min])
+    ws_sum.append(["Significant events", len(events)])
+    ws_sum.append([])
+    type_counts: dict[str, int] = {}
+    for ev in events:
+        type_counts[ev.event_type] = type_counts.get(ev.event_type, 0) + 1
+    ws_sum.append(["Type", "Count"])
+    for et in ["SE", "RI", "A3SS", "A5SS", "MXE"]:
+        ws_sum.append([et, type_counts.get(et, 0)])
+    _style_header_row(ws_sum)
+    _auto_size_columns(ws_sum)
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    name = (deep.name or "deep_analysis").replace(" ", "_")[:30]
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="rmats_{name}_significant.xlsx"'},
+    )
+
+
 # ===========================================================================
 # 3C — PDF Rapport d'analyse
 # ===========================================================================

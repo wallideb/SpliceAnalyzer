@@ -88,5 +88,16 @@ export async function uploadAnalysis(payload: UploadPayload): Promise<UploadResp
   for (const file of payload.files) {
     form.append("files", file);
   }
-  return fetchJSON(`${BASE}/analyses`, { method: "POST", body: form });
+  // Large files (200 MB+) can take several minutes to upload, parse, and store
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10 * 60 * 1000); // 10 min
+  try {
+    return await fetchJSON(`${BASE}/analyses`, {
+      method: "POST",
+      body: form,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }

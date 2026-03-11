@@ -1,5 +1,7 @@
 "use client";
 
+import { posNum, posLabel } from "@/lib/utils";
+
 /**
  * SpliceSequenceLogo
  * ==================
@@ -47,13 +49,6 @@ function entropy(row: PWMRow): number {
     const p = row[b];
     return h - (p > 0 ? p * Math.log2(p) : 0);
   }, 0);
-}
-
-/** Position number for column index i, skipping zero if requested. */
-function posNum(i: number, start: number, skip0: boolean): number {
-  let pos = start + i;
-  if (skip0 && pos >= 0) pos += 1;
-  return pos;
 }
 
 export function SpliceSequenceLogo({
@@ -149,7 +144,7 @@ export function SpliceSequenceLogo({
               fill="#94a3b8"
               fontFamily="monospace"
             >
-              {(() => { const p = posNum(posIdx, startPosition, skipZero); return p > 0 ? `+${p}` : p; })()}
+              {posLabel(posNum(posIdx, startPosition, skipZero))}
             </text>
           </g>
         );

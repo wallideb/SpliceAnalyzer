@@ -646,8 +646,8 @@ function GeneSymbolWithTooltip({
  */
 function SEDirectionBadge({
   delta,
-  group1Label = "Groupe 1",
-  group2Label = "Groupe 2",
+  group1Label = "Group 1",
+  group2Label = "Group 2",
   eventType,
   t,
 }: {

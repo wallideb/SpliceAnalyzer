@@ -12,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getPatternComparison } from "@/lib/api/deep-analyses";
 import type { GroupPatternStats, StatTestResult } from "@/lib/api/deep-analyses";
 import { useT } from "@/contexts/LanguageContext";
+import { formatDeltaPSI } from "@/lib/utils";
 import { ConsensusLogoPanel } from "@/components/top10/ConsensusLogoPanel";
 
 interface Props {
@@ -187,7 +188,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
             <StatRow label="Frameshift" sigVal={sig.frame_frameshift} nonsigVal={nonsig.frame_frameshift} />
             <StatRow label="Non-coding" sigVal={sig.frame_non_coding} nonsigVal={nonsig.frame_non_coding} />
             <StatRow label="Branch point found" sigVal={sig.bp_found_pct} nonsigVal={nonsig.bp_found_pct} format="pct" pValue={p("bp_found")?.p_value} testName={p("bp_found")?.test_name} />
-            <StatRow label="Mean ΔΨ" sigVal={sig.mean_delta_psi != null ? (sig.mean_delta_psi >= 0 ? `+${sig.mean_delta_psi.toFixed(3)}` : sig.mean_delta_psi.toFixed(3)) : null} nonsigVal={nonsig.mean_delta_psi != null ? (nonsig.mean_delta_psi >= 0 ? `+${nonsig.mean_delta_psi.toFixed(3)}` : nonsig.mean_delta_psi.toFixed(3)) : null} pValue={p("mean_delta_psi")?.p_value} testName={p("mean_delta_psi")?.test_name} />
+            <StatRow label="Mean ΔΨ" sigVal={sig.mean_delta_psi != null ? formatDeltaPSI(sig.mean_delta_psi) : null} nonsigVal={nonsig.mean_delta_psi != null ? formatDeltaPSI(nonsig.mean_delta_psi) : null} pValue={p("mean_delta_psi")?.p_value} testName={p("mean_delta_psi")?.test_name} />
           </tbody>
         </table>
 

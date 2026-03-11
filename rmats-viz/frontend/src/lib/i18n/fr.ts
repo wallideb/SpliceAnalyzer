@@ -549,8 +549,6 @@ export const fr: Translations = {
     size: "Taille : {{n}} nt",
     coords: "Coordonnées : {{start}}–{{end}}",
     exonRank: "Rang exon : {{n}}",
-    psiGroup1: "PSI groupe 1 (moy.) : {{v}}",
-    psiGroup2: "PSI groupe 2 (moy.) : {{v}}",
     psiGroup1Label: "groupe 1",
     psiGroup2Label: "groupe 2",
     donor5ssCanonical: "Site donneur 5'SS — GT canonique",

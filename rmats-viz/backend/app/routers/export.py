@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
@@ -61,6 +61,27 @@ def _apply_row_banding(ws) -> None:
                 cell.fill = ROW_FILL_ALT
 
 
+async def _get_analysis_with_groups(
+    db: AsyncSession, analysis_id: uuid.UUID
+) -> tuple["Analysis", str, str]:
+    """Load an Analysis with its sample groups, returning group labels.
+
+    Raises HTTPException(404) if not found.
+    """
+    q = await db.execute(
+        select(Analysis)
+        .options(joinedload(Analysis.sample_groups))
+        .where(Analysis.id == analysis_id)
+    )
+    analysis = q.unique().scalar_one_or_none()
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    g1 = next((g for g in analysis.sample_groups if g.group_index == 1), None)
+    g2 = next((g for g in analysis.sample_groups if g.group_index == 2), None)
+    return analysis, g1.group_label if g1 else "Group 1", g2.group_label if g2 else "Group 2"
+
+
 @router.get("/{analysis_id}/excel")
 async def export_analysis_excel(
     analysis_id: uuid.UUID,
@@ -98,17 +119,7 @@ async def export_analysis_excel(
     groups: set[str] = requested | {"core"}
 
     # ── 1. Verify analysis exists (with sample groups for labels) ────────────
-    analysis_q = await db.execute(
-        select(Analysis).options(selectinload(Analysis.sample_groups)).where(Analysis.id == analysis_id)
-    )
-    analysis = analysis_q.scalar_one_or_none()
-    if not analysis:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-
-    g1 = next((g for g in analysis.sample_groups if g.group_index == 1), None)
-    g2 = next((g for g in analysis.sample_groups if g.group_index == 2), None)
-    group1_label = g1.group_label if g1 else "Group 1"
-    group2_label = g2.group_label if g2 else "Group 2"
+    analysis, group1_label, group2_label = await _get_analysis_with_groups(db, analysis_id)
 
     # ── 2. Fetch all events ───────────────────────────────────────────────────
     result = await db.execute(
@@ -577,7 +588,7 @@ def _fig_frame_breakdown(n_if: int, n_fs: int, n_nc: int, n_feat: int) -> Drawin
     return d
 
 
-def _fig_dpsi_distribution(events: list, group1_label: str = "Group 1", group2_label: str = "Group 2") -> Drawing | None:
+def _fig_dpsi_distribution(events: list, group1_label: str = "Group 1") -> Drawing | None:
     """ΔΨ distribution histogram for all events."""
     dpsi_vals = [e.inc_level_difference for e in events
                  if e.inc_level_difference is not None]
@@ -934,7 +945,7 @@ def _build_pdf(analysis, events: list, features: dict, group1_label: str = "Grou
     story.append(p("2. Splice Feature Figures", "h2"))
 
     # Figure: ΔΨ distribution
-    dpsi_fig = _fig_dpsi_distribution(events, group1_label, group2_label)
+    dpsi_fig = _fig_dpsi_distribution(events, group1_label)
     if dpsi_fig:
         story += [
             KeepTogether([
@@ -1167,18 +1178,7 @@ async def export_analysis_pdf(
 ) -> StreamingResponse:
     """Generate a PDF analysis report for *analysis_id*."""
 
-    analysis_q = await db.execute(
-        select(Analysis).options(selectinload(Analysis.sample_groups)).where(Analysis.id == analysis_id)
-    )
-    analysis = analysis_q.scalar_one_or_none()
-    if not analysis:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-
-    # Resolve group labels
-    g1 = next((g for g in analysis.sample_groups if g.group_index == 1), None)
-    g2 = next((g for g in analysis.sample_groups if g.group_index == 2), None)
-    group1_label = g1.group_label if g1 else "Group 1"
-    group2_label = g2.group_label if g2 else "Group 2"
+    analysis, group1_label, group2_label = await _get_analysis_with_groups(db, analysis_id)
 
     result = await db.execute(
         select(SplicingEvent).where(SplicingEvent.analysis_id == analysis_id)

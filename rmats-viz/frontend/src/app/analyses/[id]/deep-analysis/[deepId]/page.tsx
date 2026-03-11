@@ -9,7 +9,7 @@
  * Route: /analyses/[id]/deep-analysis/[deepId]
  */
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -58,15 +58,18 @@ export default function DeepAnalysisDetailPage() {
     [analysis],
   );
 
-  // Auto-compute splice features if splice module active
+  // Auto-compute splice features once when splice module is active
   const { mutate: autoCompute } = useMutation({
     mutationFn: () => computeSpliceFeatures(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["splice-feature"] }),
   });
+  const didAutoCompute = useRef(false);
   useEffect(() => {
-    if (activeModules.has("splice") && id) autoCompute();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+    if (activeModules.has("splice") && id && !didAutoCompute.current) {
+      didAutoCompute.current = true;
+      autoCompute();
+    }
+  }, [id, activeModules, autoCompute]);
 
   const group1 = analysis?.sample_groups.find((g) => g.group_index === 1);
   const group2 = analysis?.sample_groups.find((g) => g.group_index === 2);

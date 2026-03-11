@@ -27,6 +27,7 @@
 import { useRef, useState } from "react";
 import { ScienceNote } from "@/components/ScienceNote";
 import { useT } from "@/contexts/LanguageContext";
+import { posNum, posLabel } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -83,18 +84,6 @@ function entropy(row: PWMRow): number {
     const p = row[b];
     return h - (p > 0 ? p * Math.log2(p) : 0);
   }, 0);
-}
-
-/** Position number for column index i, skipping zero if requested. */
-function posNum(i: number, start: number, skipZero: boolean): number {
-  let pos = start + i;
-  if (skipZero && pos >= 0) pos += 1;   // skip 0
-  return pos;
-}
-
-/** Label string with sign for positive positions. */
-function posLabel(pos: number): string {
-  return pos > 0 ? `+${pos}` : `${pos}`;
 }
 
 // ---------------------------------------------------------------------------

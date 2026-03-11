@@ -544,8 +544,6 @@ export const en = {
     size: "Size: {{n}} nt",
     coords: "Coordinates: {{start}}–{{end}}",
     exonRank: "Exon rank: {{n}}",
-    psiGroup1: "PSI group 1 (mean): {{v}}",
-    psiGroup2: "PSI group 2 (mean): {{v}}",
     psiGroup1Label: "group 1",
     psiGroup2Label: "group 2",
     donor5ssCanonical: "5′SS donor site — canonical GT",

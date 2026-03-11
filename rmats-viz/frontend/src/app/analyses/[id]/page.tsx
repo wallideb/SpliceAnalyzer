@@ -329,6 +329,7 @@ export default function AnalysisDetailPage() {
             noFilterLabel={t("analysisDetail.filters.noFilter")}
             max={100}
             ticks={["1", "0.1", "0.01", "1e-5", "1e-10"]}
+            tickPositions={[0, 10, 20, 50, 100]}
           />
           <StatSlider
             label="p-value max"
@@ -338,6 +339,7 @@ export default function AnalysisDetailPage() {
             noFilterLabel={t("analysisDetail.filters.noFilter")}
             max={100}
             ticks={["1", "0.1", "0.01", "1e-5", "1e-10"]}
+            tickPositions={[0, 10, 20, 50, 100]}
           />
           <StatSlider
             label="|ΔPSI| min"
@@ -346,7 +348,8 @@ export default function AnalysisDetailPage() {
             displayValue={dpsiSlider > 0 ? `≥ ${dpsiSliderToValue(dpsiSlider).toFixed(2)}` : undefined}
             noFilterLabel={t("analysisDetail.filters.noFilter")}
             max={100}
-            ticks={["0", "0.1", "0.25", "0.5", "1"]}
+            ticks={["0", "0.10", "0.25", "0.50", "1.00"]}
+            tickPositions={[0, 10, 25, 50, 100]}
             accentClass="accent-violet-600"
             logScale={false}
           />
@@ -470,6 +473,7 @@ function StatSlider({
   noFilterLabel,
   max,
   ticks,
+  tickPositions,
   accentClass = "accent-blue-600",
   /** If true, use log scale (FDR/p-value). If false, use linear (ΔPSI). */
   logScale = true,
@@ -481,6 +485,8 @@ function StatSlider({
   noFilterLabel: string;
   max: number;
   ticks: string[];
+  /** Slider positions (0–max) where each tick label should appear. If omitted, ticks are spread evenly. */
+  tickPositions?: number[];
   accentClass?: string;
   logScale?: boolean;
 }) {
@@ -568,11 +574,25 @@ function StatSlider({
         style={{ "--val": `${pct}%` } as React.CSSProperties}
       />
 
-      <div className="flex justify-between text-[10px] text-muted-foreground/60 select-none">
-        {ticks.map((tk, i) => (
-          <span key={i} className="text-center">{tk}</span>
-        ))}
-      </div>
+      {tickPositions ? (
+        <div className="relative h-3 text-[10px] text-muted-foreground/60 select-none">
+          {ticks.map((tk, i) => (
+            <span
+              key={i}
+              className="absolute text-center"
+              style={{ left: `${(tickPositions[i] / max) * 100}%`, transform: "translateX(-50%)" }}
+            >
+              {tk}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="flex justify-between text-[10px] text-muted-foreground/60 select-none">
+          {ticks.map((tk, i) => (
+            <span key={i} className="text-center">{tk}</span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -62,14 +62,16 @@ export async function downloadAnalysisExcel(
   URL.revokeObjectURL(a.href);
 }
 
-export async function downloadAnalysisPDF(analysisId: string): Promise<void> {
-  const url = `${BASE}/export/${analysisId}/pdf`;
+export async function downloadAnalysisPDF(analysisId: string, deepAnalysisId?: string): Promise<void> {
+  const url = deepAnalysisId
+    ? `${BASE}/export/${analysisId}/deep-analysis/${deepAnalysisId}/pdf`
+    : `${BASE}/export/${analysisId}/pdf`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error("PDF export failed");
   const blob = await resp.blob();
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `rmats_${analysisId}.pdf`;
+  a.download = deepAnalysisId ? `rmats_deep_${deepAnalysisId}.pdf` : `rmats_${analysisId}.pdf`;
   a.click();
   URL.revokeObjectURL(a.href);
 }

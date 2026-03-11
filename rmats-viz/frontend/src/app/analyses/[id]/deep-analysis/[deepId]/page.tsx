@@ -78,13 +78,13 @@ export default function DeepAnalysisDetailPage() {
   const handleExportPDF = useCallback(async () => {
     setIsExportingPDF(true);
     try {
-      await downloadAnalysisPDF(id);
+      await downloadAnalysisPDF(id, deepId);
     } catch {
       alert(t("analysisDetail.pdfError"));
     } finally {
       setIsExportingPDF(false);
     }
-  }, [id, t]);
+  }, [id, deepId, t]);
 
   return (
     <div className="space-y-6">

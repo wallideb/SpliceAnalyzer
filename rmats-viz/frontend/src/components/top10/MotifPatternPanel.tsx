@@ -112,12 +112,13 @@ function ExonSizeHistogram({ stats }: { stats: ExonSizeStats }) {
                 height={barH}
                 className="fill-blue-500/70 hover:fill-blue-500 cursor-pointer transition-colors"
                 rx={2}
-                title={t("motifPanel.histogramBinTitle", { start: d.bin, end: d.bin + 25, count: d.count })}
                 onMouseEnter={() =>
                   setHoveredBin({ bin: d.bin, count: d.count, x: x + barW / 2, y })
                 }
                 onMouseLeave={() => setHoveredBin(null)}
-              />
+              >
+                <title>{t("motifPanel.histogramBinTitle", { start: d.bin, end: d.bin + 25, count: d.count })}</title>
+              </rect>
               {/* x-axis label every 4 bins */}
               {i % 4 === 0 && (
                 <text

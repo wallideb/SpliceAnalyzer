@@ -47,6 +47,8 @@ export interface ExonDiagramProps {
   exonRank?: number | null;
   donorSeq?: string | null;
   acceptorSeq?: string | null;
+  upstreamDonorSeq?: string | null;
+  downstreamAcceptorSeq?: string | null;
   pptScore?: number | null;
   pptSeq?: string | null;
   bpFound?: boolean | null;
@@ -281,6 +283,8 @@ export function ExonDiagram({
   exonRank,
   donorSeq,
   acceptorSeq,
+  upstreamDonorSeq,
+  downstreamAcceptorSeq,
   pptScore,
   pptSeq,
   bpFound,
@@ -291,7 +295,7 @@ export function ExonDiagram({
   const t = useT();
 
   // Hover state: which annotation element is expanded
-  const [hoveredEl, setHoveredEl] = useState<"donor" | "acceptor" | "ppt" | "bp" | null>(null);
+  const [hoveredEl, setHoveredEl] = useState<"donor" | "acceptor" | "ppt" | "bp" | "upDonor" | "dnAcceptor" | null>(null);
 
   const delta    = incLevelDifference ?? 0;
   // ΔΨ < 0 → more exon skipping in group 1 (patients) → RED
@@ -333,12 +337,14 @@ export function ExonDiagram({
     t("exonDiagram.upstreamFlankingExon"),
     upstreamExonStart != null && upstreamExonEnd != null
       ? t("exonDiagram.coords", { start: fmtCoord(upstreamExonStart), end: fmtCoord(upstreamExonEnd) })  : null,
+    upstreamDonorSeq ? t("exonDiagram.hoverForSeq") : null,
   ].filter(Boolean).join("\n");
 
   const downstreamTooltip = [
     t("exonDiagram.downstreamFlankingExon"),
     downstreamExonStart != null && downstreamExonEnd != null
       ? t("exonDiagram.coords", { start: fmtCoord(downstreamExonStart), end: fmtCoord(downstreamExonEnd) }) : null,
+    downstreamAcceptorSeq ? t("exonDiagram.hoverForSeq") : null,
   ].filter(Boolean).join("\n");
 
   const donorTooltip = donorSeq
@@ -440,8 +446,16 @@ export function ExonDiagram({
         )}
 
         {/* ── Exon flanquant gauche ── */}
-        <g style={{ cursor: "help" }}>
-          <rect x={LEFT_EXON_X} y={EXON_Y} width={FLANK_W} height={EXON_H} rx={4} fill={COLOR_FLANK} />
+        <g
+          style={{ cursor: upstreamDonorSeq ? "crosshair" : "help" }}
+          onMouseEnter={upstreamDonorSeq ? () => setHoveredEl("upDonor") : undefined}
+          onMouseLeave={upstreamDonorSeq ? () => setHoveredEl(null) : undefined}
+        >
+          <rect x={LEFT_EXON_X} y={EXON_Y} width={FLANK_W} height={EXON_H} rx={4}
+            fill={COLOR_FLANK}
+            stroke={hoveredEl === "upDonor" ? COLOR_GREEN : "none"}
+            strokeWidth={hoveredEl === "upDonor" ? 1.5 : 0}
+          />
           <title>{upstreamTooltip}</title>
         </g>
         <text
@@ -611,8 +625,16 @@ export function ExonDiagram({
         )}
 
         {/* ── Exon flanquant droit ── */}
-        <g style={{ cursor: "help" }}>
-          <rect x={RIGHT_EXON_X} y={EXON_Y} width={FLANK_W} height={EXON_H} rx={4} fill={COLOR_FLANK} />
+        <g
+          style={{ cursor: downstreamAcceptorSeq ? "crosshair" : "help" }}
+          onMouseEnter={downstreamAcceptorSeq ? () => setHoveredEl("dnAcceptor") : undefined}
+          onMouseLeave={downstreamAcceptorSeq ? () => setHoveredEl(null) : undefined}
+        >
+          <rect x={RIGHT_EXON_X} y={EXON_Y} width={FLANK_W} height={EXON_H} rx={4}
+            fill={COLOR_FLANK}
+            stroke={hoveredEl === "dnAcceptor" ? COLOR_GREEN : "none"}
+            strokeWidth={hoveredEl === "dnAcceptor" ? 1.5 : 0}
+          />
           <title>{downstreamTooltip}</title>
         </g>
         <text
@@ -853,6 +875,92 @@ export function ExonDiagram({
             </text>
           </g>
         )}
+
+        {/* ── Upstream flanking exon 5'SS hover: 9 nt donor sequence ── */}
+        {hoveredEl === "upDonor" && upstreamDonorSeq && (() => {
+          const stripX = LEFT_EXON_RIGHT - 3 * 8; // align exon boundary with pos -1/+1
+          return (
+          <g>
+            {[-3, -2, -1, 1, 2, 3, 4, 5, 6].map((pos, i) => (
+              <text
+                key={i}
+                x={stripX + i * 8 + 3}
+                y={SEQ_STRIP_Y - 2}
+                textAnchor="middle" fontSize={7}
+                fill={DONOR_GT_IDX.has(i) ? COLOR_AMBER : COLOR_TEXT_MUTED}
+                fontFamily="monospace"
+              >
+                {pos > 0 ? `+${pos}` : pos}
+              </text>
+            ))}
+            <NucStrip
+              seq={upstreamDonorSeq.slice(0, 9)}
+              x={stripX}
+              y={SEQ_STRIP_Y}
+              cellW={8}
+              cellH={SEQ_CELL_H}
+              highlightIdxs={DONOR_GT_IDX}
+            />
+            {/* Boundary line */}
+            <line
+              x1={stripX + 3 * 8} y1={SEQ_STRIP_Y - 1}
+              x2={stripX + 3 * 8} y2={SEQ_STRIP_Y + SEQ_CELL_H + 1}
+              stroke={COLOR_AMBER} strokeWidth={1} strokeDasharray="2 1"
+            />
+            <text
+              x={stripX + 9 * 8 + 5} y={SEQ_STRIP_Y + SEQ_CELL_H * 0.7}
+              fontSize={7} fill={COLOR_GREEN} fontFamily="monospace"
+            >
+              5&apos;SS flank
+            </text>
+          </g>
+          );
+        })()}
+
+        {/* ── Downstream flanking exon 3'SS hover: 23 nt acceptor sequence ── */}
+        {hoveredEl === "dnAcceptor" && downstreamAcceptorSeq && (() => {
+          const seq23 = downstreamAcceptorSeq.slice(-23);
+          const stripX = RIGHT_EXON_X - 20 * 6.5; // align exon boundary with pos -1/+1
+          return (
+          <g>
+            {Array.from({ length: 23 }, (_, i) => {
+              const posNum = i < 20 ? -(20 - i) : i - 19;
+              return (
+                <text
+                  key={i}
+                  x={stripX + i * 6.5 + 2.5}
+                  y={SEQ_STRIP_Y - 2}
+                  textAnchor="middle" fontSize={6.5}
+                  fill={ACCEPTOR_AG_IDX.has(i) ? COLOR_AMBER : COLOR_TEXT_MUTED}
+                  fontFamily="monospace"
+                >
+                  {posNum > 0 ? `+${posNum}` : posNum}
+                </text>
+              );
+            })}
+            <NucStrip
+              seq={seq23}
+              x={stripX}
+              y={SEQ_STRIP_Y}
+              cellW={6.5}
+              cellH={SEQ_CELL_H}
+              highlightIdxs={ACCEPTOR_AG_IDX}
+            />
+            {/* Boundary line */}
+            <line
+              x1={stripX + 20 * 6.5} y1={SEQ_STRIP_Y - 1}
+              x2={stripX + 20 * 6.5} y2={SEQ_STRIP_Y + SEQ_CELL_H + 1}
+              stroke={COLOR_AMBER} strokeWidth={1} strokeDasharray="2 1"
+            />
+            <text
+              x={stripX - 5} y={SEQ_STRIP_Y + SEQ_CELL_H * 0.7}
+              textAnchor="end" fontSize={7} fill={COLOR_GREEN} fontFamily="monospace"
+            >
+              3&apos;SS flank
+            </text>
+          </g>
+          );
+        })()}
 
       </svg>
     </div>

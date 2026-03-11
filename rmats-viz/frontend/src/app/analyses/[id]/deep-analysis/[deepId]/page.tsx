@@ -21,7 +21,6 @@ import { ExcelExportModal, type ExcelColumnGroup } from "@/components/ExcelExpor
 import { Top10View } from "@/components/events/Top10View";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
 import { PermutationPanel } from "@/components/top10/PermutationPanel";
-import { PatternComparisonPanel } from "@/components/deep-analysis/PatternComparisonPanel";
 import type { GeneEntry } from "@/types/gene";
 
 export default function DeepAnalysisDetailPage() {
@@ -239,16 +238,6 @@ export default function DeepAnalysisDetailPage() {
         <p className="text-sm text-muted-foreground py-6 text-center">
           {t("deepAnalysis.noEvents")}
         </p>
-      )}
-
-      {/* Pattern comparison panel */}
-      {(activeModules.has("splice") || activeModules.has("frame")) && (
-        <div className="space-y-3">
-          <h2 className="text-sm font-bold text-foreground">
-            Pattern comparison: significant vs non-significant
-          </h2>
-          <PatternComparisonPanel deepId={deepId} />
-        </div>
       )}
 
       {/* Permutation panel */}

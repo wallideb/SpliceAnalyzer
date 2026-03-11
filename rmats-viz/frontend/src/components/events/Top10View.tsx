@@ -17,6 +17,7 @@ import type { GeneEntry } from "@/types/gene";
 import { SidebarNav } from "@/components/top10/SidebarNav";
 import { AnnotatedCard } from "@/components/top10/AnnotatedCard";
 import { MotifPatternPanel } from "@/components/top10/MotifPatternPanel";
+import { PatternComparisonPanel } from "@/components/deep-analysis/PatternComparisonPanel";
 import { useT } from "@/contexts/LanguageContext";
 import type { ViewMode } from "@/components/top10/types";
 
@@ -99,22 +100,29 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
             {t("top10View.noAnalysisId")}
           </p>
         ) : (
-          <div className="grid grid-cols-1 gap-4">
-            {events.map((ev) => {
-              const symKey = (ev.gene_symbol ?? "").toUpperCase();
-              return (
-                <AnnotatedCard
-                  key={ev.id}
-                  event={ev}
-                  mode={mode}
-                  ensemblIdHint={ensemblHints[symKey] ?? ev.gene_id}
-                  mutatedGenes={mutatedGenes}
-                  analysisId={analysisId}
-                  group1Label={group1Label}
-                  group2Label={group2Label}
-                />
-              );
-            })}
+          <div className="space-y-6">
+            {/* Splice mode: show aggregate pattern comparison panel at the top */}
+            {mode === "splice" && deepAnalysisId && (
+              <PatternComparisonPanel deepId={deepAnalysisId} />
+            )}
+
+            <div className="grid grid-cols-1 gap-4">
+              {events.map((ev) => {
+                const symKey = (ev.gene_symbol ?? "").toUpperCase();
+                return (
+                  <AnnotatedCard
+                    key={ev.id}
+                    event={ev}
+                    mode={mode}
+                    ensemblIdHint={ensemblHints[symKey] ?? ev.gene_id}
+                    mutatedGenes={mutatedGenes}
+                    analysisId={analysisId}
+                    group1Label={group1Label}
+                    group2Label={group2Label}
+                  />
+                );
+              })}
+            </div>
           </div>
         )}
 

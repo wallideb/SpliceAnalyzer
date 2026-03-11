@@ -187,6 +187,8 @@ export function SpliceView({
         exonRank={data.exon_rank ?? null}
         donorSeq={data.donor_seq ?? null}
         acceptorSeq={data.acceptor_seq ?? null}
+        upstreamDonorSeq={data.upstream_donor_seq ?? null}
+        downstreamAcceptorSeq={data.downstream_acceptor_seq ?? null}
         pptScore={data.ppt_score ?? null}
         pptSeq={data.ppt_seq ?? null}
         bpFound={data.bp_motif_found ?? null}

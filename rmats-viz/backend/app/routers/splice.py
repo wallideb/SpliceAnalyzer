@@ -94,7 +94,11 @@ def _feat_to_response(feat: EventSpliceFeature, event: SplicingEvent) -> SpliceF
 
 
 # Limit concurrent Ensembl + samtools calls to avoid overwhelming external services
-_COMPUTE_SEM = asyncio.Semaphore(10)
+_COMPUTE_SEM = asyncio.Semaphore(5)
+
+# Limit total concurrent on-the-fly splice feature requests to prevent OOM/crash
+# when the deep analysis page fires dozens of requests simultaneously.
+_ENDPOINT_SEM = asyncio.Semaphore(8)
 
 
 async def _fetch_features(
@@ -368,7 +372,18 @@ async def get_splice_feature(event_id: uuid.UUID):
     Manages DB sessions manually (no ``Depends(get_db)``) so that the
     connection is released before slow I/O (samtools / Ensembl / MANE).
     This prevents pool exhaustion when 10+ cards load in parallel.
+
+    Uses ``_ENDPOINT_SEM`` to cap total concurrent requests.  When the
+    semaphore is full, returns HTTP 503 so the frontend can retry later.
     """
+    if not _ENDPOINT_SEM._value:  # noqa: SLF001 – fast non-blocking check
+        raise HTTPException(503, "Server busy computing splice features, retry shortly")
+
+    async with _ENDPOINT_SEM:
+        return await _get_splice_feature_inner(event_id)
+
+
+async def _get_splice_feature_inner(event_id: uuid.UUID) -> SpliceFeatureResponse:
     # ── 1. Quick DB read: fetch event + check feature cache ──────────────
     async with AsyncSessionLocal() as db:
         ev_res = await db.execute(

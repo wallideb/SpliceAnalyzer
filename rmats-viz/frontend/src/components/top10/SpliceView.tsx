@@ -87,7 +87,10 @@ export function SpliceView({
     queryFn: () => getEventSpliceFeature(ev.id),
     enabled: ev.event_type === "SE",
     staleTime: 10 * 60 * 1000,
-    retry: false,
+    retry: (failureCount, error) =>
+      // Retry on 503 (server busy) up to 6 times with backoff
+      failureCount < 6 && error?.message?.includes("503"),
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 15000),
   });
 
   const compute = useMutation({

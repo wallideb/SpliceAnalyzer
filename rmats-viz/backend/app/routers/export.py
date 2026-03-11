@@ -1266,7 +1266,7 @@ def _build_pdf(
         ))
         story.append(sp())
 
-        perm_headers = ["Iterations", "Events Tested", "% p &lt; 0.05", "% p &lt; 0.01"]
+        perm_headers = ["Iterations", "Events Tested", "% p < 0.05", "% p < 0.01"]
         perm_rows = [perm_headers]
         for pt in permutation_table:
             perm_rows.append([
@@ -1602,23 +1602,23 @@ async def export_deep_analysis_pdf(
         ],
     }
 
-    # ── Permutation tests at multiple iteration counts ──────────────────
+    # ── Permutation test (single run at 500 iterations) ─────────────────
     from app.services.permutation import run_permutation
 
     # Build parallel feature list aligned with sig_events
     sig_features_list = [features.get(e.id) for e in sig_events]
     permutation_table: list[dict] = []
-    for n_iter in (50, 100, 250, 500):
+    if sig_events:
         perm_res = await asyncio.to_thread(
             run_permutation,
             sig_events,
             sig_features_list,
-            n_iterations=n_iter,
+            n_iterations=500,
             only_se=True,
             seed=42,
         )
         permutation_table.append({
-            "iterations": n_iter,
+            "iterations": 500,
             "n_tested": perm_res.n_events_tested,
             "pct_p05": perm_res.pct_p05,
             "pct_p01": perm_res.pct_p01,

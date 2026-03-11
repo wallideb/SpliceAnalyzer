@@ -119,7 +119,7 @@ function FrameBar({ stats, label }: { stats: GroupPatternStats; label: string })
 
 /** Annotation banner showing a statistical test result between two figure panels */
 function TestAnnotation({ test }: { test: StatTestResult | undefined }) {
-  if (!test) return null;
+  if (!test || test.p_value == null) return null;
   const pStr = test.p_value < 0.0001
     ? test.p_value.toExponential(2)
     : test.p_value.toFixed(4);

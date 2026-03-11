@@ -389,11 +389,55 @@ async def get_splice_feature(event_id: uuid.UUID):
             select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
         )
         feat = feat_res.scalar_one_or_none()
+
+        # If feature exists AND already has MANE data (or gene_id is missing),
+        # return immediately.  Otherwise retry MANE lookup.
         if feat is not None:
-            return _feat_to_response(feat, event)
+            has_mane = feat.mane_transcript_id is not None
+            can_retry_mane = (not has_mane) and bool(event.gene_id)
+            if not can_retry_mane:
+                return _feat_to_response(feat, event)
+            # Retry MANE in background — return current data but schedule update
+            _retry_event = event   # snapshot for closure
     # ── session closed — connection returned to pool ─────────────────────
 
     # ── 2. Slow I/O (no DB held): samtools / Ensembl / MANE ─────────────
+    if feat is not None:
+        # Retry MANE only (sequences already computed)
+        try:
+            mane = await asyncio.to_thread(
+                annotate_mane,
+                _retry_event.gene_id,
+                _retry_event.chr or "",
+                _retry_event.strand or "+",
+                _retry_event.exon_start or 0,
+                _retry_event.exon_end or 0,
+            )
+            if mane.get("transcript_id"):
+                async with AsyncSessionLocal() as db:
+                    from sqlalchemy import update
+                    await db.execute(
+                        update(EventSpliceFeature)
+                        .where(EventSpliceFeature.event_id == event_id)
+                        .values(
+                            mane_transcript_id=mane["transcript_id"],
+                            exon_rank=mane.get("exon_rank"),
+                            frame_region=mane.get("frame_region", "unknown"),
+                            frame_class=mane.get("frame_class") or feat.frame_class,
+                            cds_exon_length=mane.get("cds_exon_length"),
+                        )
+                    )
+                    await db.commit()
+                    # Re-read updated feature
+                    feat_res = await db.execute(
+                        select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
+                    )
+                    feat = feat_res.scalar_one()
+                    return _feat_to_response(feat, _retry_event)
+        except Exception as exc:
+            logger.debug("MANE retry failed for %s: %s", event_id, exc)
+        return _feat_to_response(feat, _retry_event)
+
     fa_ok = fasta_available()
     feat_data, mane, seq_source = await _fetch_features(event, fa_ok)
 

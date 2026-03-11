@@ -117,6 +117,35 @@ function FrameBar({ stats, label }: { stats: GroupPatternStats; label: string })
   );
 }
 
+/** Annotation banner showing a statistical test result between two figure panels */
+function TestAnnotation({ test }: { test: StatTestResult | undefined }) {
+  if (!test) return null;
+  const pStr = test.p_value < 0.0001
+    ? test.p_value.toExponential(2)
+    : test.p_value.toFixed(4);
+  const color = test.p_value < 0.01
+    ? "text-green-600 dark:text-green-400"
+    : test.p_value < 0.05
+      ? "text-amber-600 dark:text-amber-400"
+      : "text-muted-foreground";
+  const sigLabel = test.significant ? "significant" : "n.s.";
+  return (
+    <div className="flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg bg-muted/40 border border-border text-[10px]">
+      <span className="text-muted-foreground">{test.test_name}:</span>
+      <span className={`font-mono font-semibold ${color}`}>
+        p = {pStr}
+      </span>
+      <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${
+        test.significant
+          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+          : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+      }`}>
+        {sigLabel}
+      </span>
+    </div>
+  );
+}
+
 export function PatternComparisonPanel({ deepId }: Props) {
   const t = useT();
 
@@ -233,6 +262,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
                     skipZero
                     canonicalPositions={[1, 2]}
                     id="cmp-donor-sig"
+                    nSequences={sig.n_se_with_features}
                   />
                   {sig.donor_consensus && (
                     <p className="text-[10px] text-muted-foreground mt-1">
@@ -257,6 +287,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
                     skipZero
                     canonicalPositions={[1, 2]}
                     id="cmp-donor-nonsig"
+                    nSequences={nonsig.n_se_with_features}
                   />
                   {nonsig.donor_consensus && (
                     <p className="text-[10px] text-muted-foreground mt-1">
@@ -269,6 +300,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
               )}
             </div>
           </div>
+          <TestAnnotation test={p("canonical_gt")} />
         </div>
       )}
 
@@ -292,6 +324,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
                     skipZero
                     canonicalPositions={[-2, -1]}
                     id="cmp-acceptor-sig"
+                    nSequences={sig.n_se_with_features}
                   />
                   {sig.acceptor_consensus && (
                     <p className="text-[10px] text-muted-foreground mt-1">
@@ -316,6 +349,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
                     skipZero
                     canonicalPositions={[-2, -1]}
                     id="cmp-acceptor-nonsig"
+                    nSequences={nonsig.n_se_with_features}
                   />
                   {nonsig.acceptor_consensus && (
                     <p className="text-[10px] text-muted-foreground mt-1">
@@ -328,6 +362,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
               )}
             </div>
           </div>
+          <TestAnnotation test={p("canonical_ag")} />
         </div>
       )}
 
@@ -340,6 +375,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
           <FrameBar stats={sig} label={`${t("deepAnalysis.significant")} (${sig.n_se_with_features})`} />
           <FrameBar stats={nonsig} label={`${t("deepAnalysis.notSignificant")} (${nonsig.n_se_with_features})`} />
         </div>
+        <TestAnnotation test={p("in_frame_pct")} />
       </div>
 
       {/* ── Methodology ── */}

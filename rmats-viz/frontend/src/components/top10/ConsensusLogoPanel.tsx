@@ -5,23 +5,17 @@
  * ===================
  * Publication-grade sequence logo for splice-site PWM data.
  *
- * Follows WebLogo / Schneider & Stephens (1990) standard:
+ * Follows WebLogo3 / Schneider & Stephens (1990) standard:
  *  • Y-axis in bits of information (0 – 2)
- *  • Letter heights: height ∝ frequency × IC  (IC = 2 – H)
- *  • X-axis: numbered relative to splice site (−3…+6 for 5'SS, −20…+3 for 3'SS)
+ *  • Letter heights: height = frequency × R_i  where R_i = 2 − H_i − e_n
+ *  • Small-sample correction: e_n = (s−1) / (2 · ln2 · n)  (Schneider et al. 1986)
+ *  • Letters rendered as vertically-stretched glyphs (not colored rectangles)
+ *  • X-axis: numbered relative to splice site
  *  • Canonical positions highlighted with yellow background
- *  • Per-column hover tooltip: position + frequency of each base in %
- *  • "Export SVG" button (downloads the raw SVG markup)
  *
- * Usage:
- *   <ConsensusLogoPanel
- *     pwm={donor_sites.pwm}
- *     title="Site donneur 5'SS"
- *     startPosition={-3}    // position number assigned to index 0
- *     skipZero               // splice-site convention: skip position 0
- *     canonicalPositions={[1, 2]}  // e.g. GT at +1,+2
- *     id="logo-donor"
- *   />
+ * References:
+ *  Schneider TD, Stephens RM. 1990. Nucleic Acids Res. 18:6097-6100
+ *  Crooks GE et al. 2004. Genome Research 14:1188-1190
  */
 
 import { useRef, useState } from "react";
@@ -43,17 +37,12 @@ interface PWMRow {
 interface ConsensusLogoPanelProps {
   pwm: PWMRow[];
   title: string;
-  /** Position number assigned to the first column (can be negative). */
   startPosition: number;
-  /** If true, skip position 0 in the numbering (splice-site convention). */
   skipZero?: boolean;
-  /**
-   * 1-based position numbers (not array indices!) that should be highlighted.
-   * E.g. [1, 2] for GT at +1/+2 on the donor.
-   */
   canonicalPositions?: number[];
-  /** Unique id for SVG export naming. */
   id?: string;
+  /** Number of sequences used to compute the PWM (for small-sample correction). */
+  nSequences?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,15 +56,15 @@ const BASE_COLORS: Record<string, string> = {
   T: "#ef4444",
 };
 
-const COL_W     = 28;    // px per position column
-const LOGO_H    = 90;    // max logo stack height (= 2 bits)
-const BITS_AXIS_W = 36;  // left margin for bits axis
-const LABEL_H   = 32;    // bottom margin for position labels + axis title
+const COL_W     = 28;
+const LOGO_H    = 90;
+const BITS_AXIS_W = 36;
+const LABEL_H   = 32;
 const TOP_PAD   = 6;
 const SVG_H     = TOP_PAD + LOGO_H + LABEL_H;
 
 // ---------------------------------------------------------------------------
-// Entropy / IC helpers
+// Entropy / IC helpers (Schneider & Stephens 1990, Schneider et al. 1986)
 // ---------------------------------------------------------------------------
 
 function entropy(row: PWMRow): number {
@@ -86,17 +75,21 @@ function entropy(row: PWMRow): number {
   }, 0);
 }
 
+/** Small-sample correction: e_n = (s-1) / (2·ln(2)·n) for s=4 (DNA). */
+function smallSampleCorrection(n: number | undefined): number {
+  if (!n || n <= 0) return 0;
+  return 3 / (2 * Math.LN2 * n);
+}
+
 // ---------------------------------------------------------------------------
 // SVG export helper
 // ---------------------------------------------------------------------------
 
 function exportSVG(svgEl: SVGSVGElement, filename: string, title: string) {
-  // Clone the SVG and make it self-contained with white background + title
   const clone = svgEl.cloneNode(true) as SVGSVGElement;
   const vb = clone.getAttribute("viewBox")?.split(" ").map(Number) ?? [0, 0, 300, 100];
   const [vx, vy, vw, vh] = vb;
 
-  // Add padding for title at top
   const PAD_TOP = 18;
   const PAD_BOTTOM = 14;
   const newH = vh + PAD_TOP + PAD_BOTTOM;
@@ -105,7 +98,6 @@ function exportSVG(svgEl: SVGSVGElement, filename: string, title: string) {
   clone.setAttribute("height", String(newH * 2));
   clone.removeAttribute("style");
 
-  // White background
   const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   bg.setAttribute("x", String(vx));
   bg.setAttribute("y", String(vy - PAD_TOP));
@@ -114,7 +106,6 @@ function exportSVG(svgEl: SVGSVGElement, filename: string, title: string) {
   bg.setAttribute("fill", "white");
   clone.insertBefore(bg, clone.firstChild);
 
-  // Title text
   const titleEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
   titleEl.setAttribute("x", String(vx + vw / 2));
   titleEl.setAttribute("y", String(vy - 4));
@@ -126,7 +117,6 @@ function exportSVG(svgEl: SVGSVGElement, filename: string, title: string) {
   titleEl.textContent = title;
   clone.appendChild(titleEl);
 
-  // X-axis title
   const xLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
   xLabel.setAttribute("x", String(vx + vw / 2));
   xLabel.setAttribute("y", String(vy + vh + PAD_BOTTOM - 2));
@@ -160,6 +150,7 @@ export function ConsensusLogoPanel({
   skipZero = false,
   canonicalPositions = [],
   id = "logo",
+  nSequences,
 }: ConsensusLogoPanelProps) {
   const t = useT();
   const svgRef = useRef<SVGSVGElement>(null);
@@ -167,6 +158,7 @@ export function ConsensusLogoPanel({
 
   if (!pwm.length) return null;
 
+  const en = smallSampleCorrection(nSequences);
   const canonicalSet = new Set(canonicalPositions);
   const totalCols    = pwm.length;
   const svgW         = BITS_AXIS_W + totalCols * COL_W;
@@ -190,7 +182,7 @@ export function ConsensusLogoPanel({
       {hoveredCol !== null && pwm[hoveredCol] && (() => {
         const row = pwm[hoveredCol];
         const pos = posNum(hoveredCol, startPosition, skipZero);
-        const ic  = Math.max(0, 2 - entropy(row));
+        const ic  = Math.max(0, 2 - entropy(row) - en);
         return (
           <div className="flex items-center gap-3 px-2 py-1 rounded bg-popover border border-border text-[9px] font-mono">
             <span className="font-semibold text-foreground">
@@ -219,7 +211,6 @@ export function ConsensusLogoPanel({
             const isMajor = bit % 1 === 0;
             return (
               <g key={bit}>
-                {/* Grid line across chart area */}
                 <line
                   x1={BITS_AXIS_W}
                   y1={y}
@@ -229,7 +220,6 @@ export function ConsensusLogoPanel({
                   strokeWidth={isMajor ? 0.5 : 0.3}
                   strokeDasharray={isMajor ? undefined : "2 2"}
                 />
-                {/* Tick mark */}
                 <line
                   x1={BITS_AXIS_W - (isMajor ? 4 : 2)}
                   y1={y}
@@ -238,7 +228,6 @@ export function ConsensusLogoPanel({
                   stroke="#475569"
                   strokeWidth={0.8}
                 />
-                {/* Label (only for whole numbers) */}
                 {isMajor && (
                   <text
                     x={BITS_AXIS_W - 6}
@@ -279,7 +268,7 @@ export function ConsensusLogoPanel({
 
           {/* ── Columns ── */}
           {pwm.map((row, colIdx) => {
-            const ic      = Math.max(0, 2 - entropy(row));
+            const ic      = Math.max(0, 2 - entropy(row) - en);
             const colH    = (ic / 2) * LOGO_H;
             const colX    = BITS_AXIS_W + colIdx * COL_W;
             const pos     = posNum(colIdx, startPosition, skipZero);
@@ -292,39 +281,39 @@ export function ConsensusLogoPanel({
               .sort((a, z) => a.f - z.f);
 
             let curY = TOP_PAD + LOGO_H;
-            const letterBlocks: React.ReactNode[] = [];
+            const letterGlyphs: React.ReactNode[] = [];
 
             for (const { b, f } of sorted) {
               if (f <= 0) continue;
               const h = f * colH;
+              if (h < 0.5) { curY -= h; continue; }
               curY -= h;
-              letterBlocks.push(
-                <rect
-                  key={`${b}-bg`}
+
+              // WebLogo-style: stretch letter glyph to fill column width × height
+              // Using nested <svg> with preserveAspectRatio="none" for clean scaling
+              letterGlyphs.push(
+                <svg
+                  key={b}
                   x={colX + 1}
                   y={curY}
                   width={COL_W - 2}
                   height={h}
-                  fill={BASE_COLORS[b]}
-                  opacity={0.85}
-                />,
-              );
-              if (h >= 9) {
-                letterBlocks.push(
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                >
                   <text
-                    key={`${b}-txt`}
-                    x={colX + COL_W / 2}
-                    y={curY + h - 2}
+                    x="50"
+                    y="95"
                     textAnchor="middle"
-                    fontSize={Math.min(h - 1, COL_W - 3)}
-                    fontFamily="monospace"
-                    fontWeight="700"
-                    fill="white"
+                    fontSize="110"
+                    fontFamily="Arial Black, Impact, Helvetica, sans-serif"
+                    fontWeight="900"
+                    fill={BASE_COLORS[b]}
                   >
                     {b}
-                  </text>,
-                );
-              }
+                  </text>
+                </svg>,
+              );
             }
 
             return (
@@ -356,7 +345,7 @@ export function ConsensusLogoPanel({
                     opacity={0.35}
                   />
                 )}
-                {letterBlocks}
+                {letterGlyphs}
                 {/* Position label */}
                 <text
                   x={colX + COL_W / 2}

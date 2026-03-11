@@ -122,7 +122,7 @@ export function SpliceSequenceLogo({
                 y={0}
                 width={colWidth}
                 height={maxHeight}
-                fill="#fef08a"
+                fill="var(--svg-highlight-bg)"
                 opacity={0.4}
               />
             )}

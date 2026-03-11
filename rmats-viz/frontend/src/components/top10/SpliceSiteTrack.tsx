@@ -44,9 +44,9 @@ const ACCEPTOR_CANONICAL_IDX = new Set([18, 19]); // -2,-1 = AG
 const DONOR_BOUNDARY    = 3;   // between position -1 and +1
 const ACCEPTOR_BOUNDARY = 20;  // between position -1 and +1
 
-const NT_W  = 17;  // px per nucleotide column
-const NT_H  = 22;  // nucleotide block height
-const AXIS_H = 16; // height reserved for position labels below blocks
+const NT_W  = 20;  // px per nucleotide column
+const NT_H  = 26;  // nucleotide block height
+const AXIS_H = 18; // height reserved for position labels below blocks
 
 // ---------------------------------------------------------------------------
 // NucTrack — internal sub-component
@@ -75,7 +75,7 @@ function NucTrack({
 
   return (
     <div>
-      <p className="text-[9px] text-muted-foreground uppercase tracking-wide font-semibold mb-1.5">
+      <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-semibold mb-1.5">
         {label}
       </p>
       <div style={{ overflowX: "auto" }}>
@@ -90,7 +90,7 @@ function NucTrack({
             y1={-2}
             x2={getX(boundaryAt) - 5}
             y2={NT_H + 2}
-            stroke="#475569"
+            stroke="var(--svg-panel-border)"
             strokeWidth={1.5}
             strokeDasharray="3 2"
           />
@@ -125,9 +125,9 @@ function NucTrack({
                     x={x + NT_W / 2}
                     y={NT_H - 5}
                     textAnchor="middle"
-                    fontSize={9.5}
+                    fontSize={11}
                     fontFamily="monospace"
-                    fontWeight={isHL ? "800" : "500"}
+                    fontWeight={isHL ? "800" : "600"}
                     fill={isHL ? "white" : color}
                   >
                     {base}
@@ -137,7 +137,7 @@ function NucTrack({
                     x={x + NT_W / 2}
                     y={NT_H + AXIS_H - 2}
                     textAnchor="middle"
-                    fontSize={6.5}
+                    fontSize={8}
                     fontFamily="monospace"
                     fill={isHL ? "#64748b" : "#94a3b8"}
                   >

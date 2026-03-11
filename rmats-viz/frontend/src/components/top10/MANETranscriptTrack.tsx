@@ -13,6 +13,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { getMANETranscript } from "@/lib/api/splice";
+import { useT } from "@/contexts/LanguageContext";
 import type { MANEExon } from "@/types/splice";
 
 // ---------------------------------------------------------------------------
@@ -72,6 +73,7 @@ function TranscriptDiagram({
   skippedEnd: number | null;
   transcriptId: string;
 }) {
+  const t = useT();
   if (!exons.length) return null;
 
   const minSz = Math.min(...exons.map((e) => e.size));
@@ -118,7 +120,7 @@ function TranscriptDiagram({
     <div>
       <div className="flex items-baseline gap-2 mb-1.5">
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-          Transcrit MANE Select
+          {t("maneTrack.title")}
         </p>
         <code className="text-[9px] text-blue-500 dark:text-blue-400 font-mono">
           {transcriptId}
@@ -134,7 +136,7 @@ function TranscriptDiagram({
         <svg
           viewBox={`0 0 ${Math.ceil(totalW)} ${SVG_H}`}
           style={{ width: Math.ceil(totalW), height: SVG_H, display: "block", overflow: "visible" }}
-          aria-label="Transcrit MANE — exons"
+          aria-label={t("maneTrack.title")}
         >
           {/* Backbone line */}
           <line
@@ -149,10 +151,10 @@ function TranscriptDiagram({
           {blocks.map(({ x, w, isSkipped, exon, idx }) => {
             const rank = idx + 1;
             const tooltip = [
-              `Exon ${rank} / ${exons.length}`,
-              `Taille: ${exon.size.toLocaleString()} nt`,
-              `Coordonnées: ${formatCoord(exon.start)}–${formatCoord(exon.end)}`,
-              isSkipped ? "★ Exon sauté" : null,
+              t("maneTrack.exonLabel", { rank, total: exons.length }),
+              t("maneTrack.sizeLabel", { size: exon.size.toLocaleString() }),
+              t("maneTrack.coordsLabel", { start: formatCoord(exon.start), end: formatCoord(exon.end) }),
+              isSkipped ? t("maneTrack.skippedLabel") : null,
             ].filter(Boolean).join("\n");
 
             return (
@@ -193,15 +195,15 @@ function TranscriptDiagram({
       <div className="flex flex-wrap items-center gap-3 mt-1 text-[9px] text-muted-foreground">
         <span className="flex items-center gap-1">
           <span className="inline-block w-4 h-2.5 rounded-sm bg-indigo-500" />
-          Exon sauté
+          {t("maneTrack.skippedExon")}
           {exonRank !== null && ` (E${exonRank} / ${exons.length})`}
         </span>
         <span className="flex items-center gap-1">
           <span className="inline-block w-4 h-2.5 rounded-sm bg-slate-400/75" />
-          Autres exons
+          {t("maneTrack.otherExons")}
         </span>
         <span className="text-[9px] text-muted-foreground/60 italic">
-          Largeur ∝ taille exon · introns compressés
+          {t("maneTrack.widthNote")}
         </span>
       </div>
     </div>
@@ -221,6 +223,7 @@ export function MANETranscriptTrack({
   maneTranscriptId: string | null;
   exonRank: number | null;
 }) {
+  const t = useT();
   const { data, isLoading, isError } = useQuery({
     queryKey: ["mane-transcript", eventId],
     queryFn: () => getMANETranscript(eventId),
@@ -233,7 +236,7 @@ export function MANETranscriptTrack({
     return (
       <div className="mt-3 p-3 rounded-lg bg-muted/30 border border-border">
         <p className="text-[9px] text-muted-foreground italic">
-          Transcrit MANE non trouvé pour cet événement.
+          {t("maneTrack.notFound")}
         </p>
       </div>
     );
@@ -252,7 +255,7 @@ export function MANETranscriptTrack({
     return (
       <div className="mt-3 p-3 rounded-lg bg-muted/30 border border-border">
         <p className="text-[9px] text-muted-foreground">
-          Structure du transcrit non disponible.{" "}
+          {t("maneTrack.structureNotAvailable")}{" "}
           <code className="font-mono text-blue-500">{maneTranscriptId}</code>
         </p>
       </div>

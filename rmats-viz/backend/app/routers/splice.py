@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
 from app.models.event import SplicingEvent
+from app.models.deep_analysis import DeepAnalysisEvent
 from app.models.splice import EventCluster, EventSpliceFeature
 from app.schemas.splice import (
     ComputeJobResponse,
@@ -99,7 +100,7 @@ _COMPUTE_SEM = asyncio.Semaphore(10)
 async def _fetch_features(
     event: SplicingEvent,
     fa_ok: bool,
-) -> tuple[Any, dict]:
+) -> tuple[Any, dict, str | None]:
     """Pure-compute step (no DB): extract sequences + call Ensembl.
 
     Runs under _COMPUTE_SEM so at most 10 events are processed concurrently.
@@ -312,8 +313,48 @@ async def compute_splice_features(
         n_computed=0,
         n_clusters=0,
         fasta_available=fa_ok,
-        message="Computation started in background. Poll /splice/patterns/{id} for progress.",
+        message="Computation started in background. Poll /splice/progress/{id} for progress.",
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /splice/progress/{analysis_id}
+# ---------------------------------------------------------------------------
+
+@router.get("/progress/{analysis_id}")
+async def get_compute_progress(
+    analysis_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return splice feature computation progress for an analysis."""
+    from sqlalchemy import func
+
+    n_se_result = await db.execute(
+        select(func.count(SplicingEvent.id)).where(
+            SplicingEvent.analysis_id == analysis_id,
+            SplicingEvent.event_type == "SE",
+        )
+    )
+    n_se = n_se_result.scalar() or 0
+
+    n_computed_result = await db.execute(
+        select(func.count(EventSpliceFeature.id)).where(
+            EventSpliceFeature.event_id.in_(
+                select(SplicingEvent.id).where(
+                    SplicingEvent.analysis_id == analysis_id,
+                    SplicingEvent.event_type == "SE",
+                )
+            )
+        )
+    )
+    n_computed = n_computed_result.scalar() or 0
+
+    return {
+        "n_se_events": n_se,
+        "n_computed": n_computed,
+        "pct": round(n_computed / n_se * 100, 1) if n_se > 0 else 0,
+        "done": n_computed >= n_se,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -321,51 +362,63 @@ async def compute_splice_features(
 # ---------------------------------------------------------------------------
 
 @router.get("/feature/{event_id}", response_model=SpliceFeatureResponse)
-async def get_splice_feature(
-    event_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-):
-    """Return splice features for one SE event (compute on-the-fly if missing)."""
-    ev_res = await db.execute(
-        select(SplicingEvent).where(SplicingEvent.id == event_id)
-    )
-    event = ev_res.scalar_one_or_none()
-    if event is None:
-        raise HTTPException(404, "Event not found")
-    if event.event_type != "SE":
-        return SpliceFeatureResponse(
-            event_id=str(event_id),
-            event_type=event.event_type,
-            gene_symbol=event.gene_symbol,
-            error="Splice site analysis only available for SE events",
+async def get_splice_feature(event_id: uuid.UUID):
+    """Return splice features for one SE event (compute on-the-fly if missing).
+
+    Manages DB sessions manually (no ``Depends(get_db)``) so that the
+    connection is released before slow I/O (samtools / Ensembl / MANE).
+    This prevents pool exhaustion when 10+ cards load in parallel.
+    """
+    # ── 1. Quick DB read: fetch event + check feature cache ──────────────
+    async with AsyncSessionLocal() as db:
+        ev_res = await db.execute(
+            select(SplicingEvent).where(SplicingEvent.id == event_id)
         )
+        event = ev_res.scalar_one_or_none()
+        if event is None:
+            raise HTTPException(404, "Event not found")
+        if event.event_type != "SE":
+            return SpliceFeatureResponse(
+                event_id=str(event_id),
+                event_type=event.event_type,
+                gene_symbol=event.gene_symbol,
+                error="Splice site analysis only available for SE events",
+            )
 
-    # Return cached features only (never auto-compute to avoid long blocking calls).
-    # Use POST /splice/compute/{analysis_id} to trigger background computation first.
-    feat_res = await db.execute(
-        select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
-    )
-    feat = feat_res.scalar_one_or_none()
-
-    if feat is None:
-        # Sizes only — return a lightweight placeholder so the card renders
-        from app.services.splice_features import compute_features
-        result_data = compute_features(event, None)
-        return SpliceFeatureResponse(
-            event_id=str(event_id),
-            event_type=event.event_type,
-            gene_symbol=event.gene_symbol,
-            chr=event.chr,
-            strand=event.strand,
-            exon_size=result_data.exon_size,
-            upstream_intron_size=result_data.upstream_intron_size,
-            downstream_intron_size=result_data.downstream_intron_size,
-            fasta_available=False,
-            sequence_source=None,
-            error="Not yet computed — run POST /splice/compute/{analysis_id}",
+        feat_res = await db.execute(
+            select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
         )
+        feat = feat_res.scalar_one_or_none()
+        if feat is not None:
+            return _feat_to_response(feat, event)
+    # ── session closed — connection returned to pool ─────────────────────
 
-    return _feat_to_response(feat, event)
+    # ── 2. Slow I/O (no DB held): samtools / Ensembl / MANE ─────────────
+    fa_ok = fasta_available()
+    feat_data, mane, seq_source = await _fetch_features(event, fa_ok)
+
+    # ── 3. Persist only if sequences were obtained.  When both FASTA and
+    #    Ensembl fail (e.g. FASTA still downloading, network issue), we
+    #    return a transient size-only response so the next request retries.
+    if seq_source is not None:
+        async with AsyncSessionLocal() as db:
+            feat = await _upsert_feature(event, feat_data, mane, db, seq_source)
+            await db.commit()
+        return _feat_to_response(feat, event)
+
+    # Return non-cached size-only placeholder
+    return SpliceFeatureResponse(
+        event_id=str(event.id),
+        event_type=event.event_type,
+        gene_symbol=event.gene_symbol,
+        chr=event.chr,
+        strand=event.strand,
+        exon_size=feat_data.exon_size,
+        upstream_intron_size=feat_data.upstream_intron_size,
+        downstream_intron_size=feat_data.downstream_intron_size,
+        fasta_available=False,
+        sequence_source=None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -377,12 +430,16 @@ async def get_splice_patterns(
     analysis_id: uuid.UUID,
     fdr_threshold: float = Query(0.05, ge=0.0, le=1.0, description="FDR significance cutoff"),
     abs_delta_psi_min: float = Query(0.05, ge=0.0, le=1.0, description="Minimum |ΔΨ| for significance"),
+    deep_analysis_id: uuid.UUID | None = Query(None, description="If set, only analyse significant events from this deep analysis"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Aggregate splice-signal patterns across all SE events of an analysis."""
+    """Aggregate splice-signal patterns across SE events of an analysis.
+
+    When deep_analysis_id is provided, only events tagged as significant
+    in that deep analysis are included (thresholds are informational only).
+    """
 
     # Fetch events + their features (join)
-    from sqlalchemy import join as sqljoin
     stmt = (
         select(SplicingEvent, EventSpliceFeature)
         .join(
@@ -395,6 +452,17 @@ async def get_splice_patterns(
             SplicingEvent.event_type == "SE",
         )
     )
+
+    # If deep_analysis_id is provided, restrict to significant events only
+    if deep_analysis_id is not None:
+        stmt = stmt.join(
+            DeepAnalysisEvent,
+            DeepAnalysisEvent.event_id == SplicingEvent.id,
+        ).where(
+            DeepAnalysisEvent.deep_analysis_id == deep_analysis_id,
+            DeepAnalysisEvent.is_significant == True,
+        )
+
     rows = (await db.execute(stmt)).all()
 
     if not rows:
@@ -472,28 +540,30 @@ async def get_splice_patterns(
     # ── Donor (5'SS) ────────────────────────────────────────────────────────
     donor_seqs = [f.donor_seq for f in feats_with_seq if f.donor_seq and len(f.donor_seq) >= 9]
     donor_9    = [s[:9] for s in donor_seqs]
-    n_gt       = sum(1 for f in feats_with_seq if f.donor_is_gt)
+    # Count canonical GT only among events that have a valid donor sequence
+    n_gt       = sum(1 for f in feats_with_seq if f.donor_seq and len(f.donor_seq) >= 9 and f.donor_is_gt)
 
     donor_stats = SiteStats(
         n_sequences   = len(donor_9),
         consensus     = iupac_consensus(donor_9) if donor_9 else None,
         pwm           = compute_pwm(donor_9),
         n_canonical   = n_gt,
-        pct_canonical = round(n_gt / len(feats_with_seq) * 100, 1) if feats_with_seq else 0.0,
+        pct_canonical = round(n_gt / len(donor_9) * 100, 1) if donor_9 else 0.0,
         examples      = donor_9[:8],
     )
 
     # ── Acceptor (3'SS) ─────────────────────────────────────────────────────
     acc_seqs = [f.acceptor_seq for f in feats_with_seq if f.acceptor_seq and len(f.acceptor_seq) >= 23]
     acc_23   = [s[-23:] for s in acc_seqs]
-    n_ag     = sum(1 for f in feats_with_seq if f.acceptor_is_ag)
+    # Count canonical AG only among events that have a valid acceptor sequence
+    n_ag     = sum(1 for f in feats_with_seq if f.acceptor_seq and len(f.acceptor_seq) >= 23 and f.acceptor_is_ag)
 
     acc_stats = SiteStats(
         n_sequences   = len(acc_23),
         consensus     = iupac_consensus(acc_23) if acc_23 else None,
         pwm           = compute_pwm(acc_23),
         n_canonical   = n_ag,
-        pct_canonical = round(n_ag / len(feats_with_seq) * 100, 1) if feats_with_seq else 0.0,
+        pct_canonical = round(n_ag / len(acc_23) * 100, 1) if acc_23 else 0.0,
         examples      = acc_23[:8],
     )
 

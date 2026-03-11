@@ -95,8 +95,24 @@ function GeneView({ ev, annotation }: { ev: SplicingEvent; annotation?: GeneAnno
     ? `https://www.ensembl.org/Homo_sapiens/Gene/Summary?g=${ensgId}`
     : null;
 
+  const incL1 = ev.inc_level_1?.split(",").map(Number).filter((v) => !isNaN(v)) ?? [];
+  const incL2 = ev.inc_level_2?.split(",").map(Number).filter((v) => !isNaN(v)) ?? [];
+  const mean = (arr: number[]) =>
+    arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(3) : "—";
+
   return (
-    <div className="space-y-2 text-sm">
+    <div className="space-y-3 text-sm">
+      {/* rMATS scores */}
+      <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 text-xs">
+        <StatRow label="FDR" value={formatFDR(ev.fdr)} highlight />
+        <StatRow label="p-value" value={ev.p_value != null ? ev.p_value.toExponential(2) : "—"} />
+        <StatRow label="|ΔPSI|" value={ev.abs_inc_level_diff?.toFixed(3) ?? "—"} />
+        <StatRow label={t("annotatedCard.scores.meanPsi1")} value={mean(incL1)} />
+        <StatRow label={t("annotatedCard.scores.meanPsi2")} value={mean(incL2)} />
+        <StatRow label="ΔPSI" value={formatDeltaPSI(ev.inc_level_difference)} highlight />
+      </div>
+
+      {/* Gene info */}
       {ensgId && (
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-muted-foreground text-xs">{t("annotatedCard.gene.ensg")}</span>
@@ -207,35 +223,6 @@ function PanelAppView({ annotation, isLoading }: { annotation?: GeneAnnotation; 
   );
 }
 
-function ScoresView({ ev }: { ev: SplicingEvent }) {
-  const t = useT();
-  const incL1 = ev.inc_level_1?.split(",").map(Number).filter((v) => !isNaN(v)) ?? [];
-  const incL2 = ev.inc_level_2?.split(",").map(Number).filter((v) => !isNaN(v)) ?? [];
-  const mean = (arr: number[]) =>
-    arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(3) : "—";
-
-  return (
-    <div className="space-y-2 text-xs">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-        <StatRow label="FDR" value={formatFDR(ev.fdr)} highlight />
-        <StatRow label="p-value" value={ev.p_value != null ? ev.p_value.toExponential(2) : "—"} />
-        <StatRow label="ΔPSI" value={formatDeltaPSI(ev.inc_level_difference)} highlight />
-        <StatRow label="|ΔPSI|" value={ev.abs_inc_level_diff?.toFixed(3) ?? "—"} />
-        <StatRow label={t("annotatedCard.scores.meanPsi1")} value={mean(incL1)} />
-        <StatRow label={t("annotatedCard.scores.meanPsi2")} value={mean(incL2)} />
-      </div>
-      <div className="bg-muted/40 dark:bg-slate-700/40 rounded px-2.5 py-2 space-y-1">
-        <p className="font-semibold text-foreground text-[10px] uppercase tracking-wide mb-1">
-          {t("annotatedCard.scores.counts")}
-        </p>
-        {ev.ijc_sample_1 && <p><span className="text-muted-foreground">IJC G1:</span>{" "}{ev.ijc_sample_1.split(",").slice(0, 3).join(", ")}{ev.ijc_sample_1.split(",").length > 3 ? "…" : ""}</p>}
-        {ev.sjc_sample_1 && <p><span className="text-muted-foreground">SJC G1:</span>{" "}{ev.sjc_sample_1.split(",").slice(0, 3).join(", ")}{ev.sjc_sample_1.split(",").length > 3 ? "…" : ""}</p>}
-        {ev.ijc_sample_2 && <p><span className="text-muted-foreground">IJC G2:</span>{" "}{ev.ijc_sample_2.split(",").slice(0, 3).join(", ")}{ev.ijc_sample_2.split(",").length > 3 ? "…" : ""}</p>}
-        {ev.sjc_sample_2 && <p><span className="text-muted-foreground">SJC G2:</span>{" "}{ev.sjc_sample_2.split(",").slice(0, 3).join(", ")}{ev.sjc_sample_2.split(",").length > 3 ? "…" : ""}</p>}
-      </div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // STRING-DB custom SVG diagram helpers
@@ -672,8 +659,13 @@ function SEDirectionBadge({
 }) {
   if (eventType !== "SE" || delta === null || delta === undefined || delta === 0) return null;
   const moreSkippingLabel = delta < 0 ? group1Label : group2Label;
+  // ΔΨ < 0 → more skipping in group 1 (patients) → RED
+  // ΔΨ > 0 → more skipping in group 2 (controls) → BLUE
+  const colorClasses = delta < 0
+    ? "text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800"
+    : "text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800";
   return (
-    <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded-md whitespace-nowrap leading-none">
+    <span className={`inline-flex items-center gap-0.5 text-[10px] font-semibold border ${colorClasses} px-1.5 py-0.5 rounded-md whitespace-nowrap leading-none`}>
       {t("annotatedCard.direction.skippingUp", { group: moreSkippingLabel })}
     </span>
   );
@@ -698,17 +690,11 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
       <div className="flex flex-col border border-border dark:border-slate-600 rounded-xl bg-card dark:bg-slate-800/80 shadow-sm">
         {/* Header compact inline */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border dark:border-slate-600/60">
-          {ev.top_rank != null ? (
-            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold shrink-0">
-              {ev.top_rank}
-            </span>
-          ) : (
-            <span title={t("annotatedCard.basketEvent")} className="w-5 h-5 flex items-center justify-center rounded-full bg-violet-600 text-white shrink-0">
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z" />
-              </svg>
-            </span>
-          )}
+          <span className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-600 text-white shrink-0">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+          </span>
           <GeneSymbolWithTooltip symbol={symbol || "—"} annotation={annotation} />
           <div className="flex items-center gap-1.5 ml-auto shrink-0 flex-wrap">
             <PanelAppBadge annotation={annotation} />
@@ -717,7 +703,7 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
               FDR {formatFDR(ev.fdr)}
             </span>
             <span className={`text-[10px] font-bold font-mono ${
-              (ev.inc_level_difference ?? 0) > 0
+              (ev.inc_level_difference ?? 0) < 0
                 ? "text-red-500 dark:text-red-400"
                 : "text-blue-500 dark:text-blue-400"
             }`}>
@@ -745,19 +731,11 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
       {/* ── Fixed header ── */}
       <div className="flex items-start justify-between gap-2 p-4 pb-3 border-b border-border dark:border-slate-600/60">
         <div className="flex items-center gap-2.5 min-w-0">
-          {ev.top_rank != null ? (
-            /* Top-10 rank badge */
-            <span className="w-7 h-7 flex items-center justify-center rounded-full bg-blue-600 text-white text-xs font-bold shrink-0">
-              {ev.top_rank}
-            </span>
-          ) : (
-            /* Basket badge (not a top-10 event) */
-            <span title={t("annotatedCard.basketEvent")} className="w-7 h-7 flex items-center justify-center rounded-full bg-violet-600 text-white shrink-0">
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z" />
-              </svg>
-            </span>
-          )}
+          <span className="w-7 h-7 flex items-center justify-center rounded-full bg-blue-600 text-white shrink-0">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+          </span>
           <GeneSymbolWithTooltip symbol={symbol || "—"} annotation={annotation} />
         </div>
         {/* Right side: EventType badge + PanelApp badge */}
@@ -776,7 +754,7 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
         <div>
           <dt className="text-[10px] text-muted-foreground">ΔPSI</dt>
           <dd className={`text-xs font-bold ${
-            (ev.inc_level_difference ?? 0) > 0
+            (ev.inc_level_difference ?? 0) < 0
               ? "text-red-600 dark:text-red-400"
               : "text-blue-600 dark:text-blue-400"
           }`}>
@@ -800,7 +778,6 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
       <div className="p-4 flex-1">
         {mode === "gene"     && <GeneView ev={ev} annotation={annotation} />}
         {mode === "go"       && <GOView annotation={annotation} isLoading={annotationLoading} />}
-        {mode === "scores"   && <ScoresView ev={ev} />}
         {mode === "stringdb" && <StringDBView eventSymbol={symbol} mutatedGenes={mutatedGenes} />}
         {(mode === "pathways" || mode === "motifs") && (
           <ComingSoonView mode={mode} />

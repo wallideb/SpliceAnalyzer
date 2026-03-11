@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.analysis import Analysis
 from app.models.event import SplicingEvent
-from app.schemas.event import EventsPage, SplicingEventResponse
+from app.schemas.event import EventsPage, ManhattanPoint, SplicingEventResponse
 
 router = APIRouter(tags=["events"])
 
@@ -27,7 +27,6 @@ async def list_events(
     sort_dir: Literal["asc", "desc"] = Query("asc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    exclude_top10: bool = Query(False, description="When true, hide top-10 ranked events"),
     db: AsyncSession = Depends(get_db),
 ):
     # Verify analysis exists
@@ -47,8 +46,6 @@ async def list_events(
         conditions.append(SplicingEvent.p_value <= p_value_max)
     if delta_psi_min is not None:
         conditions.append(SplicingEvent.abs_inc_level_diff >= delta_psi_min)
-    if exclude_top10:
-        conditions.append(SplicingEvent.top_rank.is_(None))
 
     q = select(SplicingEvent).where(and_(*conditions))
 
@@ -70,17 +67,41 @@ async def list_events(
     return EventsPage(items=rows, total=total, page=page, page_size=page_size, pages=pages)
 
 
-@router.get("/analyses/{analysis_id}/events/top10", response_model=list[SplicingEventResponse])
-async def get_top10(analysis_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@router.get("/analyses/{analysis_id}/events/manhattan", response_model=list[ManhattanPoint])
+async def get_manhattan(
+    analysis_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return lightweight event data for the Manhattan plot (all events, no pagination)."""
     res = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
     if not res.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Analysis not found")
 
     q = (
-        select(SplicingEvent)
+        select(
+            SplicingEvent.id,
+            SplicingEvent.event_type,
+            SplicingEvent.gene_symbol,
+            SplicingEvent.chr,
+            SplicingEvent.exon_start,
+            SplicingEvent.fdr,
+            SplicingEvent.inc_level_difference,
+        )
         .where(SplicingEvent.analysis_id == analysis_id)
-        .where(SplicingEvent.top_rank.isnot(None))
-        .order_by(SplicingEvent.top_rank)
+        .where(SplicingEvent.chr.isnot(None))
+        .where(SplicingEvent.exon_start.isnot(None))
+        .order_by(SplicingEvent.chr, SplicingEvent.exon_start)
     )
-    rows = (await db.execute(q)).scalars().all()
-    return rows
+    rows = (await db.execute(q)).all()
+    return [
+        ManhattanPoint(
+            id=r.id,
+            event_type=r.event_type,
+            gene_symbol=r.gene_symbol,
+            chr=r.chr,
+            position=r.exon_start,
+            fdr=r.fdr,
+            inc_level_difference=r.inc_level_difference,
+        )
+        for r in rows
+    ]

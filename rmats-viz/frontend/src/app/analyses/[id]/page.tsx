@@ -1,14 +1,14 @@
 "use client";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getAnalysis, listEvents, downloadAnalysisExcel, downloadAnalysisPDF } from "@/lib/api";
+import { getAnalysis, listEvents, downloadAnalysisExcel, downloadAnalysisPDF, getManhattanData } from "@/lib/api";
 import { EventsTable } from "@/components/events/EventsTable";
+import { ManhattanPlot } from "@/components/events/ManhattanPlot";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
 import { ScienceNote } from "@/components/ScienceNote";
 import { ExcelExportModal, type ExcelColumnGroup } from "@/components/ExcelExportModal";
-import { useBasket } from "@/contexts/BasketContext";
 import { useT, useLanguage } from "@/contexts/LanguageContext";
 import type { EventsQuery } from "@/lib/api";
 import type { GeneEntry } from "@/types/gene";
@@ -32,7 +32,6 @@ function dpsiSliderToValue(pos: number): number {
 
 export default function AnalysisDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { addItems, hasItem } = useBasket();
   const t = useT();
   const { lang } = useLanguage();
 
@@ -48,9 +47,6 @@ export default function AnalysisDetailPage() {
   const [isExporting, setIsExporting] = useState(false);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [showExcelModal, setShowExcelModal] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [highlightTop10, setHighlightTop10] = useState(true);
-  const [hideTop10, setHideTop10] = useState(false);
   const [showIncLevel, setShowIncLevel] = useState(false);
 
   const sortBy = sortKey.slice(0, sortKey.lastIndexOf("|")) as EventsQuery["sort_by"];
@@ -75,7 +71,6 @@ export default function AnalysisDetailPage() {
     sort_dir: sortDir,
     page,
     page_size: 50,
-    exclude_top10: hideTop10 || undefined,
   };
 
   const { data: eventsPage, isLoading } = useQuery({
@@ -83,6 +78,16 @@ export default function AnalysisDetailPage() {
     queryFn: () => listEvents(id, query),
     enabled: !!id,
   });
+
+  // Manhattan plot data (all events, lightweight)
+  const { data: manhattanData = [], isLoading: loadingManhattan } = useQuery({
+    queryKey: ["manhattan", id],
+    queryFn: () => getManhattanData(id),
+    enabled: !!id,
+    staleTime: 5 * 60 * 1000, // 5 min cache
+  });
+
+  const [showManhattan, setShowManhattan] = useState(false);
 
   const group1 = analysis?.sample_groups.find((g) => g.group_index === 1);
   const group2 = analysis?.sample_groups.find((g) => g.group_index === 2);
@@ -94,39 +99,6 @@ export default function AnalysisDetailPage() {
   const mutatedGenes: GeneEntry[] = (analysis?.mutated_genes ?? []).filter(
     (g): g is GeneEntry => typeof g === "object" && "ensembl_id" in g,
   );
-
-  const handleToggleSelect = useCallback((eventId: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(eventId)) next.delete(eventId);
-      else next.add(eventId);
-      return next;
-    });
-  }, []);
-
-  const handleSelectPage = useCallback((ids: string[]) => {
-    setSelectedIds((prev) => {
-      const allSelected = ids.every((id) => prev.has(id));
-      const next = new Set(prev);
-      if (allSelected) ids.forEach((id) => next.delete(id));
-      else ids.forEach((id) => next.add(id));
-      return next;
-    });
-  }, []);
-
-  const handleAddToBasket = useCallback(() => {
-    if (!eventsPage || selectedIds.size === 0) return;
-    const selectedEvents = eventsPage.items.filter((e) => selectedIds.has(e.id));
-    addItems(
-      selectedEvents.map((event) => ({
-        event,
-        analysisId: id,
-        analysisName,
-        addedAt: new Date().toISOString(),
-      }))
-    );
-    setSelectedIds(new Set());
-  }, [eventsPage, selectedIds, addItems, id, analysisName]);
 
   const handleExport = useCallback(async (groups: ExcelColumnGroup[] = ["core"]) => {
     setIsExporting(true);
@@ -150,14 +122,6 @@ export default function AnalysisDetailPage() {
       setIsExportingPDF(false);
     }
   }, [id]);
-
-  const newCount = useMemo(() => {
-    let n = 0;
-    selectedIds.forEach((eid) => { if (!hasItem(eid)) n++; });
-    return n;
-  }, [selectedIds, hasItem]);
-
-  const hasStatFilters = fdrSlider > 0 || pvalSlider > 0 || dpsiSlider > 0;
 
   return (
     <div className="flex gap-6 items-start">
@@ -184,7 +148,7 @@ export default function AnalysisDetailPage() {
       )}
 
       {/* ══ MAIN CONTENT ══════════════════════════════════════════════════ */}
-      <div className={`flex-1 min-w-0 space-y-5${selectedIds.size > 0 ? " pb-24" : ""}`}>
+      <div className="flex-1 min-w-0 space-y-5">
 
       {/* ── Header ── */}
       <div className="flex items-start justify-between flex-wrap gap-3">
@@ -232,41 +196,8 @@ export default function AnalysisDetailPage() {
           </div>
         </div>
 
-        {/* Top10 actions */}
+        {/* Actions */}
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
-          <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground select-none hover:text-foreground transition-colors">
-            <input
-              type="checkbox"
-              checked={highlightTop10}
-              onChange={(e) => setHighlightTop10(e.target.checked)}
-              className="rounded border-border accent-blue-600 cursor-pointer w-3.5 h-3.5"
-            />
-            {t("analysisDetail.highlightTop10")}
-          </label>
-          {/* Hide / show top-10 events toggle */}
-          <button
-            onClick={() => { setHideTop10((v) => !v); setPage(1); }}
-            title={hideTop10 ? t("analysisDetail.showTop10") : t("analysisDetail.hideTop10")}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-              hideTop10
-                ? "bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
-                : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
-            }`}
-          >
-            {hideTop10 ? (
-              /* Eye icon */
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-            ) : (
-              /* Eye-slash icon */
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-              </svg>
-            )}
-            {hideTop10 ? t("analysisDetail.top10Hidden") : t("analysisDetail.hideTop10")}
-          </button>
           <button
             onClick={() => setShowExcelModal(true)}
             disabled={isExporting}
@@ -284,13 +215,13 @@ export default function AnalysisDetailPage() {
             {isExportingPDF ? "PDF…" : t("analysisDetail.pdf")}
           </button>
           <Link
-            href={`/analyses/${id}/top10`}
+            href={`/analyses/${id}/deep-analysis`}
             className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors shadow-sm"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
-            {t("analysisDetail.top10")}
+            {t("analysisDetail.deepAnalysis")}
           </Link>
         </div>
       </div>
@@ -301,11 +232,11 @@ export default function AnalysisDetailPage() {
           <span className="font-semibold text-foreground">{t("analysisDetail.legend.deltaLabel")}</span>
           <span className="inline-flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm bg-red-100 border border-red-300 dark:bg-red-950/40 dark:border-red-800" />
-            <span className="text-red-600 dark:text-red-400">{t("analysisDetail.legend.positive", { group: group1Label })}</span>
+            <span className="text-red-600 dark:text-red-400">{t("analysisDetail.legend.negative", { group: group1Label })}</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm bg-blue-100 border border-blue-300 dark:bg-blue-950/40 dark:border-blue-800" />
-            <span className="text-blue-600 dark:text-blue-400">{t("analysisDetail.legend.negative", { group: group2Label })}</span>
+            <span className="text-blue-600 dark:text-blue-400">{t("analysisDetail.legend.positive", { group: group1Label })}</span>
           </span>
         </div>
 
@@ -341,8 +272,8 @@ export default function AnalysisDetailPage() {
             className="border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
           >
             <option value="">{t("analysisDetail.filters.allTypes")}</option>
-            {["SE", "RI", "A3SS", "A5SS", "MXE"].map((t) => (
-              <option key={t} value={t}>{t}</option>
+            {["SE", "RI", "A3SS", "A5SS", "MXE"].map((et) => (
+              <option key={et} value={et}>{et}</option>
             ))}
           </select>
 
@@ -417,20 +348,48 @@ export default function AnalysisDetailPage() {
             max={100}
             ticks={["0", "0.1", "0.25", "0.5", "1"]}
             accentClass="accent-violet-600"
+            logScale={false}
           />
         </div>
 
-        {hasStatFilters && (
-          <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 leading-relaxed">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span dangerouslySetInnerHTML={{ __html: t("analysisDetail.top10Notice") }} />
-          </div>
-        )}
       </div>
 
+      {/* ── Manhattan plot toggle + panel ── */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setShowManhattan((v) => !v)}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+            showManhattan
+              ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+              : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+          }`}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+          </svg>
+          {t("manhattan.toggle")}
+        </button>
+      </div>
+
+      {showManhattan && (
+        <ManhattanPlot
+          data={manhattanData}
+          loading={loadingManhattan}
+          mutatedGenes={mutatedGenes.map((g) => ({ symbol: g.symbol, ensembl_id: g.ensembl_id }))}
+          onEventClick={(eventId) => {
+            const evt = manhattanData.find((d) => d.id === eventId);
+            if (evt?.gene_symbol) {
+              setGeneFilter(evt.gene_symbol);
+              setPage(1);
+              // Scroll to table
+              document.getElementById("events-table")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+          }}
+        />
+      )}
+
       {/* ── Events table ── */}
+      <div id="events-table" />
       {eventsPage && (
         <EventsTable
           data={eventsPage.items}
@@ -439,15 +398,8 @@ export default function AnalysisDetailPage() {
           pages={eventsPage.pages}
           onPageChange={setPage}
           loading={isLoading}
-          selectedIds={selectedIds}
-          onToggleSelect={handleToggleSelect}
-          onSelectPage={handleSelectPage}
           group1Label={group1Label}
           group2Label={group2Label}
-          basketIds={new Set(
-            eventsPage.items.filter((e) => hasItem(e.id)).map((e) => e.id)
-          )}
-          highlightTop10={highlightTop10}
           showIncLevel={showIncLevel}
         />
       )}
@@ -466,43 +418,6 @@ export default function AnalysisDetailPage() {
       />
 
       </div>{/* end main content */}
-
-      {/* ══ FIXED BASKET ACTION BUTTON – always follows scroll ════════════ */}
-      {selectedIds.size > 0 && (
-        <div className="fixed bottom-6 right-6 z-50">
-          <div className="flex items-center gap-2 bg-blue-600 dark:bg-blue-700 border border-blue-500 dark:border-blue-600 rounded-2xl shadow-2xl px-3 py-2.5 text-white">
-            {/* Count badge */}
-            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white/20 text-xs font-extrabold tabular-nums">
-              {selectedIds.size}
-            </span>
-            <span className="text-sm font-medium pr-1">
-              {t("analysisDetail.basket.selected")}
-            </span>
-            {/* Deselect */}
-            <button
-              onClick={() => setSelectedIds(new Set())}
-              className="flex items-center justify-center w-6 h-6 rounded-lg text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
-              title={t("analysisDetail.basket.deselect")}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            {/* Add to basket */}
-            <button
-              onClick={handleAddToBasket}
-              disabled={newCount === 0}
-              className="inline-flex items-center gap-1.5 bg-white dark:bg-blue-50 text-blue-700 dark:text-blue-800 text-sm px-3 py-1.5 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold hover:bg-blue-50 shadow-sm"
-              title={newCount === 0 ? t("analysisDetail.basket.alreadyInBasketTitle") : undefined}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 7h12.8M9 21a1 1 0 100-2 1 1 0 000 2zm10 0a1 1 0 100-2 1 1 0 000 2z" />
-              </svg>
-              {newCount > 0 ? t("analysisDetail.basket.add", { n: newCount }) : t("analysisDetail.basket.alreadyInBasket")}
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* ══ EXCEL EXPORT MODAL ══════════════════════════════════════════════ */}
       <ExcelExportModal
@@ -535,6 +450,18 @@ function SpinnerIcon() {
 }
 
 // ── StatSlider component ───────────────────────────────────────────────────────
+
+/** Convert a real value back to slider position (inverse of logSliderToValue). */
+function valueToLogSlider(val: number): number {
+  if (val <= 0 || val >= 1) return 0;
+  return Math.round(-Math.log10(val) * 10);
+}
+
+/** Convert a real ΔPSI value back to slider position (inverse of dpsiSliderToValue). */
+function valueToDpsiSlider(val: number): number {
+  return Math.round(val * 100);
+}
+
 function StatSlider({
   label,
   value,
@@ -544,6 +471,8 @@ function StatSlider({
   max,
   ticks,
   accentClass = "accent-blue-600",
+  /** If true, use log scale (FDR/p-value). If false, use linear (ΔPSI). */
+  logScale = true,
 }: {
   label: string;
   value: number;
@@ -553,26 +482,67 @@ function StatSlider({
   max: number;
   ticks: string[];
   accentClass?: string;
+  logScale?: boolean;
 }) {
   const t = useT();
+  const [inputText, setInputText] = useState("");
+  const [showInput, setShowInput] = useState(false);
   const pct = (value / max) * 100;
   const isViolet = accentClass.includes("violet");
+
+  const handleDirectInput = () => {
+    const num = parseFloat(inputText);
+    if (isNaN(num) || num <= 0) {
+      onChange(0);
+    } else if (logScale) {
+      // Clamp to valid range for log scale
+      const clamped = Math.max(1e-10, Math.min(1, num));
+      onChange(Math.min(max, valueToLogSlider(clamped)));
+    } else {
+      const clamped = Math.max(0, Math.min(1, num));
+      onChange(Math.min(max, valueToDpsiSlider(clamped)));
+    }
+    setShowInput(false);
+    setInputText("");
+  };
 
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-semibold text-foreground">{label}</span>
         <div className="flex items-center gap-1">
-          {displayValue ? (
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${
-              isViolet
-                ? "text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-800"
-                : "text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800"
-            }`}>
+          {showInput ? (
+            <input
+              type="text"
+              autoFocus
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onBlur={handleDirectInput}
+              onKeyDown={(e) => { if (e.key === "Enter") handleDirectInput(); if (e.key === "Escape") { setShowInput(false); setInputText(""); } }}
+              placeholder={logScale ? "e.g. 0.05" : "e.g. 0.1"}
+              className={`w-20 text-xs font-mono px-1.5 py-0.5 rounded-md border bg-background text-foreground focus:outline-none focus:ring-1 ${
+                isViolet ? "border-violet-300 focus:ring-violet-500" : "border-blue-300 focus:ring-blue-500"
+              }`}
+            />
+          ) : displayValue ? (
+            <button
+              onClick={() => setShowInput(true)}
+              title="Click to enter value"
+              className={`text-xs font-bold px-2 py-0.5 rounded-md cursor-text hover:ring-1 transition-shadow ${
+                isViolet
+                  ? "text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-800 hover:ring-violet-400"
+                  : "text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 hover:ring-blue-400"
+              }`}
+            >
               {displayValue}
-            </span>
+            </button>
           ) : (
-            <span className="text-xs text-muted-foreground italic">{noFilterLabel}</span>
+            <button
+              onClick={() => setShowInput(true)}
+              className="text-xs text-muted-foreground italic hover:text-foreground transition-colors cursor-text"
+            >
+              {noFilterLabel}
+            </button>
           )}
           <button
             onClick={() => onChange(0)}
@@ -599,8 +569,8 @@ function StatSlider({
       />
 
       <div className="flex justify-between text-[10px] text-muted-foreground/60 select-none">
-        {ticks.map((t, i) => (
-          <span key={i} className="text-center">{t}</span>
+        {ticks.map((tk, i) => (
+          <span key={i} className="text-center">{tk}</span>
         ))}
       </div>
     </div>

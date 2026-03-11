@@ -8,6 +8,7 @@
  * supprimées — toutes les informations sont accessibles via les zones hover.
  */
 
+import { useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getEventSpliceFeature, computeSpliceFeatures } from "@/lib/api/splice";
 import { ScienceNote } from "@/components/ScienceNote";
@@ -17,6 +18,8 @@ import { ExonDiagram } from "./ExonDiagram";
 import { SpliceSiteTrack } from "./SpliceSiteTrack";
 import { PPTTrack } from "./PPTTrack";
 import { MANETranscriptTrack } from "./MANETranscriptTrack";
+import { ComputeProgressBar } from "./ComputeProgressBar";
+import { ZoomableContainer } from "@/components/ZoomableContainer";
 
 // ---------------------------------------------------------------------------
 // Helper — mean of a comma-separated PSI string
@@ -41,6 +44,39 @@ export function SpliceView({
 }) {
   const t = useT();
   const qc = useQueryClient();
+  const diagramRef = useRef<HTMLDivElement>(null);
+
+  const exportSVG = useCallback(() => {
+    const svgEl = diagramRef.current?.querySelector("svg");
+    if (!svgEl) return;
+    const clone = svgEl.cloneNode(true) as SVGSVGElement;
+    // Add white background for standalone viewing
+    const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bg.setAttribute("width", "100%");
+    bg.setAttribute("height", "100%");
+    bg.setAttribute("fill", "white");
+    clone.insertBefore(bg, clone.firstChild);
+    // Inline CSS variables as computed values
+    clone.querySelectorAll("[fill],[stroke]").forEach((el) => {
+      for (const attr of ["fill", "stroke"] as const) {
+        const val = el.getAttribute(attr);
+        if (val?.startsWith("var(") || val?.startsWith("hsl(var(")) {
+          const computed = getComputedStyle(svgEl).getPropertyValue(
+            val.match(/--[\w-]+/)?.[0] ?? "",
+          );
+          if (computed) el.setAttribute(attr, computed.trim());
+        }
+      }
+    });
+    const xml = new XMLSerializer().serializeToString(clone);
+    const blob = new Blob([xml], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${ev.gene_symbol ?? ev.id}_exon_diagram.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [ev.gene_symbol, ev.id]);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["splice-feature", ev.id],
@@ -85,7 +121,13 @@ export function SpliceView({
         <p className="text-xs text-muted-foreground">
           {t("spliceView.notComputed")}
         </p>
-        {analysisId && (
+        {analysisId && compute.isSuccess && (
+          <ComputeProgressBar
+            analysisId={analysisId}
+            onComplete={() => qc.invalidateQueries({ queryKey: ["splice-feature", ev.id] })}
+          />
+        )}
+        {analysisId && !compute.isSuccess && (
           <button
             onClick={() => compute.mutate()}
             disabled={compute.isPending}
@@ -100,6 +142,21 @@ export function SpliceView({
 
   return (
     <div className="space-y-0">
+      {/* Export SVG button */}
+      <div className="flex justify-end mb-1">
+        <button
+          onClick={exportSVG}
+          className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-muted transition-colors"
+          title="Download exon diagram as SVG"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          SVG
+        </button>
+      </div>
+      <div ref={diagramRef}>
+      <ZoomableContainer>
       <ExonDiagram
         exonSize={data.exon_size}
         upstreamIntronSize={data.upstream_intron_size}
@@ -128,6 +185,8 @@ export function SpliceView({
         bpFound={data.bp_motif_found ?? null}
         bpDistance={data.bp_distance ?? null}
       />
+      </ZoomableContainer>
+      </div>
 
       {/* 1C — MANE transcript linear diagram */}
       <MANETranscriptTrack
@@ -137,13 +196,15 @@ export function SpliceView({
       />
 
       {/* 1B — Splice-site sequence tracks with position axes (always shown) */}
-      <SpliceSiteTrack
-        donorSeq={data.donor_seq ?? null}
-        acceptorSeq={data.acceptor_seq ?? null}
-        upstreamDonorSeq={data.upstream_donor_seq ?? null}
-        downstreamAcceptorSeq={data.downstream_acceptor_seq ?? null}
-        sequenceSource={data.sequence_source ?? null}
-      />
+      <ZoomableContainer>
+        <SpliceSiteTrack
+          donorSeq={data.donor_seq ?? null}
+          acceptorSeq={data.acceptor_seq ?? null}
+          upstreamDonorSeq={data.upstream_donor_seq ?? null}
+          downstreamAcceptorSeq={data.downstream_acceptor_seq ?? null}
+          sequenceSource={data.sequence_source ?? null}
+        />
+      </ZoomableContainer>
 
       {/* 1D — PPT per-nucleotide track */}
       {data.ppt_seq && (

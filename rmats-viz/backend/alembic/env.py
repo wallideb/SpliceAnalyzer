@@ -7,7 +7,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from app.database import Base
-from app.models import analysis, event  # noqa: F401 – register models
+from app.models import analysis, event, splice, deep_analysis  # noqa: F401 – register models
 from app.config import settings
 
 config = context.config

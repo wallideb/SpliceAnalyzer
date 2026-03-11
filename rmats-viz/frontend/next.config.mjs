@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    proxyTimeout: 120_000,   // 2 min – some backend endpoints (export, splice) are slow
+  },
   async rewrites() {
     return [
       {

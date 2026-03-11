@@ -30,7 +30,19 @@ class SplicingEventResponse(BaseModel):
     inc_level_2: str | None = None
     inc_level_difference: float | None = None
     abs_inc_level_diff: float | None = None
-    top_rank: int | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class ManhattanPoint(BaseModel):
+    """Lightweight event representation for Manhattan plot."""
+    id: uuid.UUID
+    event_type: str
+    gene_symbol: str | None = None
+    chr: str | None = None
+    position: int | None = None
+    fdr: float | None = None
+    inc_level_difference: float | None = None
 
     model_config = {"from_attributes": True}
 

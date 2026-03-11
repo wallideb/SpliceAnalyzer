@@ -206,7 +206,6 @@ async def export_analysis_excel(
         "Exon Start", "Exon End", "Exon Size",
         "p-value", "FDR", "ΔΨ", "|ΔΨ|",
         "PSI Group 1", "PSI Group 2",
-        "Top Rank",
         # SE splice features
         "Donor Site", "Canonical GT",
         "Acceptor Site", "Canonical AG",
@@ -244,7 +243,6 @@ async def export_analysis_excel(
             event.abs_inc_level_diff,
             event.inc_level_1,
             event.inc_level_2,
-            event.top_rank,
             # Splice features (SE only)
             feat.donor_seq if feat else None,
             feat.donor_is_gt if feat else None,
@@ -303,7 +301,7 @@ async def export_analysis_excel(
         n_gt = sum(1 for f in features.values() if f.donor_is_gt is True)
         n_ag = sum(1 for f in features.values() if f.acceptor_is_ag is True)
         n_inframe = sum(
-            1 for f in features.values() if f.frame_class == "in-frame"
+            1 for f in features.values() if f.frame_class == "in_frame"
         )
         n_frameshift = sum(
             1 for f in features.values() if f.frame_class == "frameshift"
@@ -348,8 +346,11 @@ from reportlab.lib.styles import getSampleStyleSheet as _getStyles, ParagraphSty
 from reportlab.lib.units import cm as _cm
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    PageBreak, HRFlowable,
+    PageBreak, HRFlowable, KeepTogether,
 )
+from reportlab.graphics.shapes import Drawing, Rect, String, Line, Group
+from reportlab.graphics.charts.barcharts import VerticalBarChart
+from reportlab.graphics import renderPDF
 
 _W, _H = _A4
 _MARGIN = 2 * _cm
@@ -409,7 +410,383 @@ def _tbl_style(header_bg: str = "#1e3a5f") -> TableStyle:
     ])
 
 
+_FIG_NUM = 0
+
+
+def _next_fig() -> int:
+    global _FIG_NUM
+    _FIG_NUM += 1
+    return _FIG_NUM
+
+
+# ---------------------------------------------------------------------------
+# Figure builders (reportlab Drawings — resolution-independent vector)
+# ---------------------------------------------------------------------------
+
+def _fig_exon_size_histogram(exon_sizes: list[int]) -> Drawing | None:
+    """Exon-size distribution histogram (25 nt bins)."""
+    if not exon_sizes:
+        return None
+
+    import math as _math
+
+    BIN = 25
+    max_size = max(exon_sizes)
+    n_bins = min((_math.ceil(max_size / BIN) + 1), 40)  # cap bins
+    counts = [0] * n_bins
+    for s in exon_sizes:
+        idx = min(s // BIN, n_bins - 1)
+        counts[idx] = counts[idx] + 1
+
+    # Drawing dimensions
+    W, H = 440, 160
+    MARGIN_L, MARGIN_B, MARGIN_T, MARGIN_R = 40, 30, 20, 20
+    chart_w = W - MARGIN_L - MARGIN_R
+    chart_h = H - MARGIN_B - MARGIN_T
+
+    d = Drawing(W, H)
+
+    # Background
+    d.add(Rect(0, 0, W, H, fillColor=_colors.HexColor("#fafafa"),
+               strokeColor=_colors.HexColor("#e2e8f0"), strokeWidth=0.5))
+
+    max_count = max(counts) or 1
+    bar_w = max(2, chart_w / n_bins - 1)
+
+    # Bars
+    for i, cnt in enumerate(counts):
+        bar_h = (cnt / max_count) * chart_h
+        x = MARGIN_L + i * (bar_w + 1)
+        y = MARGIN_B
+        d.add(Rect(x, y, bar_w, bar_h,
+                    fillColor=_colors.HexColor("#3b82f6"),
+                    strokeColor=None, fillOpacity=0.75))
+
+    # X-axis labels (every 4 bins)
+    for i in range(0, n_bins, 4):
+        x = MARGIN_L + i * (bar_w + 1) + bar_w / 2
+        d.add(String(x, MARGIN_B - 12, str(i * BIN),
+                      fontSize=6, fontName="Helvetica", fillColor=_colors.HexColor("#475569"),
+                      textAnchor="middle"))
+
+    # X-axis title
+    d.add(String(W / 2, 4, "Exon size (nt)",
+                  fontSize=7, fontName="Helvetica-Oblique", fillColor=_colors.HexColor("#475569"),
+                  textAnchor="middle"))
+
+    # Y-axis labels (0, max/2, max)
+    for val in [0, max_count // 2, max_count]:
+        y = MARGIN_B + (val / max_count) * chart_h
+        d.add(String(MARGIN_L - 4, y - 2, str(val),
+                      fontSize=6, fontName="Helvetica", fillColor=_colors.HexColor("#475569"),
+                      textAnchor="end"))
+        d.add(Line(MARGIN_L, y, MARGIN_L + chart_w, y,
+                    strokeColor=_colors.HexColor("#e2e8f0"), strokeWidth=0.3))
+
+    # Y-axis title (rotated via a Group)
+    g = Group()
+    g.transform = (0, 1, -1, 0, 14, H / 2 - 20)
+    g.add(String(0, 0, "Event count", fontSize=7, fontName="Helvetica-Oblique",
+                  fillColor=_colors.HexColor("#475569"), textAnchor="middle"))
+    d.add(g)
+
+    # Mean line
+    mean_val = _statistics.mean(exon_sizes)
+    mean_idx = mean_val / BIN
+    mean_x = MARGIN_L + mean_idx * (bar_w + 1)
+    d.add(Line(mean_x, MARGIN_B, mean_x, MARGIN_B + chart_h,
+                strokeColor=_colors.HexColor("#ef4444"), strokeWidth=1,
+                strokeDashArray=[4, 2]))
+    d.add(String(mean_x + 3, MARGIN_B + chart_h - 8, f"Mean {mean_val:.0f} nt",
+                  fontSize=6, fontName="Helvetica", fillColor=_colors.HexColor("#ef4444")))
+
+    # Median line
+    med_val = _statistics.median(exon_sizes)
+    med_idx = med_val / BIN
+    med_x = MARGIN_L + med_idx * (bar_w + 1)
+    d.add(Line(med_x, MARGIN_B, med_x, MARGIN_B + chart_h,
+                strokeColor=_colors.HexColor("#f97316"), strokeWidth=1,
+                strokeDashArray=[4, 2]))
+    d.add(String(med_x + 3, MARGIN_B + chart_h - 18, f"Median {med_val:.0f} nt",
+                  fontSize=6, fontName="Helvetica", fillColor=_colors.HexColor("#f97316")))
+
+    # Axes
+    d.add(Line(MARGIN_L, MARGIN_B, MARGIN_L + chart_w, MARGIN_B,
+                strokeColor=_colors.HexColor("#475569"), strokeWidth=0.8))
+    d.add(Line(MARGIN_L, MARGIN_B, MARGIN_L, MARGIN_B + chart_h,
+                strokeColor=_colors.HexColor("#475569"), strokeWidth=0.8))
+
+    return d
+
+
+def _fig_frame_breakdown(n_if: int, n_fs: int, n_nc: int, n_feat: int) -> Drawing | None:
+    """Horizontal stacked bar showing reading-frame class proportions."""
+    if n_feat == 0:
+        return None
+
+    W, H = 440, 50
+    BAR_Y, BAR_H = 18, 18
+    MARGIN_L = 10
+
+    d = Drawing(W, H)
+    d.add(Rect(0, 0, W, H, fillColor=_colors.HexColor("#fafafa"),
+               strokeColor=_colors.HexColor("#e2e8f0"), strokeWidth=0.5))
+
+    bar_w = W - 2 * MARGIN_L
+    segments = [
+        (n_if, "#22c55e", "In-frame"),
+        (n_fs, "#ef4444", "Frameshift"),
+        (n_nc, "#94a3b8", "Non-coding"),
+    ]
+
+    x = MARGIN_L
+    for count, color, label in segments:
+        if count == 0:
+            continue
+        seg_w = (count / n_feat) * bar_w
+        d.add(Rect(x, BAR_Y, seg_w, BAR_H,
+                    fillColor=_colors.HexColor(color), strokeColor=None))
+        # Label inside if wide enough
+        pct = count / n_feat * 100
+        if seg_w > 35:
+            d.add(String(x + seg_w / 2, BAR_Y + 5,
+                          f"{label} {pct:.0f}%",
+                          fontSize=6, fontName="Helvetica-Bold", fillColor=_colors.white,
+                          textAnchor="middle"))
+        x += seg_w
+
+    # Legend below
+    lx = MARGIN_L
+    for count, color, label in segments:
+        if count == 0:
+            continue
+        d.add(Rect(lx, 2, 8, 8, fillColor=_colors.HexColor(color), strokeColor=None))
+        d.add(String(lx + 10, 2, f"{label}: {count} ({count / n_feat * 100:.1f}%)",
+                      fontSize=5.5, fontName="Helvetica", fillColor=_colors.HexColor("#475569")))
+        lx += 110
+
+    return d
+
+
+def _fig_dpsi_distribution(events: list) -> Drawing | None:
+    """ΔΨ distribution histogram for all events."""
+    dpsi_vals = [e.inc_level_difference for e in events
+                 if e.inc_level_difference is not None]
+    if len(dpsi_vals) < 3:
+        return None
+
+    import math as _math
+
+    BIN_W = 0.1
+    bins = {}  # rounded bin_start → count
+    for v in dpsi_vals:
+        b = round(_math.floor(v / BIN_W) * BIN_W, 2)
+        bins[b] = bins.get(b, 0) + 1
+
+    sorted_bins = sorted(bins.keys())
+    counts = [bins[b] for b in sorted_bins]
+
+    W, H = 440, 140
+    MARGIN_L, MARGIN_B, MARGIN_T, MARGIN_R = 40, 28, 16, 20
+    chart_w = W - MARGIN_L - MARGIN_R
+    chart_h = H - MARGIN_B - MARGIN_T
+
+    d = Drawing(W, H)
+    d.add(Rect(0, 0, W, H, fillColor=_colors.HexColor("#fafafa"),
+               strokeColor=_colors.HexColor("#e2e8f0"), strokeWidth=0.5))
+
+    max_count = max(counts) or 1
+    n_bars = len(sorted_bins)
+    bar_w = max(3, chart_w / n_bars - 1)
+
+    for i, (b, cnt) in enumerate(zip(sorted_bins, counts)):
+        bar_h = (cnt / max_count) * chart_h
+        x = MARGIN_L + i * (bar_w + 1)
+        color = "#ef4444" if b < 0 else "#3b82f6"
+        d.add(Rect(x, MARGIN_B, bar_w, bar_h,
+                    fillColor=_colors.HexColor(color),
+                    strokeColor=None, fillOpacity=0.7))
+
+    # Axes
+    d.add(Line(MARGIN_L, MARGIN_B, MARGIN_L + chart_w, MARGIN_B,
+                strokeColor=_colors.HexColor("#475569"), strokeWidth=0.8))
+    d.add(Line(MARGIN_L, MARGIN_B, MARGIN_L, MARGIN_B + chart_h,
+                strokeColor=_colors.HexColor("#475569"), strokeWidth=0.8))
+
+    # X-axis labels
+    for i, b in enumerate(sorted_bins):
+        if i % max(1, n_bars // 8) == 0:
+            x = MARGIN_L + i * (bar_w + 1) + bar_w / 2
+            d.add(String(x, MARGIN_B - 12, f"{b:+.1f}",
+                          fontSize=5.5, fontName="Helvetica", fillColor=_colors.HexColor("#475569"),
+                          textAnchor="middle"))
+
+    d.add(String(W / 2, 3, "ΔΨ (inclusion level difference)",
+                  fontSize=7, fontName="Helvetica-Oblique", fillColor=_colors.HexColor("#475569"),
+                  textAnchor="middle"))
+
+    # Y-axis title
+    g = Group()
+    g.transform = (0, 1, -1, 0, 12, H / 2 - 20)
+    g.add(String(0, 0, "Event count", fontSize=7, fontName="Helvetica-Oblique",
+                  fillColor=_colors.HexColor("#475569"), textAnchor="middle"))
+    d.add(g)
+
+    # Zero line
+    zero_i = None
+    for i, b in enumerate(sorted_bins):
+        if b >= 0:
+            zero_i = i
+            break
+    if zero_i is not None:
+        zx = MARGIN_L + zero_i * (bar_w + 1)
+        d.add(Line(zx, MARGIN_B, zx, MARGIN_B + chart_h,
+                    strokeColor=_colors.HexColor("#1e293b"), strokeWidth=0.8,
+                    strokeDashArray=[3, 2]))
+
+    # Legend
+    d.add(Rect(W - 120, H - 14, 8, 8, fillColor=_colors.HexColor("#ef4444"), strokeColor=None))
+    d.add(String(W - 110, H - 14, "ΔΨ < 0 (more skipping)", fontSize=5.5,
+                  fontName="Helvetica", fillColor=_colors.HexColor("#475569")))
+    d.add(Rect(W - 120, H - 24, 8, 8, fillColor=_colors.HexColor("#3b82f6"), strokeColor=None))
+    d.add(String(W - 110, H - 24, "ΔΨ > 0 (more inclusion)", fontSize=5.5,
+                  fontName="Helvetica", fillColor=_colors.HexColor("#475569")))
+
+    return d
+
+
+def _fig_splice_site_consensus(features_dict: dict, site: str = "donor") -> Drawing | None:
+    """Simple PWM bar chart for donor (9 nt) or acceptor (23 nt) splice sites.
+
+    Renders each position as stacked coloured bars (height ∝ freq × IC)
+    following the sequence logo convention.
+    """
+    import math as _math
+    from collections import Counter
+
+    sequences = []
+    for f in features_dict.values():
+        seq = f.donor_seq if site == "donor" else f.acceptor_seq
+        if seq:
+            expected_len = 9 if site == "donor" else 23
+            if len(seq) >= expected_len:
+                sequences.append(seq[:expected_len].upper())
+    if len(sequences) < 3:
+        return None
+
+    seq_len = len(sequences[0])
+    # Compute PWM
+    pwm: list[dict[str, float]] = []
+    for pos in range(seq_len):
+        counts = Counter(seq[pos] for seq in sequences)
+        total = sum(counts.values())
+        freqs = {b: counts.get(b, 0) / total for b in "ACGT"}
+        pwm.append(freqs)
+
+    BASE_COLORS = {"A": "#22c55e", "C": "#3b82f6", "G": "#f97316", "T": "#ef4444"}
+
+    COL_W = 22
+    LOGO_H = 80  # max stack height = 2 bits
+    MARGIN_L, MARGIN_B, MARGIN_T = 32, 24, 8
+    W = MARGIN_L + seq_len * COL_W + 20
+    H = MARGIN_T + LOGO_H + MARGIN_B
+
+    d = Drawing(W, H)
+    d.add(Rect(0, 0, W, H, fillColor=_colors.HexColor("#fafafa"),
+               strokeColor=_colors.HexColor("#e2e8f0"), strokeWidth=0.5))
+
+    # Position labels — splice site convention
+    if site == "donor":
+        start_pos = -3
+    else:
+        start_pos = -20
+
+    # Bits Y-axis
+    for bit in [0, 1, 2]:
+        y = MARGIN_B + (bit / 2) * LOGO_H
+        d.add(Line(MARGIN_L - 3, y, MARGIN_L, y,
+                    strokeColor=_colors.HexColor("#475569"), strokeWidth=0.5))
+        d.add(String(MARGIN_L - 5, y - 2, str(bit),
+                      fontSize=6, fontName="Helvetica", fillColor=_colors.HexColor("#475569"),
+                      textAnchor="end"))
+    d.add(Line(MARGIN_L, MARGIN_B, MARGIN_L, MARGIN_B + LOGO_H,
+                strokeColor=_colors.HexColor("#475569"), strokeWidth=0.8))
+
+    # Y-axis label
+    g = Group()
+    g.transform = (0, 1, -1, 0, 10, MARGIN_B + LOGO_H / 2 - 10)
+    g.add(String(0, 0, "bits", fontSize=7, fontName="Helvetica-Oblique",
+                  fillColor=_colors.HexColor("#475569"), textAnchor="middle"))
+    d.add(g)
+
+    # Canonical positions to highlight
+    if site == "donor":
+        canonical = {1, 2}  # GT at +1, +2
+    else:
+        canonical = {-2, -1}  # AG at -2, -1
+
+    for col_idx, freqs in enumerate(pwm):
+        x = MARGIN_L + col_idx * COL_W
+
+        # Position number (skip zero)
+        pos = start_pos + col_idx
+        if pos >= 0:
+            pos += 1
+
+        # Highlight canonical
+        if pos in canonical:
+            d.add(Rect(x, MARGIN_B, COL_W, LOGO_H,
+                        fillColor=_colors.HexColor("#fef08a"), fillOpacity=0.3,
+                        strokeColor=None))
+
+        # Compute IC
+        entropy_val = sum(-f * _math.log2(f) if f > 0 else 0 for f in freqs.values())
+        ic = max(0, 2 - entropy_val)
+        col_h = (ic / 2) * LOGO_H
+
+        # Stack bases sorted by frequency (smallest at bottom)
+        sorted_bases = sorted(freqs.items(), key=lambda kv: kv[1])
+        cur_y = MARGIN_B
+        for base, freq in sorted_bases:
+            if freq <= 0:
+                continue
+            h = freq * col_h
+            d.add(Rect(x + 1, cur_y, COL_W - 2, h,
+                        fillColor=_colors.HexColor(BASE_COLORS[base]),
+                        strokeColor=None, fillOpacity=0.85))
+            if h > 7:
+                d.add(String(x + COL_W / 2, cur_y + 1.5,
+                              base, fontSize=min(h - 1, COL_W - 4),
+                              fontName="Courier-Bold", fillColor=_colors.white,
+                              textAnchor="middle"))
+            cur_y += h
+
+        # Position label
+        label = f"+{pos}" if pos > 0 else str(pos)
+        is_canon = pos in canonical
+        d.add(String(x + COL_W / 2, MARGIN_B - 12, label,
+                      fontSize=6 if not is_canon else 7,
+                      fontName="Courier-Bold" if is_canon else "Courier",
+                      fillColor=_colors.HexColor("#b45309") if is_canon else _colors.HexColor("#94a3b8"),
+                      textAnchor="middle"))
+
+    # X-axis title
+    site_label = "5'SS donor position" if site == "donor" else "3'SS acceptor position"
+    d.add(String(MARGIN_L + seq_len * COL_W / 2, 3, site_label,
+                  fontSize=7, fontName="Helvetica-Oblique", fillColor=_colors.HexColor("#475569"),
+                  textAnchor="middle"))
+
+    # Baseline
+    d.add(Line(MARGIN_L, MARGIN_B, MARGIN_L + seq_len * COL_W, MARGIN_B,
+                strokeColor=_colors.HexColor("#475569"), strokeWidth=0.8))
+
+    return d
+
+
 def _build_pdf(analysis, events: list, features: dict) -> bytes:
+    global _FIG_NUM
+    _FIG_NUM = 0
+
     buf = BytesIO()
     doc = SimpleDocTemplate(
         buf, pagesize=_A4,
@@ -428,6 +805,16 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
     def hr() -> HRFlowable:
         return HRFlowable(width="100%", thickness=0.5, color=_colors.HexColor("#e2e8f0"), spaceAfter=6)
 
+    def caption(text: str) -> Paragraph:
+        """Figure caption with auto-numbering."""
+        n = _next_fig()
+        return Paragraph(
+            f"<b>Figure {n}.</b> {text}",
+            ParagraphStyle("Caption", parent=S["small"], spaceBefore=4, spaceAfter=10,
+                           alignment=TA_CENTER, fontSize=7.5, leading=10,
+                           textColor=_colors.HexColor("#475569")),
+        )
+
     # ── Title page ──────────────────────────────────────────────────────────
     story += [
         sp(3),
@@ -437,17 +824,28 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
         p(f"<b>Analysis:</b> {analysis.name}", "body"),
         p(f"<b>Generated:</b> {_date.today().isoformat()}", "body"),
         p(f"<b>Identifier:</b> {analysis.id}", "small"),
+    ]
+
+    # Mutated genes
+    if analysis.mutated_genes:
+        gene_names = ", ".join(g.get("symbol", "?") for g in analysis.mutated_genes if g.get("symbol"))
+        if gene_names:
+            story.append(p(f"<b>Mutated gene(s):</b> {gene_names}", "body"))
+
+    story += [
         sp(0.5),
         p(
             "This report summarises the alternative splicing events identified "
             "by rMATS and annotated via rMATS-Viz (splice sites, reading frame, "
-            "MANE transcript, PPT regions, branch point).",
+            "MANE transcript, PPT regions, branch point). "
+            "All figures are generated from computed splice features and are "
+            "suitable for publication (vector graphics, labeled axes).",
             "body",
         ),
         PageBreak(),
     ]
 
-    # ── Summary ─────────────────────────────────────────────────────────────
+    # ── 1. Summary ──────────────────────────────────────────────────────────
     story.append(p("1. Analysis Summary", "h2"))
 
     se_events  = [e for e in events if e.event_type == "SE"]
@@ -487,6 +885,7 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
         n_if   = sum(1 for f in features.values() if f.frame_class == "in_frame")
         n_fs   = sum(1 for f in features.values() if f.frame_class == "frameshift")
         n_nc   = sum(1 for f in features.values() if f.frame_class == "non_coding")
+        n_bp   = sum(1 for f in features.values() if f.bp_motif_found is True)
         ppt_scores = [f.ppt_score for f in features.values() if f.ppt_score is not None]
         exon_sizes = [f.exon_size for f in features.values() if f.exon_size is not None]
 
@@ -496,31 +895,127 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
         stat_tbl = Table([
             ["Metric", "Value"],
             ["SE events with features", n_feat],
-            ["Canonical GT (5'SS)", f"{n_gt / n_feat * 100:.1f}%" if n_feat else "—"],
-            ["Canonical AG (3'SS)", f"{n_ag / n_feat * 100:.1f}%" if n_feat else "—"],
+            ["Canonical GT (5'SS)", f"{n_gt} / {n_feat} ({n_gt / n_feat * 100:.1f}%)" if n_feat else "—"],
+            ["Canonical AG (3'SS)", f"{n_ag} / {n_feat} ({n_ag / n_feat * 100:.1f}%)" if n_feat else "—"],
             ["In-frame",   f"{n_if} ({n_if / n_feat * 100:.0f}%)" if n_feat else "—"],
             ["Frameshift", f"{n_fs} ({n_fs / n_feat * 100:.0f}%)" if n_feat else "—"],
             ["Non-coding", f"{n_nc} ({n_nc / n_feat * 100:.0f}%)" if n_feat else "—"],
-            ["Exon size (mean ± median)",
-             f"{_statistics.mean(exon_sizes):.0f} ± {_statistics.median(exon_sizes):.0f} nt" if exon_sizes else "—"],
+            ["Branch point detected", f"{n_bp} / {n_feat} ({n_bp / n_feat * 100:.1f}%)" if n_feat else "—"],
+            ["Exon size (mean / median)",
+             f"{_statistics.mean(exon_sizes):.0f} / {_statistics.median(exon_sizes):.0f} nt" if exon_sizes else "—"],
             ["Mean PPT score",
-             f"{_statistics.mean(ppt_scores) * 100:.1f}%" if ppt_scores else "—"],
+             f"{_statistics.mean(ppt_scores) * 100:.1f}% pyrimidine content" if ppt_scores else "—"],
         ], colWidths=[9 * _cm, 7 * _cm])
         stat_tbl.setStyle(_tbl_style())
         story += [stat_tbl, sp()]
 
-    # ── Top SE events ────────────────────────────────────────────────────────
-    story.append(p("2. Top SE Events (FDR, |ΔΨ|)", "h2"))
+    # ── 2. Figures ─────────────────────────────────────────────────────────
+    story.append(p("2. Splice Feature Figures", "h2"))
+
+    # Figure: ΔΨ distribution
+    dpsi_fig = _fig_dpsi_distribution(events)
+    if dpsi_fig:
+        story += [
+            KeepTogether([
+                dpsi_fig,
+                caption(
+                    "Distribution of ΔΨ (inclusion level difference) across all events. "
+                    "Red bars: ΔΨ &lt; 0 (more exon skipping in group 1); "
+                    "blue bars: ΔΨ &gt; 0 (more exon inclusion in group 1). "
+                    f"n = {len(events)} events."
+                ),
+            ]),
+            sp(),
+        ]
+
+    if features:
+        exon_sizes_list = [f.exon_size for f in features.values() if f.exon_size is not None]
+
+        # Figure: Exon size histogram
+        hist_fig = _fig_exon_size_histogram(exon_sizes_list)
+        if hist_fig:
+            story += [
+                KeepTogether([
+                    hist_fig,
+                    caption(
+                        f"Skipped exon size distribution (25 nt bins). "
+                        f"Mean = {_statistics.mean(exon_sizes_list):.0f} nt (red dashed), "
+                        f"median = {_statistics.median(exon_sizes_list):.0f} nt (orange dashed). "
+                        f"n = {len(exon_sizes_list)} SE events."
+                    ),
+                ]),
+                sp(),
+            ]
+
+        # Figure: Frame breakdown
+        frame_fig = _fig_frame_breakdown(n_if, n_fs, n_nc, n_feat)
+        if frame_fig:
+            story += [
+                KeepTogether([
+                    frame_fig,
+                    caption(
+                        "Reading-frame classification of skipped exons. "
+                        "In-frame: CDS length divisible by 3; "
+                        "frameshift: not divisible by 3; "
+                        "non-coding: exon entirely within UTR. "
+                        f"n = {n_feat} SE events."
+                    ),
+                ]),
+                sp(),
+            ]
+
+        # Figure: 5'SS donor sequence logo
+        donor_logo = _fig_splice_site_consensus(features, site="donor")
+        if donor_logo:
+            story += [
+                KeepTogether([
+                    donor_logo,
+                    caption(
+                        "5'SS donor splice site sequence logo (9 nt window: 3 nt exon + 6 nt intron). "
+                        "Letter height ∝ frequency × information content (bits). "
+                        "Canonical GT dinucleotide at positions +1/+2 highlighted in amber. "
+                        f"n = {sum(1 for f in features.values() if f.donor_seq and len(f.donor_seq) >= 9)} sequences. "
+                        "Method: Schneider &amp; Stephens (1990)."
+                    ),
+                ]),
+                sp(),
+            ]
+
+        # Figure: 3'SS acceptor sequence logo
+        acceptor_logo = _fig_splice_site_consensus(features, site="acceptor")
+        if acceptor_logo:
+            story += [
+                KeepTogether([
+                    acceptor_logo,
+                    caption(
+                        "3'SS acceptor splice site sequence logo (23 nt window: 20 nt intron + 3 nt exon). "
+                        "Letter height ∝ frequency × information content (bits). "
+                        "Canonical AG dinucleotide at positions −2/−1 highlighted in amber. "
+                        f"n = {sum(1 for f in features.values() if f.acceptor_seq and len(f.acceptor_seq) >= 23)} sequences. "
+                        "Method: Schneider &amp; Stephens (1990)."
+                    ),
+                ]),
+                sp(),
+            ]
+
+    # ── 3. Top SE events ──────────────────────────────────────────────────
+    story.append(PageBreak())
+    story.append(p("3. Top SE Events (ranked by FDR, |ΔΨ|)", "h2"))
     top_se = sorted(
         [e for e in events if e.event_type == "SE" and e.fdr is not None],
         key=lambda e: (e.fdr or 1, -(abs(e.inc_level_difference or 0))),
     )[:20]
 
     if top_se:
-        top_headers = ["Gene", "Chr", "Strand", "Exon\nSize", "FDR", "ΔΨ", "Frame"]
+        top_headers = ["Gene", "Chr", "Strand", "Exon\nSize", "FDR", "ΔΨ", "GT-AG", "Frame"]
         top_rows = [top_headers]
         for ev in top_se:
             feat = features.get(ev.id)
+            gt_ag = "—"
+            if feat:
+                gt = "GT" if feat.donor_is_gt else "!GT"
+                ag = "AG" if feat.acceptor_is_ag else "!AG"
+                gt_ag = f"{gt}/{ag}"
             top_rows.append([
                 ev.gene_symbol or "—",
                 ev.chr or "—",
@@ -528,9 +1023,10 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
                 str(feat.exon_size) + " nt" if feat and feat.exon_size else "—",
                 f"{ev.fdr:.2e}" if ev.fdr is not None else "—",
                 f"{ev.inc_level_difference:+.3f}" if ev.inc_level_difference is not None else "—",
+                gt_ag,
                 feat.frame_class or "—" if feat else "—",
             ])
-        top_tbl = Table(top_rows, colWidths=[3*_cm, 2*_cm, 1.2*_cm, 2*_cm, 2.3*_cm, 2*_cm, 2.5*_cm])
+        top_tbl = Table(top_rows, colWidths=[2.8*_cm, 1.8*_cm, 1*_cm, 1.8*_cm, 2.2*_cm, 1.8*_cm, 1.8*_cm, 2*_cm])
         top_tbl.setStyle(_tbl_style())
         story += [top_tbl, sp()]
     else:
@@ -551,22 +1047,29 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
         p("For each SE event, rMATS-Viz extracts flanking genomic sequences from "
           "the GRCh38 (hg38) reference genome indexed with <b>samtools faidx</b>. "
           "Extracted windows are:", "body"),
-        p("• <b>5'SS donor:</b> 3 nt exon + 6 nt intron (9 nt window)", "body"),
-        p("• <b>3'SS acceptor:</b> 20 nt intron + 3 nt exon (23 nt window)", "body"),
+        p("• <b>5'SS donor:</b> 3 nt exon + 6 nt intron (9 nt window) — see Figure for sequence logo", "body"),
+        p("• <b>3'SS acceptor:</b> 20 nt intron + 3 nt exon (23 nt window) — see Figure for sequence logo", "body"),
         p("• <b>PPT:</b> ~47 nt upstream of the acceptor site", "body"),
         p("The canonical GT-AG rule is verified for each event. The PPT score is "
           "defined as the fraction of pyrimidine nucleotides (C, T) in the PPT "
           "window. The branch point is searched by matching the YNYURAY motif in "
           "the PPT region.", "body"),
-        p("<b>3. MANE Select Annotation</b>", "h3"),
+        p("<b>3. Reading Frame Classification</b>", "h3"),
+        p("The skipped exon is classified by its reading-frame impact "
+          "(see Figure for proportions):", "body"),
+        p("• <b>in_frame:</b> CDS length of the exon divisible by 3 — protein domain loss without frameshift", "body"),
+        p("• <b>frameshift:</b> CDS length not divisible by 3 — likely NMD or truncated protein", "body"),
+        p("• <b>non_coding:</b> exon entirely within a UTR region — regulatory impact", "body"),
+        p("<b>4. MANE Select Annotation</b>", "h3"),
         p("The <b>MANE Select</b> transcript is identified via the Ensembl REST "
-          "API (/lookup/id). The skipped exon is mapped onto the transcript and "
-          "classified by its reading-frame impact:", "body"),
-        p("• <b>in_frame:</b> CDS length of the exon divisible by 3", "body"),
-        p("• <b>frameshift:</b> CDS length not divisible by 3", "body"),
-        p("• <b>non_coding:</b> exon entirely within a UTR region", "body"),
-        p("Ensembl results are cached in a local SQLite database to avoid "
+          "API (/lookup/id). The skipped exon is mapped onto the transcript. "
+          "Ensembl results are cached in a local SQLite database to avoid "
           "repeated API calls.", "body"),
+        p("<b>5. Deep Analysis (Significant vs Non-Significant)</b>", "h3"),
+        p("Events are classified as significant (FDR ≤ threshold, |ΔΨ| ≥ minimum) "
+          "and compared using Welch's t-test (continuous features) and two-proportion "
+          "z-test (categorical features). This enables identification of splice-signal "
+          "differences between differentially spliced and background events.", "body"),
         sp(),
     ]
 
@@ -590,6 +1093,10 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
           "Nucleic Acids Res. 2021.", "body"),
         p("[8] Szklarczyk D et al. <i>STRING v12: protein–protein association "
           "networks with increased coverage.</i> Nucleic Acids Res. 2023.", "body"),
+        p("[9] Coolidge CJ, Seely RJ, Bhatt H. <i>Functional analysis of the "
+          "polypyrimidine tract in pre-mRNA splicing.</i> Nucleic Acids Res. 1997.", "body"),
+        p("[10] Padgett RA et al. <i>Lariat RNAs as intermediates and products in the "
+          "splicing of messenger RNA precursors.</i> Science. 1984.", "body"),
         sp(),
     ]
 
@@ -604,7 +1111,7 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
         p("• <b>p-value</b>: based on a Bayesian permutation test or a t-test "
           "on replicates.", "body"),
         p("• <b>FDR</b>: Benjamini-Hochberg correction applied across all "
-          "p-values of the analysis. Canonical threshold: FDR < 0.05.", "body"),
+          "p-values of the analysis. Canonical threshold: FDR &lt; 0.05.", "body"),
         p("<b>Motif Analysis (rMATS-Viz)</b>", "h3"),
         p("• <b>PWM (Position Weight Matrix)</b>: computed over all 5'SS (9 nt) "
           "and 3'SS (23 nt) sequences from analysed SE events. Each position is "
@@ -614,6 +1121,17 @@ def _build_pdf(analysis, events: list, features: dict) -> bytes:
           "convention (Schneider &amp; Stephens, 1990).", "body"),
         p("• <b>PPT score</b>: fraction of pyrimidine nucleotides (C, T) in "
           "the ~47 nt window upstream of the acceptor site.", "body"),
+        p("<b>Deep Analysis — Statistical Tests</b>", "h3"),
+        p("Events are separated into significant and non-significant groups "
+          "based on user-defined FDR and |ΔΨ| thresholds. The following tests "
+          "compare splice features between groups:", "body"),
+        p("• <b>Welch's t-test</b> (unequal variances): compares mean ΔΨ, exon size, "
+          "and PPT score between groups.", "body"),
+        p("• <b>Two-proportion z-test</b>: compares rates of canonical GT, canonical AG, "
+          "in-frame exons, and branch-point detection between groups.", "body"),
+        p("P-values are two-tailed. Welch-Satterthwaite degrees of freedom are used "
+          "for the t-distribution approximation. The regularised incomplete beta function "
+          "is computed via Lentz's continued fraction algorithm.", "body"),
         sp(),
     ]
 
@@ -646,8 +1164,7 @@ async def export_analysis_pdf(
         for feat in feat_result.scalars().all():
             features[feat.event_id] = feat
 
-    import asyncio as _asyncio
-    pdf_bytes = await _asyncio.to_thread(_build_pdf, analysis, events, features)
+    pdf_bytes = await asyncio.to_thread(_build_pdf, analysis, events, features)
 
     return StreamingResponse(
         BytesIO(pdf_bytes),

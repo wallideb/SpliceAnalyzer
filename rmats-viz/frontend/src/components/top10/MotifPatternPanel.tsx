@@ -20,7 +20,7 @@
  * A "Calculer" button triggers POST /api/v1/splice/compute/{analysisId}.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSplicePatterns, computeSpliceFeatures } from "@/lib/api/splice";
 import { ScienceNote } from "@/components/ScienceNote";
@@ -37,6 +37,11 @@ import { ConsensusExonView } from "./ConsensusExonView";
 interface MotifPatternPanelProps {
   events: SplicingEvent[];
   analysisId: string;
+  /** When set, restricts patterns to significant events of this deep analysis. */
+  deepAnalysisId?: string;
+  /** Pre-set thresholds from the deep analysis (disables threshold controls). */
+  fdrThreshold?: number;
+  deltaPsiMin?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -245,14 +250,18 @@ const FDR_OPTIONS = [0.001, 0.01, 0.05, 0.1, 0.2] as const;
 // |ΔΨ| preset options
 const DPSI_OPTIONS = [0, 0.05, 0.1, 0.2, 0.3] as const;
 
-export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps) {
+export function MotifPatternPanel({ events, analysisId, deepAnalysisId, fdrThreshold: propFdr, deltaPsiMin: propDpsi }: MotifPatternPanelProps) {
   const t = useT();
   const qc = useQueryClient();
 
-  // Significance threshold state
-  const [fdrThreshold, setFdrThreshold] = useState<number>(0.05);
-  const [absDeltaPsiMin, setAbsDeltaPsiMin] = useState<number>(0.05);
+  // Significance threshold state (only used when not in deep-analysis mode)
+  const [localFdr, setLocalFdr] = useState<number>(0.05);
+  const [localDpsi, setLocalDpsi] = useState<number>(0.05);
   const [showThresholds, setShowThresholds] = useState(false);
+
+  const fdrThreshold = propFdr ?? localFdr;
+  const absDeltaPsiMin = propDpsi ?? localDpsi;
+  const isDeepMode = !!deepAnalysisId;
 
   const seCount = events.filter((e) => e.event_type === "SE").length;
   const nonSeCount = events.length - seCount;
@@ -261,8 +270,8 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
   const [isPolling, setIsPolling] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["splice-patterns", analysisId, fdrThreshold, absDeltaPsiMin],
-    queryFn: () => getSplicePatterns(analysisId, fdrThreshold, absDeltaPsiMin),
+    queryKey: ["splice-patterns", analysisId, fdrThreshold, absDeltaPsiMin, deepAnalysisId],
+    queryFn: () => getSplicePatterns(analysisId, fdrThreshold, absDeltaPsiMin, deepAnalysisId),
     enabled: !!analysisId,
     staleTime: 10 * 60 * 1000,
     retry: false,
@@ -272,10 +281,10 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
     refetchIntervalInBackground: false,
   });
 
-  // Stop polling once we have data
-  if (isPolling && data) {
-    setIsPolling(false);
-  }
+  // Stop polling once we have data (must be in useEffect, not render body)
+  useEffect(() => {
+    if (isPolling && data) setIsPolling(false);
+  }, [isPolling, data]);
 
   const compute = useMutation({
     mutationFn: () => computeSpliceFeatures(analysisId),
@@ -385,22 +394,29 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 text-violet-700 dark:text-violet-300 text-[11px] font-semibold">
             |ΔΨ| ≥ {absDeltaPsiMin}
           </span>
+          {isDeepMode && (
+            <span className="text-[10px] text-green-600 dark:text-green-400 font-medium">
+              ({t("motifPanel.significantOnly")})
+            </span>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={() => setShowThresholds((v) => !v)}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-md border border-border hover:bg-muted/60 transition-colors text-muted-foreground hover:text-foreground"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          {t("motifPanel.modify")}
-        </button>
+        {!isDeepMode && (
+          <button
+            type="button"
+            onClick={() => setShowThresholds((v) => !v)}
+            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-md border border-border hover:bg-muted/60 transition-colors text-muted-foreground hover:text-foreground"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            {t("motifPanel.modify")}
+          </button>
+        )}
       </div>
 
-      {/* ── Threshold settings panel ── */}
-      {showThresholds && (
+      {/* ── Threshold settings panel (only in standalone mode) ── */}
+      {!isDeepMode && showThresholds && (
         <div className="p-4 rounded-xl border border-border bg-card shadow-sm space-y-4">
           <p className="text-[11px] font-bold text-foreground">
             {t("motifPanel.thresholdsTitle")}
@@ -418,7 +434,7 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
                   <button
                     key={v}
                     type="button"
-                    onClick={() => setFdrThreshold(v)}
+                    onClick={() => setLocalFdr(v)}
                     className={`px-2 py-1 rounded text-[11px] font-semibold border transition-colors ${
                       fdrThreshold === v
                         ? "bg-blue-600 text-white border-blue-600"
@@ -439,7 +455,7 @@ export function MotifPatternPanel({ events, analysisId }: MotifPatternPanelProps
                   <button
                     key={v}
                     type="button"
-                    onClick={() => setAbsDeltaPsiMin(v)}
+                    onClick={() => setLocalDpsi(v)}
                     className={`px-2 py-1 rounded text-[11px] font-semibold border transition-colors ${
                       absDeltaPsiMin === v
                         ? "bg-violet-600 text-white border-violet-600"

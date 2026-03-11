@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -39,10 +40,16 @@ _HEADERS = {"Accept": "application/json"}
 
 
 # ---------------------------------------------------------------------------
-# SQLite cache helpers
+# SQLite cache helpers (thread-local singleton connection)
 # ---------------------------------------------------------------------------
 
+_local = threading.local()
+
+
 def _db_conn() -> sqlite3.Connection:
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        return conn
     path = Path(settings.MANE_CACHE_DB)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
@@ -67,6 +74,7 @@ def _db_conn() -> sqlite3.Connection:
         )"""
     )
     conn.commit()
+    _local.conn = conn
     return conn
 
 
@@ -77,7 +85,6 @@ def _cache_get(gene_id: str, exon_start: int, exon_end: int) -> dict | None:
         " FROM mane_cache WHERE gene_id=? AND exon_start=? AND exon_end=?",
         (gene_id, exon_start, exon_end),
     ).fetchone()
-    conn.close()
     if row:
         return dict(zip(
             ["transcript_id", "exon_rank", "frame_region", "frame_class", "cds_exon_length"],
@@ -103,7 +110,6 @@ def _cache_set(gene_id: str, exon_start: int, exon_end: int, data: dict) -> None
         ),
     )
     conn.commit()
-    conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +251,6 @@ def _exon_cache_get(transcript_id: str) -> list | None:
         "SELECT exons_json FROM mane_exon_cache WHERE transcript_id=?",
         (transcript_id,),
     ).fetchone()
-    conn.close()
     return json.loads(row[0]) if row else None
 
 
@@ -257,7 +262,6 @@ def _exon_cache_set(transcript_id: str, exons: list) -> None:
         (transcript_id, len(exons), json.dumps(exons)),
     )
     conn.commit()
-    conn.close()
 
 
 def get_transcript_exons(transcript_id: str) -> list[dict]:

@@ -360,7 +360,7 @@ import statistics as _statistics
 from datetime import date as _date
 
 from reportlab.lib import colors as _colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4 as _A4
 from reportlab.lib.styles import getSampleStyleSheet as _getStyles, ParagraphStyle
 from reportlab.lib.units import cm as _cm
@@ -370,9 +370,7 @@ from reportlab.platypus import (
 )
 from reportlab.graphics.shapes import Drawing, Rect, String, Line, Group
 from reportlab.graphics.charts.barcharts import VerticalBarChart
-from reportlab.graphics import renderPDF
-
-_W, _H = _A4
+_W, _ = _A4
 _MARGIN = 2 * _cm
 
 
@@ -404,10 +402,6 @@ def _build_styles() -> dict:
         "code": ParagraphStyle(
             "Code", parent=base["Code"],
             fontSize=8, leading=11, textColor=_colors.HexColor("#0f172a"),
-        ),
-        "center": ParagraphStyle(
-            "Center", parent=base["Normal"],
-            fontSize=9, alignment=TA_CENTER,
         ),
     }
     return styles

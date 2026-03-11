@@ -111,6 +111,8 @@ async def get_manhattan(
         q = select(*cols).where(base_cond).order_by(SplicingEvent.chr, SplicingEvent.exon_start)
         rows = (await db.execute(q)).all()
     else:
+        from sqlalchemy import literal_column, or_
+
         # Keep all significant events, sample the rest
         sig_q = (
             select(*cols)
@@ -122,10 +124,9 @@ async def get_manhattan(
         remaining_budget = max(0, _MANHATTAN_MAX_POINTS - len(sig_rows))
         if remaining_budget > 0:
             nonsig_count = total - len(sig_rows)
-            # Use modulo-based sampling: keep every Nth row
             sample_rate = max(1, nonsig_count // remaining_budget)
-            # Use row_number window function for deterministic sampling
-            from sqlalchemy import literal_column
+            # Non-significant = FDR >= 0.05 OR FDR IS NULL
+            nonsig_cond = or_(SplicingEvent.fdr >= 0.05, SplicingEvent.fdr.is_(None))
             sub = (
                 select(
                     *cols,
@@ -133,10 +134,7 @@ async def get_manhattan(
                         order_by=[SplicingEvent.chr, SplicingEvent.exon_start]
                     ).label("rn"),
                 )
-                .where(and_(
-                    base_cond,
-                    SplicingEvent.fdr >= 0.05,
-                ))
+                .where(and_(base_cond, nonsig_cond))
                 .subquery()
             )
             sampled_q = (
@@ -152,7 +150,6 @@ async def get_manhattan(
         else:
             nonsig_rows = []
 
-        # Merge and sort
         rows = sorted(
             list(sig_rows) + list(nonsig_rows),
             key=lambda r: (r.chr or "", r.exon_start or 0),

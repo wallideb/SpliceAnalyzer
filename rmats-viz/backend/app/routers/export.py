@@ -790,12 +790,17 @@ def _fig_splice_site_consensus(
             if freq <= 0:
                 continue
             h = freq * col_h
-            if h < 0.5:
+            if h < 1.0:
                 cur_y += h
                 continue
-            # Stretched letter glyph
-            d.add(String(x + COL_W / 2, cur_y + 1,
-                          base, fontSize=max(h * 0.9, 5),
+            # Font size must fit within allocated height h.
+            # Courier-Bold ascent ≈ 0.80 × fontSize; we use 0.75 to
+            # leave a small gap and prevent letters from touching.
+            fs = min(h / 0.75, COL_W * 1.2)
+            fs = max(fs, 4)
+            # Vertically center the glyph within its allocated band
+            d.add(String(x + COL_W / 2, cur_y + (h - fs * 0.75) / 2,
+                          base, fontSize=fs,
                           fontName="Courier-Bold",
                           fillColor=_colors.HexColor(BASE_COLORS[base]),
                           textAnchor="middle"))
@@ -910,6 +915,23 @@ def _build_pdf(
         if gene_names:
             story.append(p(f"<b>Mutated gene(s):</b> {gene_names}", "body"))
 
+    # ── Summary statistics on title page ──────────────────────────────────
+    n_total = len(events)
+    se_evts_all = [e for e in events if e.event_type == "SE"]
+    n_se = len(se_evts_all)
+    n_with_seq = sum(1 for f in features.values() if f.donor_seq)
+    n_gt = sum(1 for f in features.values() if f.donor_is_gt is True)
+    n_ag = sum(1 for f in features.values() if f.acceptor_is_ag is True)
+    story += [
+        sp(0.3),
+        p(f"<b>Total events:</b> {n_total} · <b>SE events:</b> {n_se}", "body"),
+        p(f"<b>SE events with sequence data:</b> {n_with_seq} / {n_se}", "body"),
+        p(f"<b>Canonical GT (5'SS):</b> {n_gt} / {n_with_seq} "
+          f"({n_gt / n_with_seq * 100:.1f}%)" if n_with_seq else "", "body") if n_with_seq else sp(0),
+        p(f"<b>Canonical AG (3'SS):</b> {n_ag} / {n_with_seq} "
+          f"({n_ag / n_with_seq * 100:.1f}%)" if n_with_seq else "", "body") if n_with_seq else sp(0),
+    ]
+
     story += [
         sp(0.5),
         p(
@@ -962,7 +984,9 @@ def _build_pdf(
                      f"{type_cnts.get(etype, 0) / max(len(subset_events), 1) * 100:.1f}%"]
                     for etype in ["SE", "RI", "A3SS", "A5SS", "MXE"]
                 ] +
-                [["<b>Total</b>", f"<b>{len(subset_events)}</b>", "<b>100%</b>"]],
+                [[Paragraph("<b>Total</b>", S["body"]),
+                  Paragraph(f"<b>{len(subset_events)}</b>", S["body"]),
+                  Paragraph("<b>100%</b>", S["body"])]],
                 colWidths=[4 * _cm, 4 * _cm, 4 * _cm],
             )
             type_tbl.setStyle(_tbl_style())

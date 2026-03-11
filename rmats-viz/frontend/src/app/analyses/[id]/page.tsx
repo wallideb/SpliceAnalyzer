@@ -402,13 +402,6 @@ export default function AnalysisDetailPage() {
           showIncLevel={showIncLevel}
         />
       )}
-      {!eventsPage && isLoading && (
-        <div className="flex items-center gap-3 py-10 text-muted-foreground text-sm">
-          <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          {t("analysisDetail.loading")}
-        </div>
-      )}
-
       {/* ── Statistical methodology note ── */}
       <ScienceNote
         title={t("scienceNotes.exonDiagram.title")}

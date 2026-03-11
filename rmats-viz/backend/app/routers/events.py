@@ -111,7 +111,7 @@ async def get_manhattan(
         q = select(*cols).where(base_cond).order_by(SplicingEvent.chr, SplicingEvent.exon_start)
         rows = (await db.execute(q)).all()
     else:
-        from sqlalchemy import literal_column, or_
+        from sqlalchemy import or_
 
         # Keep all significant events, sample the rest
         sig_q = (
@@ -143,7 +143,7 @@ async def get_manhattan(
                     sub.c.chr, sub.c.exon_start, sub.c.fdr,
                     sub.c.inc_level_difference,
                 )
-                .where(literal_column("rn") % sample_rate == 0)
+                .where(sub.c.rn % sample_rate == 0)
                 .order_by(sub.c.chr, sub.c.exon_start)
             )
             nonsig_rows = (await db.execute(sampled_q)).all()

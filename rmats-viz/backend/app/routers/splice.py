@@ -107,7 +107,7 @@ async def _fetch_features(
 ) -> tuple[Any, dict, str | None]:
     """Pure-compute step (no DB): extract sequences + call Ensembl.
 
-    Runs under _COMPUTE_SEM so at most 10 events are processed concurrently.
+    Runs under _COMPUTE_SEM so at most 5 events are processed concurrently.
     Returns (SpliceFeatureResult, mane_dict).
     """
     async with _COMPUTE_SEM:

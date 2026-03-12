@@ -979,16 +979,23 @@ def _fig_splice_site_consensus(
 
         # IC with small-sample correction
         entropy_val = sum(-f * _math.log2(f) if f > 0 else 0 for f in freqs.values())
-        ic = max(0, 2 - entropy_val - e_n)
+        raw_ic = max(0, 2 - entropy_val)
+        ic = max(0, raw_ic - e_n)
         col_h = (ic / 2) * LOGO_H
+
+        # When IC ≈ 0 after correction but frequency data exists, show
+        # faint frequency-based letters so every position is populated.
+        MIN_COL = 3
+        show_faint = ic < 0.05 and raw_ic > 0
+        effective_col_h = MIN_COL if show_faint else col_h
 
         sorted_bases = sorted(freqs.items(), key=lambda kv: kv[1])
         cur_y = MARGIN_B
         for base, freq in sorted_bases:
             if freq <= 0:
                 continue
-            h = freq * col_h
-            if h < 1.0:
+            h = freq * effective_col_h
+            if h < 0.3:
                 cur_y += h
                 continue
             # Font size must fit within allocated height h.
@@ -996,11 +1003,23 @@ def _fig_splice_site_consensus(
             # leave a small gap and prevent letters from touching.
             fs = min(h / 0.75, COL_W * 1.2)
             fs = max(fs, 4)
+            hex_c = BASE_COLORS[base]
+            if show_faint:
+                # Blend with white to simulate 25% opacity
+                r = int(hex_c[1:3], 16)
+                g_c = int(hex_c[3:5], 16)
+                b_c = int(hex_c[5:7], 16)
+                r = int(r * 0.25 + 255 * 0.75)
+                g_c = int(g_c * 0.25 + 255 * 0.75)
+                b_c = int(b_c * 0.25 + 255 * 0.75)
+                fill = _colors.Color(r / 255, g_c / 255, b_c / 255)
+            else:
+                fill = _colors.HexColor(hex_c)
             # Vertically center the glyph within its allocated band
             d.add(String(x + COL_W / 2, cur_y + (h - fs * 0.75) / 2,
                           base, fontSize=fs,
                           fontName="Courier-Bold",
-                          fillColor=_colors.HexColor(BASE_COLORS[base]),
+                          fillColor=fill,
                           textAnchor="middle"))
             cur_y += h
 

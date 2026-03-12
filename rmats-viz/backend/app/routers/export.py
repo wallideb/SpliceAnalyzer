@@ -1227,6 +1227,10 @@ def _build_pdf(
             n_fs = sum(1 for f in subset_features.values() if f.frame_class == "frameshift")
             n_nc = sum(1 for f in subset_features.values() if f.frame_class == "non_coding")
             n_bp = sum(1 for f in subset_features.values() if f.bp_motif_found is True)
+            n_up_gt = sum(1 for f in subset_features.values() if f.upstream_donor_is_gt is True)
+            n_up_seq = sum(1 for f in subset_features.values() if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9)
+            n_dn_ag = sum(1 for f in subset_features.values() if f.downstream_acceptor_is_ag is True)
+            n_dn_seq = sum(1 for f in subset_features.values() if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23)
             ppt_vals = [f.ppt_score for f in subset_features.values() if f.ppt_score is not None]
             exsz_vals = [f.exon_size for f in subset_features.values() if f.exon_size is not None]
 
@@ -1236,6 +1240,8 @@ def _build_pdf(
                 ["SE events with features", n_f],
                 ["Canonical GT (5'SS)", f"{n_gt} / {n_f} ({n_gt / n_f * 100:.1f}%)" if n_f else "—"],
                 ["Canonical AG (3'SS)", f"{n_ag} / {n_f} ({n_ag / n_f * 100:.1f}%)" if n_f else "—"],
+                ["Upstream GT (5'SS)", f"{n_up_gt} / {n_up_seq} ({n_up_gt / n_up_seq * 100:.1f}%)" if n_up_seq else "—"],
+                ["Downstream AG (3'SS)", f"{n_dn_ag} / {n_dn_seq} ({n_dn_ag / n_dn_seq * 100:.1f}%)" if n_dn_seq else "—"],
                 ["In-frame",   f"{n_if} ({n_if / n_f * 100:.0f}%)" if n_f else "—"],
                 ["Frameshift", f"{n_fs} ({n_fs / n_f * 100:.0f}%)" if n_f else "—"],
                 ["Non-coding", f"{n_nc} ({n_nc / n_f * 100:.0f}%)" if n_f else "—"],
@@ -1327,6 +1333,58 @@ def _build_pdf(
                         sp(),
                     ]
 
+                # Flanking exon — upstream donor 5'SS
+                up_seqs = [f.upstream_donor_seq[:9].upper() for f in subset_features.values()
+                           if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
+                if len(up_seqs) >= 3:
+                    up_pwm = []
+                    for pos_i in range(9):
+                        cnt = Counter(s[pos_i] for s in up_seqs)
+                        tot = sum(cnt.values())
+                        up_pwm.append({b: cnt.get(b, 0) / tot for b in "ACGT"})
+                    up_logo = _fig_splice_site_consensus(
+                        {}, site="donor", pwm_data=up_pwm,
+                        n_sequences=len(up_seqs), max_width=FIG_MAX_W,
+                    )
+                    if up_logo:
+                        story += [
+                            KeepTogether([
+                                up_logo,
+                                caption(
+                                    "Upstream exon donor (5'SS) sequence logo (9 nt). "
+                                    "Canonical GT at +1/+2 highlighted. "
+                                    f"n = {len(up_seqs)} sequences."
+                                ),
+                            ]),
+                            sp(),
+                        ]
+
+                # Flanking exon — downstream acceptor 3'SS
+                dn_seqs = [f.downstream_acceptor_seq[-23:].upper() for f in subset_features.values()
+                           if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
+                if len(dn_seqs) >= 3:
+                    dn_pwm = []
+                    for pos_i in range(23):
+                        cnt = Counter(s[pos_i] for s in dn_seqs)
+                        tot = sum(cnt.values())
+                        dn_pwm.append({b: cnt.get(b, 0) / tot for b in "ACGT"})
+                    dn_logo = _fig_splice_site_consensus(
+                        {}, site="acceptor", pwm_data=dn_pwm,
+                        n_sequences=len(dn_seqs), max_width=FIG_MAX_W,
+                    )
+                    if dn_logo:
+                        story += [
+                            KeepTogether([
+                                dn_logo,
+                                caption(
+                                    "Downstream exon acceptor (3'SS) sequence logo (23 nt). "
+                                    "Canonical AG at −2/−1 highlighted. "
+                                    f"n = {len(dn_seqs)} sequences."
+                                ),
+                            ]),
+                            sp(),
+                        ]
+
         return section_num + 1
 
     # ── Section A: Global Analysis Summary ─────────────────────────────────
@@ -1399,6 +1457,8 @@ def _build_pdf(
              f"{sig['mean_delta_psi']:+.3f}" if sig.get("mean_delta_psi") is not None else "—",
              f"{nonsig['mean_delta_psi']:+.3f}" if nonsig.get("mean_delta_psi") is not None else "—",
              "mean_delta_psi")
+        _row("Upstream GT (5'SS)", _pct(sig.get("pct_upstream_gt")), _pct(nonsig.get("pct_upstream_gt")), "upstream_canonical_gt")
+        _row("Downstream AG (3'SS)", _pct(sig.get("pct_downstream_ag")), _pct(nonsig.get("pct_downstream_ag")), "downstream_canonical_ag")
 
         cmp_tbl = Table(cmp_rows, colWidths=[3.2*_cm, 3.5*_cm, 3.5*_cm, 2.8*_cm, 2.2*_cm, 1*_cm])
         cmp_tbl.setStyle(_tbl_style())
@@ -1484,8 +1544,86 @@ def _build_pdf(
             sp(),
         ]
 
-        # Cd. Frame comparison
-        story.append(p(f"{cmp_sec}.4 Reading Frame Comparison", "h3"))
+        # Cd. Flanking exon — upstream donor (5'SS)
+        if sig.get("upstream_donor_pwm") or nonsig.get("upstream_donor_pwm"):
+            story.append(p(f"{cmp_sec}.4 Upstream Donor 5'SS Logo: Significant vs Non-Significant", "h3"))
+            if sig.get("upstream_donor_pwm"):
+                ud_sig = _fig_splice_site_consensus(
+                    {}, site="donor", pwm_data=sig["upstream_donor_pwm"],
+                    n_sequences=sig["n_se_with_features"], max_width=half_w,
+                )
+                if ud_sig:
+                    story += [
+                        p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
+                        ud_sig,
+                    ]
+            if nonsig.get("upstream_donor_pwm"):
+                ud_nonsig = _fig_splice_site_consensus(
+                    {}, site="donor", pwm_data=nonsig["upstream_donor_pwm"],
+                    n_sequences=nonsig["n_se_with_features"], max_width=half_w,
+                )
+                if ud_nonsig:
+                    story += [
+                        p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
+                        ud_nonsig,
+                    ]
+            t_up_gt = test_map.get("upstream_canonical_gt")
+            if t_up_gt:
+                story.append(p(
+                    f"Upstream canonical GT — {t_up_gt['test_name']}: "
+                    f"p = {_fmt_pval(t_up_gt['p_value'])} "
+                    f"({'significant' if t_up_gt['significant'] else 'not significant'})",
+                    "small",
+                ))
+            story += [
+                caption(
+                    "Upstream exon donor (5'SS) sequence logos: significant vs non-significant events. "
+                    "Canonical GT at +1/+2 highlighted."
+                ),
+                sp(),
+            ]
+
+        # Ce. Flanking exon — downstream acceptor (3'SS)
+        if sig.get("downstream_acceptor_pwm") or nonsig.get("downstream_acceptor_pwm"):
+            story.append(p(f"{cmp_sec}.5 Downstream Acceptor 3'SS Logo: Significant vs Non-Significant", "h3"))
+            if sig.get("downstream_acceptor_pwm"):
+                da_sig = _fig_splice_site_consensus(
+                    {}, site="acceptor", pwm_data=sig["downstream_acceptor_pwm"],
+                    n_sequences=sig["n_se_with_features"], max_width=half_w,
+                )
+                if da_sig:
+                    story += [
+                        p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
+                        da_sig,
+                    ]
+            if nonsig.get("downstream_acceptor_pwm"):
+                da_nonsig = _fig_splice_site_consensus(
+                    {}, site="acceptor", pwm_data=nonsig["downstream_acceptor_pwm"],
+                    n_sequences=nonsig["n_se_with_features"], max_width=half_w,
+                )
+                if da_nonsig:
+                    story += [
+                        p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
+                        da_nonsig,
+                    ]
+            t_dn_ag = test_map.get("downstream_canonical_ag")
+            if t_dn_ag:
+                story.append(p(
+                    f"Downstream canonical AG — {t_dn_ag['test_name']}: "
+                    f"p = {_fmt_pval(t_dn_ag['p_value'])} "
+                    f"({'significant' if t_dn_ag['significant'] else 'not significant'})",
+                    "small",
+                ))
+            story += [
+                caption(
+                    "Downstream exon acceptor (3'SS) sequence logos: significant vs non-significant events. "
+                    "Canonical AG at −2/−1 highlighted."
+                ),
+                sp(),
+            ]
+
+        # Cf. Frame comparison
+        story.append(p(f"{cmp_sec}.6 Reading Frame Comparison", "h3"))
         frame_sig = _fig_frame_breakdown(sig["frame_in_frame"], sig["frame_frameshift"], sig["frame_non_coding"], sig["n_se_with_features"])
         if frame_sig:
             story += [p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"), frame_sig]

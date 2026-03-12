@@ -543,6 +543,7 @@ export function MotifPatternPanel({ events, analysisId, deepAnalysisId, fdrThres
             skipZero
             canonicalPositions={[1, 2]}
             id="logo-donor"
+            nSequences={donor_sites.n_sequences}
           />
         </Section>
       )}
@@ -562,6 +563,7 @@ export function MotifPatternPanel({ events, analysisId, deepAnalysisId, fdrThres
             skipZero
             canonicalPositions={[-2, -1]}
             id="logo-acceptor"
+            nSequences={acceptor_sites.n_sequences}
           />
         </Section>
       )}

@@ -353,7 +353,7 @@ export function ExonDiagram({
         t("exonDiagram.seq9nt", { seq: `${donorSeq.slice(0, 3)}[GT]${donorSeq.slice(5)}` }),
         t("exonDiagram.hoverForSeq"),
       ].join("\n")
-    : (donorIsGt === false ? t("exonDiagram.donor5ssNonGt") : t("exonDiagram.donor5ss"));
+    : t("exonDiagram.donor5ssNoData");
 
   const acceptorTooltip = acceptorSeq
     ? [
@@ -361,7 +361,7 @@ export function ExonDiagram({
         t("exonDiagram.seq23nt", { seq: `…${acceptorSeq.slice(14, 19)}[AG]${acceptorSeq.slice(19)}` }),
         t("exonDiagram.hoverForSeq"),
       ].join("\n")
-    : (acceptorIsAg === false ? t("exonDiagram.acceptor3ssNonAg") : t("exonDiagram.acceptor3ss"));
+    : t("exonDiagram.acceptor3ssNoData");
 
   const pptInterpret =
     (pptScore ?? 0) >= 0.7 ? t("exonDiagram.pptStrong") :
@@ -386,8 +386,11 @@ export function ExonDiagram({
     exonRank != null ? t("exonDiagram.exonRank", { n: exonRank }) : null,
   ].filter(Boolean).join("\n");
 
-  const warnDonor    = donorIsGt    === false;
-  const warnAcceptor = acceptorIsAg === false;
+  // Only warn non-canonical when we actually have sequence data to prove it
+  const warnDonor    = donorIsGt    === false && !!donorSeq;
+  const warnAcceptor = acceptorIsAg === false && !!acceptorSeq;
+  // Show "no data" state when there's no sequence at all
+  const noSeqData    = !donorSeq && !acceptorSeq;
 
   // PPT bar width
   const pptBarFill = pptScore != null
@@ -487,20 +490,20 @@ export function ExonDiagram({
             width={donorIndicatorW}
             height={SITE_H}
             rx={2}
-            fill={warnDonor ? COLOR_WARN : COLOR_GREEN}
+            fill={warnDonor ? COLOR_WARN : !donorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
             fillOpacity={hoveredEl === "donor" ? 0.4 : 0.22}
-            stroke={warnDonor ? COLOR_WARN : COLOR_GREEN}
+            stroke={warnDonor ? COLOR_WARN : !donorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
             strokeWidth={hoveredEl === "donor" ? 1.5 : 1}
           />
-          {/* GT / warn label inside box */}
+          {/* GT / warn / no-data label inside box */}
           <text
             x={donorIndicatorX + donorIndicatorW / 2}
             y={EXON_Y + EXON_H / 2 + 3}
-            textAnchor="middle" fontSize={8.5}
-            fill={warnDonor ? COLOR_WARN : COLOR_GREEN}
+            textAnchor="middle" fontSize={!donorSeq ? 7 : 8.5}
+            fill={warnDonor ? COLOR_WARN : !donorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
             fontFamily="monospace" fontWeight="bold"
           >
-            {warnDonor ? "!GT" : "GT"}
+            {warnDonor ? "!GT" : !donorSeq ? "?" : "GT"}
           </text>
           <title>{donorTooltip}</title>
         </g>
@@ -510,7 +513,7 @@ export function ExonDiagram({
           x={donorIndicatorX + donorIndicatorW / 2}
           y={EXON_Y - 7}
           textAnchor="middle" fontSize={8}
-          fill={warnDonor ? COLOR_WARN : COLOR_GREEN}
+          fill={warnDonor ? COLOR_WARN : !donorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
           fontFamily="monospace" fontWeight="700"
         >
           5&apos;SS
@@ -589,20 +592,20 @@ export function ExonDiagram({
             width={acceptorIndicatorW}
             height={SITE_H}
             rx={2}
-            fill={warnAcceptor ? COLOR_WARN : COLOR_GREEN}
+            fill={warnAcceptor ? COLOR_WARN : !acceptorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
             fillOpacity={hoveredEl === "acceptor" ? 0.4 : 0.22}
-            stroke={warnAcceptor ? COLOR_WARN : COLOR_GREEN}
+            stroke={warnAcceptor ? COLOR_WARN : !acceptorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
             strokeWidth={hoveredEl === "acceptor" ? 1.5 : 1}
           />
-          {/* AG / warn label inside box */}
+          {/* AG / warn / no-data label inside box */}
           <text
             x={acceptorIndicatorX + acceptorIndicatorW / 2}
             y={EXON_Y + EXON_H / 2 + 3}
-            textAnchor="middle" fontSize={8.5}
-            fill={warnAcceptor ? COLOR_WARN : COLOR_GREEN}
+            textAnchor="middle" fontSize={!acceptorSeq ? 7 : 8.5}
+            fill={warnAcceptor ? COLOR_WARN : !acceptorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
             fontFamily="monospace" fontWeight="bold"
           >
-            {warnAcceptor ? "!AG" : "AG"}
+            {warnAcceptor ? "!AG" : !acceptorSeq ? "?" : "AG"}
           </text>
           <title>{acceptorTooltip}</title>
         </g>
@@ -612,7 +615,7 @@ export function ExonDiagram({
           x={acceptorIndicatorX + acceptorIndicatorW / 2}
           y={EXON_Y - 7}
           textAnchor="middle" fontSize={8}
-          fill={warnAcceptor ? COLOR_WARN : COLOR_GREEN}
+          fill={warnAcceptor ? COLOR_WARN : !acceptorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
           fontFamily="monospace" fontWeight="700"
         >
           3&apos;SS

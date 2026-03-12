@@ -27,7 +27,7 @@ export const fr: Translations = {
       subtitle: "Importez vos fichiers rMATS pour commencer.",
       cta: "Créer ma première analyse",
     },
-    mutatedGenes: "Gène(s) muté(s) :",
+    mutatedGenes: "Gène(s) candidat(s) :",
     share: {
       copy: "Partager l'analyse (copier le lien)",
       copied: "Lien copié !",
@@ -50,7 +50,7 @@ export const fr: Translations = {
     form: {
       analysisName: "Nom de l'analyse",
       analysisNamePlaceholder: "Ex: PCBP1 cohort 2024",
-      mutatedGenes: "Gène(s) muté(s) dans la cohorte",
+      mutatedGenes: "Gène(s) candidat(s) dans la cohorte",
       mutatedGenesNomenclature: "(nomenclature HUGO)",
       mutatedGenesDescription:
         "Ces gènes seront affichés dans l'analyse même s'ils n'apparaissent pas dans les anomalies d'épissage détectées. L'identifiant Ensembl (ENSG) est récupéré automatiquement.",
@@ -61,7 +61,7 @@ export const fr: Translations = {
       groupLabels: "Labels des groupes",
       groupLabelsDescription:
         "Ces labels apparaîtront dans les colonnes IncLevel1 / IncLevel2.",
-      selectedGenes: "Gène(s) muté(s) sélectionné(s)",
+      selectedGenes: "Gène(s) candidat(s) sélectionné(s)",
     },
     loading: {
       title: "Analyse en cours…",
@@ -71,7 +71,7 @@ export const fr: Translations = {
   },
   analysisDetail: {
     breadcrumb: "Analyses",
-    mutatedGenes: "Gène(s) muté(s) :",
+    mutatedGenes: "Gène(s) candidat(s) :",
     excel: "Excel",
     pdf: "PDF",
     deepAnalysis: "Analyse approfondie",
@@ -88,7 +88,7 @@ export const fr: Translations = {
         go: "Gene Ontology",
         goDesc: "Termes GO principaux (Processus biologique / Fonction moléculaire / Composant cellulaire) via mygene.info (GO Consortium, 2021)",
         stringdb: "STRING-DB",
-        stringdbDesc: "Score d'interaction protéique maximal vs gènes mutés de l'analyse (Szklarczyk et al., 2023)",
+        stringdbDesc: "Score d'interaction protéique maximal vs gènes candidats de l'analyse (Szklarczyk et al., 2023)",
       },
       spliceNote: "Les logos de sites d'épissage, les tracks PPT et les tests de permutation sont disponibles dans le rapport PDF — ils ne peuvent pas être exportés en Excel.",
       download: "Télécharger Excel",
@@ -160,7 +160,7 @@ export const fr: Translations = {
     noEvents: "Aucun événement trouvé.",
     modeLabels: {
       gene: "Événements annotés",
-      stringdb: "Interactions STRING-DB avec le gène muté",
+      stringdb: "Interactions STRING-DB avec le gène candidat",
       pathways: "Voies moléculaires (à venir)",
       motifs: "Patterns d'épissage récurrents",
       splice: "Sites consensus d'épissage",
@@ -215,7 +215,7 @@ export const fr: Translations = {
       stringdb: {
         label: "STRING-DB & interactions protéiques",
         description:
-          "Réseau d'interactions entre le gène muté et les gènes porteurs d'événements",
+          "Réseau d'interactions entre le gène candidat et les gènes porteurs d'événements",
       },
       pathways: {
         label: "Voies moléculaires",
@@ -283,7 +283,7 @@ export const fr: Translations = {
     stringdb: {
       noSymbol: "Symbole du gène non disponible.",
       selfInteraction:
-        "Le gène porteur de l'événement est identique au gène muté — pas d'interaction à afficher.",
+        "Le gène porteur de l'événement est identique au gène candidat — pas d'interaction à afficher.",
       error: "Erreur lors de la récupération des données STRING-DB.",
       noInteraction:
         "Aucune interaction STRING-DB trouvée entre ces deux gènes.",
@@ -532,7 +532,7 @@ export const fr: Translations = {
       scores: "Scores rMATS",
     },
     noGeneSelected: "Aucun gène candidat sélectionné lors de l'analyse",
-    noGeneSubtext: "Ajoutez un gène muté lors de la création ou modification de l'analyse pour activer les annotations et l'onglet Interactions STRING-DB.",
+    noGeneSubtext: "Ajoutez un gène candidat lors de la création ou modification de l'analyse pour activer les annotations et l'onglet Interactions STRING-DB.",
     candidateGene: "Gène candidat",
     candidateGenes: "Gènes candidats",
     clickTabToExplore: "— cliquez sur un onglet pour explorer les annotations",
@@ -613,7 +613,7 @@ export const fr: Translations = {
     newAnalysis: "Nouvelle analyse approfondie",
     newAnalysisForm: "Créer une nouvelle analyse approfondie",
     formName: "Nom",
-    formNamePlaceholder: "ex. FDR 0.05 — ΔPSI 0.1",
+    formNamePlaceholder: "auto : Gène-FDR-PSI-Date",
     optional: "optionnel",
     significant: "significatif(s)",
     notSignificant: "non-significatif(s)",

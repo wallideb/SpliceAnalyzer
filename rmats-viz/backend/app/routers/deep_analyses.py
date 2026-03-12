@@ -57,8 +57,17 @@ async def create_deep_analysis(
     if not analysis:
         raise HTTPException(404, "Analysis not found")
 
-    # Auto-name if not provided
-    name = body.name or f"Deep analysis — FDR≤{body.fdr_threshold} |ΔΨ|≥{body.delta_psi_min}"
+    # Auto-name: CandidateGene-FDR-PSI-pvalue(if set)-Date
+    if body.name:
+        name = body.name
+    else:
+        gene_part = ""
+        if analysis.mutated_genes:
+            symbols = [g.get("symbol", "") for g in analysis.mutated_genes if g.get("symbol")]
+            gene_part = "_".join(symbols[:3]) + "-" if symbols else ""
+        pval_part = f"-p{body.pvalue_threshold}" if body.pvalue_threshold is not None else ""
+        from datetime import date as _d
+        name = f"{gene_part}FDR{body.fdr_threshold}-PSI{body.delta_psi_min}{pval_part}-{_d.today().isoformat()}"
 
     # Fetch all events for this analysis
     q = select(SplicingEvent.id, SplicingEvent.fdr, SplicingEvent.inc_level_difference).where(

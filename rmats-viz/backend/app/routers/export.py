@@ -28,6 +28,16 @@ ALL_GROUPS: tuple[ColumnGroup, ...] = ("core", "panelapp", "go", "stringdb")
 
 router = APIRouter(prefix="/export", tags=["export"])
 
+# Limit concurrent outbound HTTP requests to external APIs (PanelApp, GO, STRING-DB)
+# to avoid socket/connection-pool exhaustion on large exports (200+ genes).
+_EXT_API_SEMAPHORE = asyncio.Semaphore(10)
+
+
+async def _throttled(coro):
+    """Run a coroutine under the external-API semaphore."""
+    async with _EXT_API_SEMAPHORE:
+        return await coro
+
 # ── Colour constants ──────────────────────────────────────────────────────────
 HEADER_FILL = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
 HEADER_FONT = Font(bold=True)
@@ -126,7 +136,7 @@ async def export_analysis_excel(
     core      – gene, coordinates, rMATS statistics, splice features, MANE (always included)
     panelapp  – top PanelApp disease panel confidence and panel names per gene
     go        – top GO terms (BP / MF / CC) per gene via mygene.info
-    stringdb  – highest STRING-DB combined score vs each analysis mutated gene
+    stringdb  – highest STRING-DB combined score vs each analysis candidate gene
     """
 
     # ── Parse include groups ──────────────────────────────────────────────────
@@ -157,7 +167,7 @@ async def export_analysis_excel(
     panelapp_data: dict[str, dict] = {}
     if "panelapp" in groups and unique_symbols:
         pa_results = await asyncio.gather(
-            *[get_panels_for_gene(sym) for sym in unique_symbols],
+            *[_throttled(get_panels_for_gene(sym)) for sym in unique_symbols],
             return_exceptions=True,
         )
         for sym, res in zip(unique_symbols, pa_results):
@@ -177,7 +187,7 @@ async def export_analysis_excel(
     go_data: dict[str, dict] = {}
     if "go" in groups and unique_symbols:
         go_results = await asyncio.gather(
-            *[get_go_terms(sym, None) for sym in unique_symbols],
+            *[_throttled(get_go_terms(sym, None)) for sym in unique_symbols],
             return_exceptions=True,
         )
         for sym, res in zip(unique_symbols, go_results):
@@ -212,7 +222,7 @@ async def export_analysis_excel(
             ]
             if pairs:
                 interaction_results = await asyncio.gather(
-                    *[get_interaction(sym, mut) for sym, mut in pairs],
+                    *[_throttled(get_interaction(sym, mut)) for sym, mut in pairs],
                     return_exceptions=True,
                 )
                 # For each event gene, keep the highest combined_score across mutated genes
@@ -429,7 +439,7 @@ async def export_deep_analysis_excel(
 
     if "panelapp" in groups and unique_symbols:
         pa_results = await asyncio.gather(
-            *[get_panels_for_gene(sym) for sym in unique_symbols],
+            *[_throttled(get_panels_for_gene(sym)) for sym in unique_symbols],
             return_exceptions=True,
         )
         for sym, res in zip(unique_symbols, pa_results):
@@ -445,7 +455,7 @@ async def export_deep_analysis_excel(
 
     if "go" in groups and unique_symbols:
         go_results = await asyncio.gather(
-            *[get_go_terms(sym, None) for sym in unique_symbols],
+            *[_throttled(get_go_terms(sym, None)) for sym in unique_symbols],
             return_exceptions=True,
         )
         for sym, res in zip(unique_symbols, go_results):
@@ -474,7 +484,7 @@ async def export_deep_analysis_excel(
             ]
             if pairs:
                 interaction_results = await asyncio.gather(
-                    *[get_interaction(sym, mut) for sym, mut in pairs],
+                    *[_throttled(get_interaction(sym, mut)) for sym, mut in pairs],
                     return_exceptions=True,
                 )
                 for (sym, _), res in zip(pairs, interaction_results):
@@ -532,7 +542,8 @@ async def export_deep_analysis_excel(
             go = go_data.get(sym, {"BP": "", "MF": "", "CC": ""})
             row += [go["BP"], go["MF"], go["CC"]]
         if "stringdb" in groups:
-            row += [round(stringdb_data.get(sym), 3) if stringdb_data.get(sym) is not None else None]
+            score = stringdb_data.get(sym)
+            row += [round(score, 3) if score is not None else None]
         ws.append(row)
 
     _style_header_row(ws)
@@ -1140,7 +1151,7 @@ def _build_pdf(
     if analysis.mutated_genes:
         gene_names = ", ".join(g.get("symbol", "?") for g in analysis.mutated_genes if g.get("symbol"))
         if gene_names:
-            story.append(p(f"<b>Mutated gene(s):</b> {gene_names}", "body"))
+            story.append(p(f"<b>Candidate gene(s):</b> {gene_names}", "body"))
 
     # ── Summary statistics on title page ──────────────────────────────────
     n_total = len(events)
@@ -1306,9 +1317,9 @@ def _build_pdf(
                         KeepTogether([
                             donor_logo,
                             caption(
-                                "5'SS donor splice site sequence logo (9 nt: 3 nt exon + 6 nt intron). "
-                                "Letter height = frequency × R<sub>i</sub> (bits), with small-sample correction "
-                                "e<sub>n</sub> = (s−1)/(2·ln2·n). Canonical GT at +1/+2 highlighted. "
+                                "Skipped exon 5'SS donor splice site sequence logo (9 nt: 3 nt exon + 6 nt intron). "
+                                "Letter height = frequency x R<sub>i</sub> (bits), with small-sample correction "
+                                "e<sub>n</sub> = (s-1)/(2 ln2 n). Canonical GT at positions +1/+2 highlighted in yellow. "
                                 f"n = {n_donor} sequences. "
                                 "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
                             ),
@@ -1323,9 +1334,9 @@ def _build_pdf(
                         KeepTogether([
                             acceptor_logo,
                             caption(
-                                "3'SS acceptor splice site sequence logo (23 nt: 20 nt intron + 3 nt exon). "
-                                "Letter height = frequency × R<sub>i</sub> (bits), with small-sample correction. "
-                                "Canonical AG at −2/−1 highlighted. "
+                                "Skipped exon 3'SS acceptor splice site sequence logo (23 nt: 20 nt intron + 3 nt exon). "
+                                "Letter height = frequency x R<sub>i</sub> (bits), with small-sample correction. "
+                                "Canonical AG at positions -2/-1 highlighted in yellow. "
                                 f"n = {n_acc} sequences. "
                                 "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
                             ),
@@ -1351,8 +1362,9 @@ def _build_pdf(
                             KeepTogether([
                                 up_logo,
                                 caption(
-                                    "Upstream exon donor (5'SS) sequence logo (9 nt). "
-                                    "Canonical GT at +1/+2 highlighted. "
+                                    "Upstream flanking exon donor (5'SS) sequence logo (9 nt: 3 nt exon + 6 nt intron). "
+                                    "Letter height = frequency x R<sub>i</sub> (bits). "
+                                    "Canonical GT at positions +1/+2 highlighted in yellow. "
                                     f"n = {len(up_seqs)} sequences."
                                 ),
                             ]),
@@ -1377,8 +1389,9 @@ def _build_pdf(
                             KeepTogether([
                                 dn_logo,
                                 caption(
-                                    "Downstream exon acceptor (3'SS) sequence logo (23 nt). "
-                                    "Canonical AG at −2/−1 highlighted. "
+                                    "Downstream flanking exon acceptor (3'SS) sequence logo (23 nt: 20 nt intron + 3 nt exon). "
+                                    "Letter height = frequency x R<sub>i</sub> (bits). "
+                                    "Canonical AG at positions -2/-1 highlighted in yellow. "
                                     f"n = {len(dn_seqs)} sequences."
                                 ),
                             ]),
@@ -1499,8 +1512,9 @@ def _build_pdf(
             ))
         story += [
             caption(
-                "5'SS donor sequence logos: significant vs non-significant events. "
-                "Letter height = frequency × R<sub>i</sub> (bits) with small-sample correction. "
+                "Skipped exon 5'SS donor sequence logos: significant vs non-significant events. "
+                "Letter height = frequency x R<sub>i</sub> (bits) with small-sample correction. "
+                "Canonical GT at positions +1/+2 highlighted. "
                 "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
             ),
             sp(),
@@ -1538,8 +1552,10 @@ def _build_pdf(
             ))
         story += [
             caption(
-                "3'SS acceptor sequence logos: significant vs non-significant events. "
-                "Canonical AG at −2/−1 highlighted."
+                "Skipped exon 3'SS acceptor sequence logos: significant vs non-significant events. "
+                "Letter height = frequency x R<sub>i</sub> (bits) with small-sample correction. "
+                "Canonical AG at positions -2/-1 highlighted. "
+                "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
             ),
             sp(),
         ]
@@ -1577,8 +1593,9 @@ def _build_pdf(
                 ))
             story += [
                 caption(
-                    "Upstream exon donor (5'SS) sequence logos: significant vs non-significant events. "
-                    "Canonical GT at +1/+2 highlighted."
+                    "Upstream flanking exon 5'SS donor sequence logos: significant vs non-significant events. "
+                    "Letter height = frequency x R<sub>i</sub> (bits). "
+                    "Canonical GT at positions +1/+2 highlighted."
                 ),
                 sp(),
             ]
@@ -1616,8 +1633,9 @@ def _build_pdf(
                 ))
             story += [
                 caption(
-                    "Downstream exon acceptor (3'SS) sequence logos: significant vs non-significant events. "
-                    "Canonical AG at −2/−1 highlighted."
+                    "Downstream flanking exon 3'SS acceptor sequence logos: significant vs non-significant events. "
+                    "Letter height = frequency x R<sub>i</sub> (bits). "
+                    "Canonical AG at positions -2/-1 highlighted."
                 ),
                 sp(),
             ]
@@ -1732,23 +1750,25 @@ def _build_pdf(
         p("<b>2. Splice Site Annotation</b>", "h3"),
         p("For each SE event, rMATS-Viz extracts flanking genomic sequences from "
           "the GRCh38 (hg38) reference genome indexed with <b>samtools faidx</b>:", "body"),
-        p("• <b>5'SS donor:</b> 3 nt exon + 6 nt intron (9 nt window)", "body"),
-        p("• <b>3'SS acceptor:</b> 20 nt intron + 3 nt exon (23 nt window)", "body"),
-        p("• <b>PPT:</b> ~47 nt upstream of the acceptor site", "body"),
+        p("• <b>5'SS donor (skipped exon):</b> 3 nt exon + 6 nt intron (9 nt window)", "body"),
+        p("• <b>3'SS acceptor (skipped exon):</b> 20 nt intron + 3 nt exon (23 nt window)", "body"),
+        p("• <b>5'SS donor (upstream flanking exon):</b> 3 nt exon + 6 nt intron (9 nt window)", "body"),
+        p("• <b>3'SS acceptor (downstream flanking exon):</b> 20 nt intron + 3 nt exon (23 nt window)", "body"),
+        p("• <b>PPT:</b> ~47 nt upstream of the skipped exon acceptor site", "body"),
         p("The canonical GT-AG splice site rule (Shapiro &amp; Senapathy, 1987; "
           "Burge &amp; Karlin, 1997) is verified at the first two intronic positions "
-          "of the 5'SS (GT at +1/+2) and last two of the 3'SS (AG at −2/−1). "
+          "of the 5'SS (GT at +1/+2) and last two of the 3'SS (AG at -2/-1). "
           "The PPT score is the fraction of pyrimidine nucleotides (C, T) in the PPT "
           "window. The branch point is searched by matching the YNYURAY motif "
           "(Coolidge et al., 1997).", "body"),
         p("<b>3. Sequence Logos</b>", "h3"),
         p("Position weight matrices (PWMs) are computed from all extracted "
           "sequences per group. Information content at each position follows the "
-          "Schneider &amp; Stephens (1990) formulation: R<sub>i</sub> = 2 − H<sub>i</sub> − e<sub>n</sub>, "
-          "where H<sub>i</sub> = −Σ p<sub>b</sub> log<sub>2</sub> p<sub>b</sub> (Shannon entropy) "
-          "and e<sub>n</sub> = (s−1)/(2·ln 2·n) is the small-sample correction "
+          "Schneider &amp; Stephens (1990) formulation: R<sub>i</sub> = 2 - H<sub>i</sub> - e<sub>n</sub>, "
+          "where H<sub>i</sub> = -Sum f(b,i) log<sub>2</sub> f(b,i) (Shannon entropy) "
+          "and e<sub>n</sub> = (s-1) / (2 ln2 n) is the small-sample correction "
           "(Schneider et al., 1986; s = 4 for DNA, n = number of sequences). "
-          "Letter height = frequency × R<sub>i</sub>. This is consistent with "
+          "Letter height = frequency x R<sub>i</sub>. This is consistent with "
           "WebLogo 3 (Crooks et al., 2004).", "body"),
         p("<b>4. Reading Frame Classification</b>", "h3"),
         p("The skipped exon is classified by reading-frame impact using the "
@@ -1769,10 +1789,10 @@ def _build_pdf(
               f"|ΔΨ| ≥ {deep_analysis.delta_psi_min}) or <b>non-significant</b> (all others). "
               "Splice features are compared between the two groups using:", "body"),
             p("• <b>Welch's t-test</b> (unequal variances, two-tailed): mean ΔΨ, exon size, PPT score", "body"),
-            p("• <b>Two-proportion z-test</b> (two-tailed): canonical GT/AG rates, in-frame proportion, "
-              "branch-point detection rate", "body"),
+            p("• <b>Two-proportion z-test</b> (two-tailed): canonical GT/AG rates (skipped exon "
+              "and flanking exons), in-frame proportion, branch-point detection rate", "body"),
             p("Welch-Satterthwaite degrees of freedom are used for the t-distribution. "
-              "No multiple-testing correction is applied within the comparison (7 tests); "
+              "No multiple-testing correction is applied within the comparison (9 tests); "
               "the user should interpret results in light of the number of comparisons.", "body"),
             p("<b>7. Permutation Test</b>", "h3"),
             p("For each significant SE event, sample labels are randomly permuted (keeping "
@@ -1823,19 +1843,19 @@ def _build_pdf(
         hr(),
         p("<b>C.1 Splicing Event Statistics (rMATS)</b>", "h3"),
         p("rMATS computes for each event:", "body"),
-        p("• <b>ΔΨ (delta-PSI)</b>: ΔΨ = Ψ<sub>sample1</sub> − Ψ<sub>sample2</sub>, "
-          "where Ψ is the percent spliced in (PSI). Range: [−1, +1].", "body"),
+        p("• <b>delta-PSI</b>: dPSI = PSI<sub>sample1</sub> - PSI<sub>sample2</sub>, "
+          "where PSI is the percent spliced in. Range: [-1, +1].", "body"),
         p("• <b>p-value</b>: likelihood-ratio test comparing a model with ΔΨ ≠ 0 "
           "against a null model (ΔΨ = 0), using a multivariate uniform prior "
           "on the individual sample PSI values.", "body"),
         p("• <b>FDR</b>: Benjamini-Hochberg correction across all events.", "body"),
         p("<b>C.2 Sequence Logos</b>", "h3"),
         p("The information content R<sub>i</sub> at position i is:", "body"),
-        p("&nbsp;&nbsp;&nbsp;R<sub>i</sub> = log<sub>2</sub>(s) − H<sub>i</sub> − e<sub>n</sub>", "code"),
-        p("where s = 4 (DNA alphabet), H<sub>i</sub> = −Σ<sub>b</sub> f(b,i)·log<sub>2</sub> f(b,i) "
-          "is the Shannon entropy at position i, and e<sub>n</sub> = (s−1)/(2·ln2·n) is the "
+        p("&nbsp;&nbsp;&nbsp;R<sub>i</sub> = log<sub>2</sub>(s) - H<sub>i</sub> - e<sub>n</sub>", "code"),
+        p("where s = 4 (DNA alphabet), H<sub>i</sub> = -Sum f(b,i) log<sub>2</sub> f(b,i) "
+          "is the Shannon entropy at position i, and e<sub>n</sub> = (s-1) / (2 ln2 n) is the "
           "small-sample correction (Schneider et al., 1986). "
-          "The height of each letter b at position i is: height(b,i) = f(b,i) × R<sub>i</sub>. "
+          "The height of each letter b at position i is: height(b,i) = f(b,i) x R<sub>i</sub>. "
           "This standard is consistent with WebLogo 3 (Crooks et al., 2004) and "
           "seqLogo (Bioconductor).", "body"),
         p("<b>C.3 PPT Score</b>", "h3"),
@@ -1849,12 +1869,16 @@ def _build_pdf(
             p("<b>C.4 Deep Analysis Statistical Tests</b>", "h3"),
             p("Events are split into significant and non-significant groups. "
               "The following two-tailed tests compare splice features:", "body"),
-            p("• <b>Welch's t-test</b>: for continuous features (mean ΔΨ, exon size, "
-              "PPT score). Uses Welch-Satterthwaite approximation for degrees of "
-              "freedom: ν = (s₁²/n₁ + s₂²/n₂)² / [(s₁²/n₁)²/(n₁−1) + (s₂²/n₂)²/(n₂−1)].", "body"),
+            p("• <b>Welch's t-test</b>: for continuous features (mean delta-PSI, exon size, "
+              "PPT score). Uses Welch-Satterthwaite approximation for degrees of freedom:", "body"),
+            p("&nbsp;&nbsp;&nbsp;df = (s<sub>1</sub><super>2</super>/n<sub>1</sub> + s<sub>2</sub><super>2</super>/n<sub>2</sub>)<super>2</super> "
+              "/ [(s<sub>1</sub><super>2</super>/n<sub>1</sub>)<super>2</super>/(n<sub>1</sub>-1) "
+              "+ (s<sub>2</sub><super>2</super>/n<sub>2</sub>)<super>2</super>/(n<sub>2</sub>-1)]", "code"),
             p("• <b>Two-proportion z-test</b>: for proportions (canonical GT, canonical AG, "
-              "in-frame %, branch-point detection). "
-              "z = (p̂₁ − p̂₂) / √[p̂(1−p̂)(1/n₁ + 1/n₂)] where p̂ is the pooled proportion.", "body"),
+              "upstream GT, downstream AG, in-frame %, branch-point detection):", "body"),
+            p("&nbsp;&nbsp;&nbsp;z = (p<sub>1</sub> - p<sub>2</sub>) "
+              "/ sqrt[p(1-p)(1/n<sub>1</sub> + 1/n<sub>2</sub>)]", "code"),
+            p("where p is the pooled proportion across both groups.", "body"),
             p("All p-values are two-tailed. The regularised incomplete beta function "
               "is computed via Lentz's continued fraction algorithm for the t-distribution CDF.", "body"),
             p("<b>C.5 Permutation Test</b>", "h3"),

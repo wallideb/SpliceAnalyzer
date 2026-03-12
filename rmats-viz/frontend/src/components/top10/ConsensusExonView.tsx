@@ -121,14 +121,14 @@ export function ConsensusExonView({ data }: ConsensusExonViewProps) {
           fdr={pseudoFdr}
           pValue={null}
           strand={null}
-          donorIsGt={hasConsensus ? donor_sites.pct_canonical >= 80 : null}
-          acceptorIsAg={hasConsensus ? acceptor_sites.pct_canonical >= 80 : null}
+          donorIsGt={hasConsensus ? donor_sites.pct_canonical >= 50 : null}
+          acceptorIsAg={hasConsensus ? acceptor_sites.pct_canonical >= 50 : null}
           donorSeq={hasConsensus ? donor_sites.consensus ?? null : null}
           acceptorSeq={hasConsensus ? acceptor_sites.consensus ?? null : null}
           upstreamDonorSeq={upstream_donor_sites?.consensus ?? null}
           downstreamAcceptorSeq={downstream_acceptor_sites?.consensus ?? null}
-          upstreamDonorIsGt={upstream_donor_sites ? upstream_donor_sites.pct_canonical >= 80 : null}
-          downstreamAcceptorIsAg={downstream_acceptor_sites ? downstream_acceptor_sites.pct_canonical >= 80 : null}
+          upstreamDonorIsGt={upstream_donor_sites ? upstream_donor_sites.pct_canonical >= 50 : null}
+          downstreamAcceptorIsAg={downstream_acceptor_sites ? downstream_acceptor_sites.pct_canonical >= 50 : null}
           pptScore={ppt.mean_score}
           frameClass={
             frame.in_frame > frame.frameshift + frame.non_coding

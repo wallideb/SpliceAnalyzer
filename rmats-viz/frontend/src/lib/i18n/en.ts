@@ -26,7 +26,7 @@ export const en = {
       subtitle: "Import your rMATS files to get started.",
       cta: "Create my first analysis",
     },
-    mutatedGenes: "Mutated gene(s):",
+    mutatedGenes: "Candidate gene(s):",
     share: {
       copy: "Share analysis (copy link)",
       copied: "Link copied!",
@@ -49,7 +49,7 @@ export const en = {
     form: {
       analysisName: "Analysis name",
       analysisNamePlaceholder: "e.g. PCBP1 cohort 2024",
-      mutatedGenes: "Mutated gene(s) in the cohort",
+      mutatedGenes: "Candidate gene(s) in the cohort",
       mutatedGenesNomenclature: "(HUGO nomenclature)",
       mutatedGenesDescription:
         "These genes will be displayed in the analysis even if they do not appear in the detected splicing anomalies. The Ensembl ID (ENSG) is retrieved automatically.",
@@ -60,7 +60,7 @@ export const en = {
       groupLabels: "Group Labels",
       groupLabelsDescription:
         "These labels will appear in the IncLevel1 / IncLevel2 columns.",
-      selectedGenes: "Selected mutated gene(s)",
+      selectedGenes: "Selected candidate gene(s)",
     },
     loading: {
       title: "Analysis in progress…",
@@ -70,7 +70,7 @@ export const en = {
   },
   analysisDetail: {
     breadcrumb: "Analyses",
-    mutatedGenes: "Mutated gene(s):",
+    mutatedGenes: "Candidate gene(s):",
     excel: "Excel",
     pdf: "PDF",
     deepAnalysis: "Deep Analysis",
@@ -87,7 +87,7 @@ export const en = {
         go: "Gene Ontology",
         goDesc: "Top GO terms (Biological Process / Molecular Function / Cellular Component) via mygene.info (GO Consortium, 2021)",
         stringdb: "STRING-DB",
-        stringdbDesc: "Highest protein interaction score vs analysis mutated genes (Szklarczyk et al., 2023)",
+        stringdbDesc: "Highest protein interaction score vs analysis candidate genes (Szklarczyk et al., 2023)",
       },
       spliceNote: "Splice-site logos, PPT tracks, and permutation test results are available in the PDF report — they cannot be exported to Excel.",
       download: "Download Excel",
@@ -159,7 +159,7 @@ export const en = {
     noEvents: "No events found.",
     modeLabels: {
       gene: "Annotated events",
-      stringdb: "STRING-DB interactions with mutated gene",
+      stringdb: "STRING-DB interactions with candidate gene",
       pathways: "Molecular pathways (coming soon)",
       motifs: "Recurrent splicing patterns",
       splice: "Consensus splice sites",
@@ -214,7 +214,7 @@ export const en = {
       stringdb: {
         label: "STRING-DB & protein interactions",
         description:
-          "Interaction network between the mutated gene and genes carrying events",
+          "Interaction network between the candidate gene and genes carrying events",
       },
       pathways: {
         label: "Molecular Pathways",
@@ -282,7 +282,7 @@ export const en = {
     stringdb: {
       noSymbol: "Gene symbol not available.",
       selfInteraction:
-        "The event gene is identical to the mutated gene — no interaction to display.",
+        "The event gene is identical to the candidate gene — no interaction to display.",
       error: "Error retrieving STRING-DB data.",
       noInteraction: "No STRING-DB interaction found between these two genes.",
       combinedScore: "STRING combined score:",
@@ -527,7 +527,7 @@ export const en = {
       scores: "rMATS Scores",
     },
     noGeneSelected: "No candidate gene selected for this analysis",
-    noGeneSubtext: "Add a mutated gene when creating or editing the analysis to enable annotations and the STRING-DB Interactions tab.",
+    noGeneSubtext: "Add a candidate gene when creating or editing the analysis to enable annotations and the STRING-DB Interactions tab.",
     candidateGene: "Candidate gene",
     candidateGenes: "Candidate genes",
     clickTabToExplore: "— click a tab to explore annotations",
@@ -608,7 +608,7 @@ export const en = {
     newAnalysis: "New Deep Analysis",
     newAnalysisForm: "Create a new deep analysis",
     formName: "Name",
-    formNamePlaceholder: "e.g. FDR 0.05 — ΔPSI 0.1",
+    formNamePlaceholder: "auto: Gene-FDR-PSI-Date",
     optional: "optional",
     significant: "significant",
     notSignificant: "non-significant",

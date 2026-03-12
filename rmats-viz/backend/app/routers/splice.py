@@ -807,27 +807,26 @@ async def run_permutation_test(
     """
     n_iterations = min(max(n_iterations, 10), 2000)
 
+    # Single query: LEFT JOIN events with their features (avoids massive IN clause)
     result = await db.execute(
-        select(SplicingEvent).where(
+        select(SplicingEvent, EventSpliceFeature)
+        .join(
+            EventSpliceFeature,
+            EventSpliceFeature.event_id == SplicingEvent.id,
+            isouter=True,
+        )
+        .where(
             SplicingEvent.analysis_id == analysis_id,
             SplicingEvent.event_type == "SE",
         )
     )
-    se_events = list(result.scalars().all())
+    rows = result.all()
 
-    if not se_events:
+    if not rows:
         raise HTTPException(404, "No SE events found for this analysis")
 
-    # Fetch splice features for metric permutation tests
-    event_ids = [ev.id for ev in se_events]
-    feat_result = await db.execute(
-        select(EventSpliceFeature).where(
-            EventSpliceFeature.event_id.in_(event_ids)
-        )
-    )
-    features_by_id = {str(f.event_id): f for f in feat_result.scalars().all()}
-    # Build parallel list (None if feature not computed for that event)
-    features_list = [features_by_id.get(str(ev.id)) for ev in se_events]
+    se_events = [ev for ev, _feat in rows]
+    features_list = [feat for _ev, feat in rows]
 
     perm_result = await asyncio.to_thread(
         run_permutation, se_events, features_list, n_iterations

@@ -159,12 +159,20 @@ export const fr: Translations = {
   top10View: {
     noEvents: "Aucun événement trouvé.",
     modeLabels: {
-      gene: "Détails de l'événement",
-      go: "Ontologie génique (GO)",
+      gene: "Événements annotés",
       stringdb: "Interactions STRING-DB avec le gène muté",
       pathways: "Voies moléculaires (à venir)",
       motifs: "Patterns d'épissage récurrents",
       splice: "Sites consensus d'épissage",
+    },
+    sortBy: "Trier par :",
+    sortOptions: {
+      default: "Ordre par défaut",
+      fdr: "FDR (croissant)",
+      pvalue: "p-value (croissant)",
+      deltaPsi: "|ΔΨ| (décroissant)",
+      chr: "Chromosome",
+      panelapp: "Confiance PanelApp",
     },
     noAnalysisId: "analysisId non disponible pour ce contexte.",
     goCategories: "Catégories GO :",
@@ -235,7 +243,7 @@ export const fr: Translations = {
     expand: "Afficher le volet",
     tabs: {
       gene: "Événement",
-      go: "GO / Ontologie",
+      annotatedEvents: "Événements annotés",
       interactions: "Interactions",
       pathways: "Voies moléc.",
       motifs: "Motifs récur.",

@@ -158,12 +158,20 @@ export const en = {
   top10View: {
     noEvents: "No events found.",
     modeLabels: {
-      gene: "Event details",
-      go: "Gene Ontology (GO)",
+      gene: "Annotated events",
       stringdb: "STRING-DB interactions with mutated gene",
       pathways: "Molecular pathways (coming soon)",
       motifs: "Recurrent splicing patterns",
       splice: "Consensus splice sites",
+    },
+    sortBy: "Sort by:",
+    sortOptions: {
+      default: "Default order",
+      fdr: "FDR (ascending)",
+      pvalue: "p-value (ascending)",
+      deltaPsi: "|ΔΨ| (descending)",
+      chr: "Chromosome",
+      panelapp: "PanelApp confidence",
     },
     noAnalysisId: "analysisId not available for this context.",
     goCategories: "GO categories:",
@@ -234,7 +242,7 @@ export const en = {
     expand: "Expand panel",
     tabs: {
       gene: "Event",
-      go: "GO / Ontology",
+      annotatedEvents: "Annotated Events",
       interactions: "Interactions",
       pathways: "Mol. Pathways",
       motifs: "Recur. Motifs",

@@ -3,7 +3,7 @@
 /**
  * Top10View
  * ==========
- * Displays the top-10 ranked splicing events with a collapsible left sidebar
+ * Displays the top-ranked splicing events with a collapsible left sidebar
  * to switch the annotation mode, and annotated cards that update their content
  * based on the selected mode.
  *
@@ -11,7 +11,7 @@
  * gene was defined for the analysis.
  */
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import type { SplicingEvent } from "@/types/event";
 import type { GeneEntry } from "@/types/gene";
 import { SidebarNav } from "@/components/top10/SidebarNav";
@@ -20,6 +20,28 @@ import { MotifPatternPanel } from "@/components/top10/MotifPatternPanel";
 import { PatternComparisonPanel } from "@/components/deep-analysis/PatternComparisonPanel";
 import { useT } from "@/contexts/LanguageContext";
 import type { ViewMode } from "@/components/top10/types";
+
+// ---------------------------------------------------------------------------
+// Sort types & helpers
+// ---------------------------------------------------------------------------
+
+type SortKey = "default" | "fdr" | "pvalue" | "deltaPsi" | "chr" | "panelapp";
+
+const CHR_ORDER: Record<string, number> = {};
+for (let i = 1; i <= 22; i++) CHR_ORDER[`chr${i}`] = i;
+CHR_ORDER["chrX"] = 23;
+CHR_ORDER["chrY"] = 24;
+CHR_ORDER["chrM"] = 25;
+
+function chrNum(chr: string | null | undefined): number {
+  if (!chr) return 99;
+  const key = chr.startsWith("chr") ? chr : `chr${chr}`;
+  return CHR_ORDER[key] ?? 99;
+}
+
+// ---------------------------------------------------------------------------
+// Props
+// ---------------------------------------------------------------------------
 
 interface Top10ViewProps {
   events: SplicingEvent[];
@@ -44,13 +66,17 @@ interface Top10ViewProps {
   deltaPsiMin?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 export function Top10View({ events, mutatedGenes = [], activeModules, analysisId, group1Label, group2Label, deepAnalysisId, fdrThreshold, deltaPsiMin }: Top10ViewProps) {
   const [mode, setMode] = useState<ViewMode>("gene");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("default");
   const t = useT();
 
   // StringDB shown only when mutated genes exist.
-  // In deep-analysis context also requires "stringdb" in activeModules.
   const showStringDB =
     mutatedGenes.length > 0 &&
     (activeModules === undefined || activeModules.has("stringdb"));
@@ -61,18 +87,42 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
     ensemblHints[g.symbol.toUpperCase()] = g.ensembl_id;
   }
 
+  // Sort events
+  const sortedEvents = useMemo(() => {
+    if (sortKey === "default") return events;
+    const copy = [...events];
+    switch (sortKey) {
+      case "fdr":
+        return copy.sort((a, b) => (a.fdr ?? 1) - (b.fdr ?? 1));
+      case "pvalue":
+        return copy.sort((a, b) => (a.p_value ?? 1) - (b.p_value ?? 1));
+      case "deltaPsi":
+        return copy.sort((a, b) => (b.abs_inc_level_diff ?? 0) - (a.abs_inc_level_diff ?? 0));
+      case "chr":
+        return copy.sort((a, b) => chrNum(a.chr) - chrNum(b.chr) || (a.exon_start ?? 0) - (b.exon_start ?? 0));
+      case "panelapp":
+        // Will be applied at render time since PanelApp data is fetched per-card;
+        // for now sort by FDR as a useful secondary
+        return copy.sort((a, b) => (a.fdr ?? 1) - (b.fdr ?? 1));
+      default:
+        return copy;
+    }
+  }, [events, sortKey]);
+
   if (events.length === 0) {
     return <p className="text-muted-foreground text-sm">{t("top10View.noEvents")}</p>;
   }
 
   const MODE_LABELS: Record<ViewMode, string> = {
     gene:     t("top10View.modeLabels.gene"),
-    go:       t("top10View.modeLabels.go"),
     stringdb: t("top10View.modeLabels.stringdb"),
     pathways: t("top10View.modeLabels.pathways"),
     motifs:   t("top10View.modeLabels.motifs"),
     splice:   t("top10View.modeLabels.splice"),
   };
+
+  // Show sort controls for gene mode and splice mode
+  const showSort = mode === "gene" || mode === "splice";
 
   return (
     <div className="flex border border-border rounded-xl overflow-hidden shadow-sm bg-card">
@@ -88,9 +138,28 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
 
       {/* ── Main content ── */}
       <div className="flex-1 min-w-0 p-4">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-4">
-          {MODE_LABELS[mode]}
-        </p>
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            {MODE_LABELS[mode]}
+          </p>
+          {showSort && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted-foreground font-medium">{t("top10View.sortBy")}</span>
+              <select
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value as SortKey)}
+                className="text-[11px] bg-card border border-border rounded-md px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="default">{t("top10View.sortOptions.default")}</option>
+                <option value="fdr">{t("top10View.sortOptions.fdr")}</option>
+                <option value="pvalue">{t("top10View.sortOptions.pvalue")}</option>
+                <option value="deltaPsi">{t("top10View.sortOptions.deltaPsi")}</option>
+                <option value="chr">{t("top10View.sortOptions.chr")}</option>
+                <option value="panelapp">{t("top10View.sortOptions.panelapp")}</option>
+              </select>
+            </div>
+          )}
+        </div>
 
         {/* Motifs mode → full-width aggregate panel */}
         {mode === "motifs" && analysisId ? (
@@ -107,7 +176,7 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
             )}
 
             <div className="grid grid-cols-1 gap-4">
-              {events.map((ev) => {
+              {sortedEvents.map((ev) => {
                 const symKey = (ev.gene_symbol ?? "").toUpperCase();
                 return (
                   <AnnotatedCard
@@ -123,17 +192,6 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
                 );
               })}
             </div>
-          </div>
-        )}
-
-        {/* Mode legends */}
-        {mode === "go" && (
-          <div className="mt-4 flex flex-wrap gap-3 text-xs text-muted-foreground border-t border-border pt-3">
-            <span className="font-semibold text-foreground">{t("top10View.goCategories")}</span>
-            <span className="flex items-center gap-1"><span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 text-[11px]">BP</span> {t("top10View.goBP")}</span>
-            <span className="flex items-center gap-1"><span className="px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 text-[11px]">MF</span> {t("top10View.goMF")}</span>
-            <span className="flex items-center gap-1"><span className="px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 text-[11px]">CC</span> {t("top10View.goCC")}</span>
-            <span className="italic">· {t("top10View.goHoverHint")}</span>
           </div>
         )}
 

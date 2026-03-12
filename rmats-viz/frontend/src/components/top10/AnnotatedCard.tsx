@@ -794,8 +794,15 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
 
       {/* ── Dynamic content ── */}
       <div className="p-4 flex-1">
-        {mode === "gene"     && <GeneView ev={ev} annotation={annotation} />}
-        {mode === "go"       && <GOView annotation={annotation} isLoading={annotationLoading} />}
+        {mode === "gene" && (
+          <div className="space-y-4">
+            <GeneView ev={ev} annotation={annotation} />
+            <GOView annotation={annotation} isLoading={annotationLoading} />
+            {annotation?.panels && annotation.panels.length > 0 && (
+              <PanelAppView annotation={annotation} isLoading={annotationLoading} />
+            )}
+          </div>
+        )}
         {mode === "stringdb" && <StringDBView eventSymbol={symbol} mutatedGenes={mutatedGenes} />}
         {(mode === "pathways" || mode === "motifs") && (
           <ComingSoonView mode={mode} />

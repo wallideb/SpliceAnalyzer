@@ -28,6 +28,16 @@ ALL_GROUPS: tuple[ColumnGroup, ...] = ("core", "panelapp", "go", "stringdb")
 
 router = APIRouter(prefix="/export", tags=["export"])
 
+# Limit concurrent outbound HTTP requests to external APIs (PanelApp, GO, STRING-DB)
+# to avoid socket/connection-pool exhaustion on large exports (200+ genes).
+_EXT_API_SEMAPHORE = asyncio.Semaphore(10)
+
+
+async def _throttled(coro):
+    """Run a coroutine under the external-API semaphore."""
+    async with _EXT_API_SEMAPHORE:
+        return await coro
+
 # ── Colour constants ──────────────────────────────────────────────────────────
 HEADER_FILL = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
 HEADER_FONT = Font(bold=True)
@@ -157,7 +167,7 @@ async def export_analysis_excel(
     panelapp_data: dict[str, dict] = {}
     if "panelapp" in groups and unique_symbols:
         pa_results = await asyncio.gather(
-            *[get_panels_for_gene(sym) for sym in unique_symbols],
+            *[_throttled(get_panels_for_gene(sym)) for sym in unique_symbols],
             return_exceptions=True,
         )
         for sym, res in zip(unique_symbols, pa_results):
@@ -177,7 +187,7 @@ async def export_analysis_excel(
     go_data: dict[str, dict] = {}
     if "go" in groups and unique_symbols:
         go_results = await asyncio.gather(
-            *[get_go_terms(sym, None) for sym in unique_symbols],
+            *[_throttled(get_go_terms(sym, None)) for sym in unique_symbols],
             return_exceptions=True,
         )
         for sym, res in zip(unique_symbols, go_results):
@@ -212,7 +222,7 @@ async def export_analysis_excel(
             ]
             if pairs:
                 interaction_results = await asyncio.gather(
-                    *[get_interaction(sym, mut) for sym, mut in pairs],
+                    *[_throttled(get_interaction(sym, mut)) for sym, mut in pairs],
                     return_exceptions=True,
                 )
                 # For each event gene, keep the highest combined_score across mutated genes
@@ -429,7 +439,7 @@ async def export_deep_analysis_excel(
 
     if "panelapp" in groups and unique_symbols:
         pa_results = await asyncio.gather(
-            *[get_panels_for_gene(sym) for sym in unique_symbols],
+            *[_throttled(get_panels_for_gene(sym)) for sym in unique_symbols],
             return_exceptions=True,
         )
         for sym, res in zip(unique_symbols, pa_results):
@@ -445,7 +455,7 @@ async def export_deep_analysis_excel(
 
     if "go" in groups and unique_symbols:
         go_results = await asyncio.gather(
-            *[get_go_terms(sym, None) for sym in unique_symbols],
+            *[_throttled(get_go_terms(sym, None)) for sym in unique_symbols],
             return_exceptions=True,
         )
         for sym, res in zip(unique_symbols, go_results):
@@ -474,7 +484,7 @@ async def export_deep_analysis_excel(
             ]
             if pairs:
                 interaction_results = await asyncio.gather(
-                    *[get_interaction(sym, mut) for sym, mut in pairs],
+                    *[_throttled(get_interaction(sym, mut)) for sym, mut in pairs],
                     return_exceptions=True,
                 )
                 for (sym, _), res in zip(pairs, interaction_results):
@@ -532,7 +542,8 @@ async def export_deep_analysis_excel(
             go = go_data.get(sym, {"BP": "", "MF": "", "CC": ""})
             row += [go["BP"], go["MF"], go["CC"]]
         if "stringdb" in groups:
-            row += [round(stringdb_data.get(sym), 3) if stringdb_data.get(sym) is not None else None]
+            score = stringdb_data.get(sym)
+            row += [round(score, 3) if score is not None else None]
         ws.append(row)
 
     _style_header_row(ws)

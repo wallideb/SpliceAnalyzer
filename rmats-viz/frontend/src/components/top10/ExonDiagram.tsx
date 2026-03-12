@@ -115,11 +115,11 @@ const ARC_TOP_Y = 14;
 const SITE_W = 20;
 const SITE_H = EXON_H + 10;
 
-// PPT bar (bottom area)
+// PPT bar (bottom area) — in the upstream intron, before the skipped exon 3'SS
 const PPT_Y      = 160;
 const PPT_H      = 8;
-const PPT_BAR_X1 = 560;
-const PPT_BAR_X2 = RIGHT_EXON_LEFT; // 780
+const PPT_BAR_X1 = LEFT_EXON_RIGHT + 30; // 150
+const PPT_BAR_X2 = SKIP_X;               // 370
 const BP_CY      = PPT_Y + PPT_H / 2;
 
 // Annotation strip (below exon, above intron labels) — for hovered sequences
@@ -757,25 +757,26 @@ export function ExonDiagram({
           >
             {/* Hit area */}
             <rect
-              x={PPT_BAR_X1 - 40} y={PPT_Y - 6}
-              width={PPT_BAR_X2 - PPT_BAR_X1 + 48} height={PPT_H + 12}
+              x={PPT_BAR_X1 - 8} y={PPT_Y - 6}
+              width={PPT_BAR_X2 - PPT_BAR_X1 + 16} height={PPT_H + 12}
               fill="transparent"
             />
-            {/* Label */}
-            <text
-              x={PPT_BAR_X1 - 5} y={PPT_Y + PPT_H - 1}
-              textAnchor="end" fontSize={8}
-              fill={COLOR_TEXT_MUTED} fontFamily="monospace"
-            >
-              PPT {Math.round(pptScore * 100)}%
-            </text>
             {/* Direction arrow + label */}
             <text
-              x={PPT_BAR_X1 + 2} y={PPT_Y - 3}
+              x={PPT_BAR_X2 - 2} y={PPT_Y - 3}
+              textAnchor="end"
               fontSize={6.5} fill={COLOR_AMBER}
               fontFamily="monospace"
             >
-              ←47nt→ 3&apos;SS
+              PPT → 3&apos;SS
+            </text>
+            {/* Score label */}
+            <text
+              x={PPT_BAR_X1} y={PPT_Y - 3}
+              textAnchor="start" fontSize={7}
+              fill={COLOR_TEXT_MUTED} fontFamily="monospace"
+            >
+              {Math.round(pptScore * 100)}%
             </text>
             {/* Fond */}
             <rect

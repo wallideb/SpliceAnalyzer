@@ -5,17 +5,12 @@
  * ===================
  * Publication-grade sequence logo for splice-site PWM data.
  *
- * Follows WebLogo3 / Schneider & Stephens (1990) standard:
- *  • Y-axis in bits of information (0 – 2)
- *  • Letter heights: height = frequency × R_i  where R_i = 2 − H_i − e_n
- *  • Small-sample correction: e_n = (s−1) / (2 · ln2 · n)  (Schneider et al. 1986)
- *  • Letters rendered as vertically-stretched glyphs (not colored rectangles)
- *  • X-axis: numbered relative to splice site
- *  • Canonical positions highlighted with yellow background
- *
- * References:
- *  Schneider TD, Stephens RM. 1990. Nucleic Acids Res. 18:6097-6100
- *  Crooks GE et al. 2004. Genome Research 14:1188-1190
+ * Supports two display modes (toggled by user):
+ *  • Frequency mode (default): letter heights = frequency × maxHeight.
+ *    All columns sum to 100% — ideal for visualising base composition.
+ *  • Information mode (WebLogo3 standard, Schneider & Stephens 1990):
+ *    letter heights = frequency × R_i   (R_i = 2 − H_i − e_n).
+ *    Conserved positions are tall, uniform positions collapse.
  */
 
 import { useRef, useState } from "react";
@@ -155,6 +150,7 @@ export function ConsensusLogoPanel({
   const t = useT();
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoveredCol, setHoveredCol] = useState<number | null>(null);
+  const [mode, setMode] = useState<"frequency" | "information">("frequency");
 
   if (!pwm.length) return null;
 
@@ -163,19 +159,46 @@ export function ConsensusLogoPanel({
   const totalCols    = pwm.length;
   const svgW         = BITS_AXIS_W + totalCols * COL_W;
 
+  const isFreqMode = mode === "frequency";
+  // In frequency mode, max column height = LOGO_H (100%)
+  // In information mode, max column height = (ic/2) * LOGO_H
+
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
           {title}
         </p>
-        <button
-          onClick={() => svgRef.current && exportSVG(svgRef.current, `${id}.svg`, title)}
-          className="text-[9px] text-muted-foreground hover:text-foreground border border-border rounded px-1.5 py-0.5 transition-colors"
-          title={t("eventTable.downloadSvg")}
-        >
-          ↓ SVG
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Mode toggle */}
+          <div className="flex rounded border border-border overflow-hidden text-[8px]">
+            <button
+              onClick={() => setMode("frequency")}
+              className={`px-1.5 py-0.5 transition-colors ${isFreqMode
+                ? "bg-primary text-primary-foreground font-semibold"
+                : "text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              Freq
+            </button>
+            <button
+              onClick={() => setMode("information")}
+              className={`px-1.5 py-0.5 transition-colors ${!isFreqMode
+                ? "bg-primary text-primary-foreground font-semibold"
+                : "text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              Bits
+            </button>
+          </div>
+          <button
+            onClick={() => svgRef.current && exportSVG(svgRef.current, `${id}.svg`, title)}
+            className="text-[9px] text-muted-foreground hover:text-foreground border border-border rounded px-1.5 py-0.5 transition-colors"
+            title={t("eventTable.downloadSvg")}
+          >
+            ↓ SVG
+          </button>
+        </div>
       </div>
 
       {/* Hover tooltip (frequency breakdown) */}
@@ -205,44 +228,90 @@ export function ConsensusLogoPanel({
           style={{ width: svgW, height: SVG_H, display: "block", overflow: "visible" }}
           aria-label={title}
         >
-          {/* ── Bits Y-axis with grid lines ── */}
-          {[0, 0.5, 1, 1.5, 2].map((bit) => {
-            const y = TOP_PAD + LOGO_H - (bit / 2) * LOGO_H;
-            const isMajor = bit % 1 === 0;
-            return (
-              <g key={bit}>
-                <line
-                  x1={BITS_AXIS_W}
-                  y1={y}
-                  x2={BITS_AXIS_W + totalCols * COL_W}
-                  y2={y}
-                  stroke="#e2e8f0"
-                  strokeWidth={isMajor ? 0.5 : 0.3}
-                  strokeDasharray={isMajor ? undefined : "2 2"}
-                />
-                <line
-                  x1={BITS_AXIS_W - (isMajor ? 4 : 2)}
-                  y1={y}
-                  x2={BITS_AXIS_W}
-                  y2={y}
-                  stroke="#475569"
-                  strokeWidth={0.8}
-                />
-                {isMajor && (
-                  <text
-                    x={BITS_AXIS_W - 6}
-                    y={y + 3}
-                    textAnchor="end"
-                    fontSize={7}
-                    fontFamily="monospace"
-                    fill="hsl(var(--muted-foreground))"
-                  >
-                    {bit}
-                  </text>
-                )}
-              </g>
-            );
-          })}
+          {/* ── Y-axis ── */}
+          {isFreqMode ? (
+            /* Frequency axis: 0% – 100% */
+            <>
+              {[0, 25, 50, 75, 100].map((pct) => {
+                const y = TOP_PAD + LOGO_H - (pct / 100) * LOGO_H;
+                const isMajor = pct % 50 === 0;
+                return (
+                  <g key={pct}>
+                    <line
+                      x1={BITS_AXIS_W}
+                      y1={y}
+                      x2={BITS_AXIS_W + totalCols * COL_W}
+                      y2={y}
+                      stroke="#e2e8f0"
+                      strokeWidth={isMajor ? 0.5 : 0.3}
+                      strokeDasharray={isMajor ? undefined : "2 2"}
+                    />
+                    <line
+                      x1={BITS_AXIS_W - (isMajor ? 4 : 2)}
+                      y1={y}
+                      x2={BITS_AXIS_W}
+                      y2={y}
+                      stroke="#475569"
+                      strokeWidth={0.8}
+                    />
+                    {isMajor && (
+                      <text
+                        x={BITS_AXIS_W - 6}
+                        y={y + 3}
+                        textAnchor="end"
+                        fontSize={7}
+                        fontFamily="monospace"
+                        fill="hsl(var(--muted-foreground))"
+                      >
+                        {pct}%
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+            </>
+          ) : (
+            /* Information axis: 0 – 2 bits */
+            <>
+              {[0, 0.5, 1, 1.5, 2].map((bit) => {
+                const y = TOP_PAD + LOGO_H - (bit / 2) * LOGO_H;
+                const isMajor = bit % 1 === 0;
+                return (
+                  <g key={bit}>
+                    <line
+                      x1={BITS_AXIS_W}
+                      y1={y}
+                      x2={BITS_AXIS_W + totalCols * COL_W}
+                      y2={y}
+                      stroke="#e2e8f0"
+                      strokeWidth={isMajor ? 0.5 : 0.3}
+                      strokeDasharray={isMajor ? undefined : "2 2"}
+                    />
+                    <line
+                      x1={BITS_AXIS_W - (isMajor ? 4 : 2)}
+                      y1={y}
+                      x2={BITS_AXIS_W}
+                      y2={y}
+                      stroke="#475569"
+                      strokeWidth={0.8}
+                    />
+                    {isMajor && (
+                      <text
+                        x={BITS_AXIS_W - 6}
+                        y={y + 3}
+                        textAnchor="end"
+                        fontSize={7}
+                        fontFamily="monospace"
+                        fill="hsl(var(--muted-foreground))"
+                      >
+                        {bit}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+            </>
+          )}
           {/* Y-axis line */}
           <line
             x1={BITS_AXIS_W}
@@ -263,13 +332,13 @@ export function ConsensusLogoPanel({
             fill="hsl(var(--muted-foreground))"
             transform={`rotate(-90, 8, ${TOP_PAD + LOGO_H / 2})`}
           >
-            Information (bits)
+            {isFreqMode ? "Frequency (%)" : "Information (bits)"}
           </text>
 
           {/* ── Columns ── */}
           {pwm.map((row, colIdx) => {
             const ic      = Math.max(0, 2 - entropy(row) - en);
-            const colH    = (ic / 2) * LOGO_H;
+            const colH    = isFreqMode ? LOGO_H : (ic / 2) * LOGO_H;
             const colX    = BITS_AXIS_W + colIdx * COL_W;
             const pos     = posNum(colIdx, startPosition, skipZero);
             const isCanon = canonicalSet.has(pos);
@@ -280,13 +349,6 @@ export function ConsensusLogoPanel({
               .map((b) => ({ b, f: row[b] }))
               .sort((a, z) => a.f - z.f);
 
-            // When IC ≈ 0 after correction, show faint frequency-based letters
-            // so every position with data shows something (minimum 3px column).
-            const rawIc   = Math.max(0, 2 - entropy(row));
-            const MIN_COL = 3;
-            const showFaint = ic < 0.05 && rawIc > 0;
-            const effectiveColH = showFaint ? MIN_COL : colH;
-
             let curY = TOP_PAD + LOGO_H;
             const letterGlyphs: React.ReactNode[] = [];
 
@@ -296,7 +358,7 @@ export function ConsensusLogoPanel({
 
             for (const { b, f } of sorted) {
               if (f <= 0) continue;
-              const h = f * effectiveColH;
+              const h = f * colH;
               if (h < 0.15) { curY -= h; continue; }
               curY -= h;
 
@@ -318,7 +380,6 @@ export function ConsensusLogoPanel({
                     fontFamily="Arial Black, Impact, Helvetica, sans-serif"
                     fontWeight="900"
                     fill={BASE_COLORS[b]}
-                    opacity={showFaint ? 0.25 : 1}
                   >
                     {b}
                   </text>

@@ -76,8 +76,8 @@ export function SpliceSequenceLogo({
       aria-label="Sequence logo"
     >
       {pwm.map((row, posIdx) => {
-        const ic = Math.max(0, 2 - entropy(row) - en);
-        const colH = (ic / 2) * maxHeight;
+        // Frequency mode: column always fills maxHeight so letters sum to 100%
+        const colH = maxHeight;
         const x = posIdx * colWidth;
         const isHL = highlightSet.has(posIdx);
 

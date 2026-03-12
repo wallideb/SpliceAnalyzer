@@ -488,7 +488,6 @@ export function MotifPatternPanel({ events, analysisId, deepAnalysisId, fdrThres
       <div className="flex flex-wrap gap-3 items-start">
         <SummaryChip label={t("motifPanel.summarySeEvents")} value={data.n_se_events} />
         <SummaryChip label={t("motifPanel.summaryAnalyzed")} value={data.n_analyzed} />
-        <SummaryChip label={t("motifPanel.summaryClusters")} value={data.clusters.n_clusters} />
         {/* Significance breakdown */}
         <div className="text-center px-3 py-2 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
           <p className="text-[9px] text-green-700 dark:text-green-400 uppercase tracking-wide font-semibold">{t("motifPanel.significantChip")}</p>

@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
 from app.models.event import SplicingEvent
-from app.models.deep_analysis import DeepAnalysisEvent
+from app.models.deep_analysis import DeepAnalysis, DeepAnalysisEvent
 from app.models.splice import EventCluster, EventSpliceFeature
 from app.schemas.splice import (
     ComputeJobResponse,
@@ -573,17 +573,33 @@ async def get_splice_patterns(
     n_significant = 0
     n_not_significant = 0
     delta_psi_significant: list[float] = []
-    for ev, _ in rows:
-        fdr_ok  = ev.fdr is not None and ev.fdr <= fdr_threshold
-        dpsi_ok = (
-            ev.inc_level_difference is not None
-            and abs(ev.inc_level_difference) >= abs_delta_psi_min
+
+    if deep_analysis_id is not None:
+        # In deep-analysis mode the SQL only fetched significant events,
+        # so re-counting would give n_not_significant=0.  Read the cached
+        # counts from the DeepAnalysis record instead.
+        da_row = await db.execute(
+            select(DeepAnalysis).where(DeepAnalysis.id == deep_analysis_id)
         )
-        if fdr_ok and dpsi_ok:
-            n_significant += 1
-            delta_psi_significant.append(ev.inc_level_difference)  # type: ignore[arg-type]
-        else:
-            n_not_significant += 1
+        deep_rec = da_row.scalar_one_or_none()
+        if deep_rec:
+            n_significant = deep_rec.n_significant
+            n_not_significant = deep_rec.n_not_significant
+        for ev, _ in rows:
+            if ev.inc_level_difference is not None:
+                delta_psi_significant.append(ev.inc_level_difference)
+    else:
+        for ev, _ in rows:
+            fdr_ok  = ev.fdr is not None and ev.fdr <= fdr_threshold
+            dpsi_ok = (
+                ev.inc_level_difference is not None
+                and abs(ev.inc_level_difference) >= abs_delta_psi_min
+            )
+            if fdr_ok and dpsi_ok:
+                n_significant += 1
+                delta_psi_significant.append(ev.inc_level_difference)  # type: ignore[arg-type]
+            else:
+                n_not_significant += 1
 
     # ── Mean ΔΨ ──────────────────────────────────────────────────────────────
     delta_psi_list = [

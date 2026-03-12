@@ -20,9 +20,12 @@ export interface SpliceFeatureResponse {
   // sequences (flanking exon splice sites)
   upstream_donor_seq: string | null;
   downstream_acceptor_seq: string | null;
-  // GT-AG
+  // GT-AG (skipped exon)
   donor_is_gt: boolean | null;
   acceptor_is_ag: boolean | null;
+  // GT-AG (flanking exons)
+  upstream_donor_is_gt: boolean | null;
+  downstream_acceptor_is_ag: boolean | null;
   // PPT
   ppt_score: number | null;
   ppt_longest_run: number | null;

@@ -62,6 +62,23 @@ export async function downloadAnalysisExcel(
   URL.revokeObjectURL(a.href);
 }
 
+export async function downloadDeepAnalysisExcel(
+  analysisId: string,
+  deepAnalysisId: string,
+  include: string[] = ["core"],
+): Promise<void> {
+  const includeParam = include.join(",");
+  const url = `${BASE}/export/${analysisId}/deep-analysis/${deepAnalysisId}/excel?include=${encodeURIComponent(includeParam)}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error("Export failed");
+  const blob = await resp.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `rmats_deep_${deepAnalysisId}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 export async function downloadAnalysisPDF(analysisId: string, deepAnalysisId?: string): Promise<void> {
   const url = deepAnalysisId
     ? `${BASE}/export/${analysisId}/deep-analysis/${deepAnalysisId}/pdf`

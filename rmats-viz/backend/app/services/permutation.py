@@ -35,10 +35,9 @@ values across all events × iterations, which is useful for a combined view.
 
 Performance notes
 -----------------
-• Pure Python / statistics module — no numpy required.
+• Uses numpy for vectorized permutation (fast even for large N×K).
 • Events without enough valid PSI values are skipped.
-• For large analyses (N events, K iterations) this can be slow.
-  Call from a thread pool (asyncio.to_thread) in the router.
+• Call from a thread pool (asyncio.to_thread) in the router.
 """
 
 from __future__ import annotations
@@ -48,6 +47,8 @@ import random
 import statistics
 from dataclasses import dataclass, field
 from typing import Sequence
+
+import numpy as np
 
 
 # ---------------------------------------------------------------------------
@@ -181,18 +182,18 @@ def _run_metric_permutation(
             n_valid=n_valid, n_g1=n1, n_g2=n2,
         )
 
-    observed_stat = statistics.mean(values_g2) - statistics.mean(values_g1)
-    pool = values_g1 + values_g2
+    pool = np.array(values_g1 + values_g2, dtype=np.float64)
+    observed_stat = float(pool[n1:].mean() - pool[:n1].mean())
 
-    null_deltas: list[float] = []
-    for _ in range(n_iterations):
-        shuffled = pool[:]
-        rng.shuffle(shuffled)
-        g1p, g2p = shuffled[:n1], shuffled[n1:]
-        null_deltas.append(statistics.mean(g2p) - statistics.mean(g1p))
+    # Vectorized permutation using numpy
+    np_rng = np.random.default_rng(rng.randint(0, 2**31))
+    indices = np.argsort(np_rng.random((n_iterations, n_valid)), axis=1)
+    shuffled = pool[indices]
+    null_deltas_arr = shuffled[:, n1:].mean(axis=1) - shuffled[:, :n1].mean(axis=1)
+    null_deltas = null_deltas_arr.tolist()
 
     abs_obs = abs(observed_stat)
-    n_extreme = sum(1 for d in null_deltas if abs(d) >= abs_obs)
+    n_extreme = int(np.sum(np.abs(null_deltas_arr) >= abs_obs))
     emp_p = (n_extreme + 1) / (n_iterations + 1)
 
     hist_bins, hist_counts = _make_histogram(null_deltas, n_bins=30, lo=lo, hi=hi)
@@ -232,6 +233,7 @@ def run_permutation(
     seed         : random seed for reproducibility; None = unseeded.
     """
     rng = random.Random(seed)
+    np_rng = np.random.default_rng(seed)
 
     event_results: list[EventPermResult] = []
     all_null_values: list[float] = []
@@ -255,20 +257,23 @@ def run_permutation(
         event_deltas.append((observed_delta, feat))
 
         n1, n2 = len(psi1), len(psi2)
-        pool = psi1 + psi2
+        pool = np.array(psi1 + psi2, dtype=np.float64)
 
-        null_deltas: list[float] = []
-        for _ in range(n_iterations):
-            shuffled = pool[:]
-            rng.shuffle(shuffled)
-            g1, g2 = shuffled[:n1], shuffled[n1:]
-            perm_delta = statistics.mean(g2) - statistics.mean(g1)
-            null_deltas.append(perm_delta)
-            all_null_values.append(perm_delta)
+        # Vectorized permutation: generate all shuffled indices at once
+        # Shape: (n_iterations, n1+n2)
+        indices = np.argsort(np_rng.random((n_iterations, n1 + n2)), axis=1)
+        # Compute mean of group2 - mean of group1 for all iterations at once
+        shuffled_all = pool[indices]
+        g1_means = shuffled_all[:, :n1].mean(axis=1)
+        g2_means = shuffled_all[:, n1:].mean(axis=1)
+        null_deltas_arr = g2_means - g1_means
 
-        # Empirical two-tailed p-value
+        null_deltas = null_deltas_arr.tolist()
+        all_null_values.extend(null_deltas)
+
+        # Empirical two-tailed p-value (vectorized)
         abs_obs = abs(observed_delta)
-        n_extreme = sum(1 for d in null_deltas if abs(d) >= abs_obs)
+        n_extreme = int(np.sum(np.abs(null_deltas_arr) >= abs_obs))
         emp_p = (n_extreme + 1) / (n_iterations + 1)   # +1 to avoid p=0
 
         # Per-event null histogram

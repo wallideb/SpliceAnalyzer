@@ -87,7 +87,10 @@ export function SpliceView({
     queryFn: () => getEventSpliceFeature(ev.id),
     enabled: ev.event_type === "SE",
     staleTime: 10 * 60 * 1000,
-    retry: false,
+    retry: (failureCount, error) =>
+      // Retry on 503 (server busy) up to 6 times with backoff
+      failureCount < 6 && error?.message?.includes("503"),
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 15000),
   });
 
   const compute = useMutation({
@@ -171,6 +174,8 @@ export function SpliceView({
         strand={ev.strand ?? null}
         donorIsGt={data.donor_is_gt}
         acceptorIsAg={data.acceptor_is_ag}
+        upstreamDonorIsGt={data.upstream_donor_is_gt ?? null}
+        downstreamAcceptorIsAg={data.downstream_acceptor_is_ag ?? null}
         psi1={meanPsi(ev.inc_level_1)}
         psi2={meanPsi(ev.inc_level_2)}
         exonStart={ev.exon_start ?? null}
@@ -184,6 +189,8 @@ export function SpliceView({
         exonRank={data.exon_rank ?? null}
         donorSeq={data.donor_seq ?? null}
         acceptorSeq={data.acceptor_seq ?? null}
+        upstreamDonorSeq={data.upstream_donor_seq ?? null}
+        downstreamAcceptorSeq={data.downstream_acceptor_seq ?? null}
         pptScore={data.ppt_score ?? null}
         pptSeq={data.ppt_seq ?? null}
         bpFound={data.bp_motif_found ?? null}

@@ -280,39 +280,49 @@ export function ConsensusLogoPanel({
               .map((b) => ({ b, f: row[b] }))
               .sort((a, z) => a.f - z.f);
 
+            // When IC ≈ 0 after correction, show faint frequency-based letters
+            // so every position with data shows something (minimum 3px column).
+            const rawIc   = Math.max(0, 2 - entropy(row));
+            const MIN_COL = 3;
+            const showFaint = ic < 0.05 && rawIc > 0;
+            const effectiveColH = showFaint ? MIN_COL : colH;
+
             let curY = TOP_PAD + LOGO_H;
             const letterGlyphs: React.ReactNode[] = [];
 
+            // Reference glyph metrics: at fontSize = COL_W, cap-height ≈ 0.72 × fontSize
+            const REF_FS = COL_W;
+            const CAP_H = REF_FS * 0.72;
+
             for (const { b, f } of sorted) {
               if (f <= 0) continue;
-              const h = f * colH;
-              if (h < 0.5) { curY -= h; continue; }
+              const h = f * effectiveColH;
+              if (h < 0.15) { curY -= h; continue; }
               curY -= h;
 
-              // WebLogo-style: stretch letter glyph to fill column width × height
-              // Using nested <svg> with preserveAspectRatio="none" for clean scaling
+              // Scale the letter glyph so it fills exactly width=COL_W-2, height=h
+              const sx = (COL_W - 2) / REF_FS;
+              const sy = h / CAP_H;
+              // Place baseline at bottom of allocated band, then scale from that point
+              const bx = colX + COL_W / 2;
+              const by = curY + h;
+
               letterGlyphs.push(
-                <svg
-                  key={b}
-                  x={colX + 1}
-                  y={curY}
-                  width={COL_W - 2}
-                  height={h}
-                  viewBox="0 0 100 100"
-                  preserveAspectRatio="none"
-                >
+                <g key={b} transform={`translate(${bx},${by}) scale(${sx},${sy})`}>
                   <text
-                    x="50"
-                    y="95"
+                    x={0}
+                    y={0}
                     textAnchor="middle"
-                    fontSize="110"
+                    dominantBaseline="alphabetic"
+                    fontSize={REF_FS}
                     fontFamily="Arial Black, Impact, Helvetica, sans-serif"
                     fontWeight="900"
                     fill={BASE_COLORS[b]}
+                    opacity={showFaint ? 0.25 : 1}
                   >
                     {b}
                   </text>
-                </svg>,
+                </g>,
               );
             }
 

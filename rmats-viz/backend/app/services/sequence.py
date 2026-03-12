@@ -98,6 +98,69 @@ def reverse_complement(seq: str) -> str:
     return seq.translate(_COMP)[::-1]
 
 
+def extract_regions_batch(
+    regions: list[tuple[str, int, int]],
+    fasta_path: str | None = None,
+) -> list[str]:
+    """Extract multiple genomic regions in a single samtools call.
+
+    Parameters
+    ----------
+    regions : list of (chrom, start, end) tuples (0-based BED coords).
+
+    Returns a list of sequences in the same order (empty string on error).
+    Much faster than calling extract_region() N times for large batches.
+    """
+    if not regions:
+        return []
+    fasta = fasta_path or settings.GRCH38_FASTA
+    # Build samtools region strings
+    sam_regions: list[str] = []
+    for chrom, start, end in regions:
+        if end <= start:
+            sam_regions.append("")
+            continue
+        resolved = _resolve_chrom(chrom, fasta)
+        sam_regions.append(f"{resolved}:{start + 1}-{end}")
+
+    # Filter out empty regions
+    valid_indices = [i for i, r in enumerate(sam_regions) if r]
+    if not valid_indices:
+        return [""] * len(regions)
+
+    valid_regions = [sam_regions[i] for i in valid_indices]
+
+    try:
+        result = subprocess.run(
+            [settings.SAMTOOLS_BIN, "faidx", fasta] + valid_regions,
+            capture_output=True,
+            text=True,
+            timeout=max(30, len(valid_regions) // 10),
+            check=True,
+        )
+        # Parse multi-FASTA output
+        seqs: list[str] = []
+        current: list[str] = []
+        for line in result.stdout.split("\n"):
+            if line.startswith(">"):
+                if current:
+                    seqs.append("".join(current).upper())
+                    current = []
+            elif line.strip():
+                current.append(line.strip())
+        if current:
+            seqs.append("".join(current).upper())
+
+        # Map back to original indices
+        out = [""] * len(regions)
+        for idx, seq in zip(valid_indices, seqs):
+            out[idx] = seq
+        return out
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        logger.warning("Batch samtools faidx failed: %s", exc)
+        return [""] * len(regions)
+
+
 def extract_region(
     chrom: str,
     start: int,
@@ -165,40 +228,52 @@ def get_splice_windows(
 
     upstream_ee   — end coordinate of the upstream flanking exon (0-based excl)
     downstream_es — start coordinate of the downstream flanking exon (0-based incl)
+
+    Uses a single batched samtools call for all 3-5 regions (1 subprocess
+    instead of 5), which is ~4x faster per event.
     """
     fp = fasta_path or settings.GRCH38_FASTA
+    need_rc = strand == "-"
 
+    # Build region list in a fixed order: donor, acceptor, ppt, up_donor, dn_acceptor
+    # Regions are always fetched on + strand; RC applied afterwards if needed.
+    regions: list[tuple[str, int, int]] = []
     if strand == "+":
-        donor_seq    = extract_region(chrom, exon_end - 3,    exon_end + 6,    "+", fp)
-        acceptor_seq = extract_region(chrom, exon_start - 20, exon_start + 3,  "+", fp)
-        ppt_seq      = extract_region(chrom, exon_start - 50, exon_start - 3,  "+", fp)
-        upstream_donor_seq = (
-            extract_region(chrom, upstream_ee - 3, upstream_ee + 6, "+", fp)
-            if upstream_ee is not None else ""
+        regions.append((chrom, exon_end - 3,    exon_end + 6))      # donor
+        regions.append((chrom, exon_start - 20, exon_start + 3))    # acceptor
+        regions.append((chrom, exon_start - 50, exon_start - 3))    # ppt
+        regions.append(
+            (chrom, upstream_ee - 3, upstream_ee + 6)
+            if upstream_ee is not None else (chrom, 0, 0)
         )
-        downstream_acceptor_seq = (
-            extract_region(chrom, downstream_es - 20, downstream_es + 3, "+", fp)
-            if downstream_es is not None else ""
+        regions.append(
+            (chrom, downstream_es - 20, downstream_es + 3)
+            if downstream_es is not None else (chrom, 0, 0)
         )
     else:
-        donor_seq    = extract_region(chrom, exon_start - 6,  exon_start + 3,  "-", fp)
-        acceptor_seq = extract_region(chrom, exon_end - 3,    exon_end + 20,   "-", fp)
-        ppt_seq      = extract_region(chrom, exon_end + 3,    exon_end + 50,   "-", fp)
-        upstream_donor_seq = (
-            extract_region(chrom, upstream_ee - 6, upstream_ee + 3, "-", fp)
-            if upstream_ee is not None else ""
+        regions.append((chrom, exon_start - 6,  exon_start + 3))    # donor
+        regions.append((chrom, exon_end - 3,    exon_end + 20))     # acceptor
+        regions.append((chrom, exon_end + 3,    exon_end + 50))     # ppt
+        regions.append(
+            (chrom, upstream_ee - 6, upstream_ee + 3)
+            if upstream_ee is not None else (chrom, 0, 0)
         )
-        downstream_acceptor_seq = (
-            extract_region(chrom, downstream_es - 3, downstream_es + 20, "-", fp)
-            if downstream_es is not None else ""
+        regions.append(
+            (chrom, downstream_es - 3, downstream_es + 20)
+            if downstream_es is not None else (chrom, 0, 0)
         )
 
+    seqs = extract_regions_batch(regions, fp)
+
+    if need_rc:
+        seqs = [reverse_complement(s) if s else "" for s in seqs]
+
     return SpliceWindows(
-        donor_seq=donor_seq,
-        acceptor_seq=acceptor_seq,
-        ppt_seq=ppt_seq,
-        upstream_donor_seq=upstream_donor_seq,
-        downstream_acceptor_seq=downstream_acceptor_seq,
+        donor_seq=seqs[0],
+        acceptor_seq=seqs[1],
+        ppt_seq=seqs[2],
+        upstream_donor_seq=seqs[3] if upstream_ee is not None else "",
+        downstream_acceptor_seq=seqs[4] if downstream_es is not None else "",
         source="fasta",
     )
 

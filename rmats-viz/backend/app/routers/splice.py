@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
 from app.models.event import SplicingEvent
-from app.models.deep_analysis import DeepAnalysisEvent
+from app.models.deep_analysis import DeepAnalysis, DeepAnalysisEvent
 from app.models.splice import EventCluster, EventSpliceFeature
 from app.schemas.splice import (
     ComputeJobResponse,
@@ -78,6 +78,8 @@ def _feat_to_response(feat: EventSpliceFeature, event: SplicingEvent) -> SpliceF
         downstream_acceptor_seq=feat.downstream_acceptor_seq,
         donor_is_gt=feat.donor_is_gt,
         acceptor_is_ag=feat.acceptor_is_ag,
+        upstream_donor_is_gt=feat.upstream_donor_is_gt,
+        downstream_acceptor_is_ag=feat.downstream_acceptor_is_ag,
         ppt_score=feat.ppt_score,
         ppt_longest_run=feat.ppt_longest_run,
         bp_motif_found=feat.bp_motif_found,
@@ -94,7 +96,11 @@ def _feat_to_response(feat: EventSpliceFeature, event: SplicingEvent) -> SpliceF
 
 
 # Limit concurrent Ensembl + samtools calls to avoid overwhelming external services
-_COMPUTE_SEM = asyncio.Semaphore(10)
+_COMPUTE_SEM = asyncio.Semaphore(5)
+
+# Limit total concurrent on-the-fly splice feature requests to prevent OOM/crash
+# when the deep analysis page fires dozens of requests simultaneously.
+_ENDPOINT_SEM = asyncio.Semaphore(8)
 
 
 async def _fetch_features(
@@ -103,7 +109,7 @@ async def _fetch_features(
 ) -> tuple[Any, dict, str | None]:
     """Pure-compute step (no DB): extract sequences + call Ensembl.
 
-    Runs under _COMPUTE_SEM so at most 10 events are processed concurrently.
+    Runs under _COMPUTE_SEM so at most 5 events are processed concurrently.
     Returns (SpliceFeatureResult, mane_dict).
     """
     async with _COMPUTE_SEM:
@@ -190,6 +196,8 @@ async def _upsert_feature(
         downstream_acceptor_seq = feat_data.downstream_acceptor_seq or None,
         donor_is_gt            = feat_data.donor_is_gt,
         acceptor_is_ag         = feat_data.acceptor_is_ag,
+        upstream_donor_is_gt       = feat_data.upstream_donor_is_gt,
+        downstream_acceptor_is_ag  = feat_data.downstream_acceptor_is_ag,
         ppt_score              = feat_data.ppt_score,
         ppt_longest_run        = feat_data.ppt_longest_run,
         bp_motif_found         = feat_data.bp_motif_found,
@@ -226,10 +234,14 @@ async def _compute_one(
 # POST /splice/compute/{analysis_id}
 # ---------------------------------------------------------------------------
 
+_COMPUTE_CHUNK = 50  # events processed concurrently per chunk
+
+
 async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
     """Background task: compute splice features for all SE events.
 
     Creates its own DB session so it can run after the HTTP response is sent.
+    Processes events in chunks to avoid OOM with large analyses (200k+).
     """
     try:
         async with AsyncSessionLocal() as db:
@@ -243,21 +255,29 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
             if not se_events:
                 return
 
-            fetch_results = await asyncio.gather(
-                *[_fetch_features(ev, fa_ok) for ev in se_events],
-                return_exceptions=True,
-            )
             n_computed = 0
-            for ev, res in zip(se_events, fetch_results):
-                if isinstance(res, Exception):
-                    logger.error("Feature compute failed for %s: %s", ev.id, res)
-                    continue
-                try:
-                    feat_data, mane, seq_source = res
-                    await _upsert_feature(ev, feat_data, mane, db, seq_source)
-                    n_computed += 1
-                except Exception as exc:
-                    logger.error("DB write failed for %s: %s", ev.id, exc)
+            n_total = len(se_events)
+
+            # Process in chunks to cap concurrent coroutines and memory usage
+            for chunk_start in range(0, n_total, _COMPUTE_CHUNK):
+                chunk = se_events[chunk_start : chunk_start + _COMPUTE_CHUNK]
+                fetch_results = await asyncio.gather(
+                    *[_fetch_features(ev, fa_ok) for ev in chunk],
+                    return_exceptions=True,
+                )
+                for ev, res in zip(chunk, fetch_results):
+                    if isinstance(res, Exception):
+                        logger.error("Feature compute failed for %s: %s", ev.id, res)
+                        continue
+                    try:
+                        feat_data, mane, seq_source = res
+                        await _upsert_feature(ev, feat_data, mane, db, seq_source)
+                        n_computed += 1
+                    except Exception as exc:
+                        logger.error("DB write failed for %s: %s", ev.id, exc)
+
+                # Commit after each chunk to release DB resources
+                await db.commit()
 
             clusters = cluster_se_events(se_events)
             await db.execute(
@@ -278,7 +298,7 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                     rep_event_id=rep_id,
                 ))
             await db.commit()
-            logger.info("Background compute done: %d/%d SE events for %s", n_computed, len(se_events), analysis_id)
+            logger.info("Background compute done: %d/%d SE events for %s", n_computed, n_total, analysis_id)
     except Exception as exc:
         logger.error("Background compute task crashed for %s: %s", analysis_id, exc)
 
@@ -368,7 +388,18 @@ async def get_splice_feature(event_id: uuid.UUID):
     Manages DB sessions manually (no ``Depends(get_db)``) so that the
     connection is released before slow I/O (samtools / Ensembl / MANE).
     This prevents pool exhaustion when 10+ cards load in parallel.
+
+    Uses ``_ENDPOINT_SEM`` to cap total concurrent requests.  When the
+    semaphore is full, returns HTTP 503 so the frontend can retry later.
     """
+    if not _ENDPOINT_SEM._value:  # noqa: SLF001 – fast non-blocking check
+        raise HTTPException(503, "Server busy computing splice features, retry shortly")
+
+    async with _ENDPOINT_SEM:
+        return await _get_splice_feature_inner(event_id)
+
+
+async def _get_splice_feature_inner(event_id: uuid.UUID) -> SpliceFeatureResponse:
     # ── 1. Quick DB read: fetch event + check feature cache ──────────────
     async with AsyncSessionLocal() as db:
         ev_res = await db.execute(
@@ -512,28 +543,103 @@ async def get_splice_patterns(
     if not rows:
         raise HTTPException(404, "No SE events (with features) for this analysis")
 
-    # Cluster count
-    cl_res = await db.execute(
-        select(EventCluster).where(EventCluster.analysis_id == analysis_id)
+    # Cluster count (use SQL count instead of loading all cluster objects)
+    from sqlalchemy import func as sqla_func
+    cl_count_res = await db.execute(
+        select(sqla_func.count(EventCluster.id)).where(EventCluster.analysis_id == analysis_id)
     )
-    clusters = cl_res.scalars().all()
+    n_clusters = cl_count_res.scalar() or 0
 
-    # Collect features that were successfully computed (have donor_seq)
-    feats_with_seq: list[EventSpliceFeature] = []
-    all_feats: list[EventSpliceFeature] = []
-    for _, feat in rows:
-        if feat is not None:
-            all_feats.append(feat)
-            if feat.donor_seq:
-                feats_with_seq.append(feat)
-
-    # ── Exon sizes (all events with computed size) ──────────────────────────
-    sizes = [f.exon_size for f in all_feats if f.exon_size is not None]
+    # ── Single-pass aggregation over all rows ─────────────────────────────
+    # Avoids 7+ separate iterations over 200k rows.
+    sizes: list[int] = []
+    up_sizes: list[int] = []
+    down_sizes: list[int] = []
     size_dist: Counter[int] = Counter()
-    for s in sizes:
-        bucket = min(500, (s // 25) * 25)
-        size_dist[bucket] += 1
+    donor_9: list[str] = []
+    acc_23: list[str] = []
+    n_gt = 0
+    n_ag = 0
+    ppt_scores: list[float] = []
+    ppt_runs: list[int] = []
+    fc_counts: Counter[str] = Counter()
+    bp_found_count = 0
+    n_with_seq = 0
+    delta_psi_list: list[float] = []
+    delta_psi_significant: list[float] = []
+    n_significant = 0
+    n_not_significant = 0
 
+    for ev, feat in rows:
+        # ΔΨ
+        if ev.inc_level_difference is not None:
+            delta_psi_list.append(ev.inc_level_difference)
+
+        # Significance — must run for ALL events, not just those with features
+        if deep_analysis_id is None:
+            fdr_ok  = ev.fdr is not None and ev.fdr <= fdr_threshold
+            dpsi_ok = (
+                ev.inc_level_difference is not None
+                and abs(ev.inc_level_difference) >= abs_delta_psi_min
+            )
+            if fdr_ok and dpsi_ok:
+                n_significant += 1
+                delta_psi_significant.append(ev.inc_level_difference)  # type: ignore[arg-type]
+            else:
+                n_not_significant += 1
+        else:
+            if ev.inc_level_difference is not None:
+                delta_psi_significant.append(ev.inc_level_difference)
+
+        if feat is None:
+            continue
+
+        # Frame counts (all feats)
+        fc_counts[feat.frame_class or "unknown"] += 1
+
+        # Sizes (all feats)
+        if feat.exon_size is not None:
+            sizes.append(feat.exon_size)
+            bucket = min(500, (feat.exon_size // 25) * 25)
+            size_dist[bucket] += 1
+        if feat.upstream_intron_size is not None:
+            up_sizes.append(feat.upstream_intron_size)
+        if feat.downstream_intron_size is not None:
+            down_sizes.append(feat.downstream_intron_size)
+
+        # Sequence-dependent metrics
+        if feat.donor_seq:
+            n_with_seq += 1
+            # Donor
+            if len(feat.donor_seq) >= 9:
+                donor_9.append(feat.donor_seq[:9])
+                if feat.donor_is_gt:
+                    n_gt += 1
+            # Acceptor
+            if feat.acceptor_seq and len(feat.acceptor_seq) >= 23:
+                acc_23.append(feat.acceptor_seq[-23:])
+                if feat.acceptor_is_ag:
+                    n_ag += 1
+            # PPT
+            if feat.ppt_score is not None:
+                ppt_scores.append(feat.ppt_score)
+            if feat.ppt_longest_run is not None:
+                ppt_runs.append(feat.ppt_longest_run)
+            # BP
+            if feat.bp_motif_found:
+                bp_found_count += 1
+
+    # Deep-analysis significance counts
+    if deep_analysis_id is not None:
+        da_row = await db.execute(
+            select(DeepAnalysis).where(DeepAnalysis.id == deep_analysis_id)
+        )
+        deep_rec = da_row.scalar_one_or_none()
+        if deep_rec:
+            n_significant = deep_rec.n_significant
+            n_not_significant = deep_rec.n_not_significant
+
+    # ── Compute stats ─────────────────────────────────────────────────────
     exon_stats = ExonSizeStats(
         mean   = round(statistics.mean(sizes),   1) if sizes else None,
         median = round(statistics.median(sizes), 1) if sizes else None,
@@ -541,10 +647,6 @@ async def get_splice_patterns(
         max    = max(sizes) if sizes else None,
         distribution = [{"bin": k, "count": v} for k, v in sorted(size_dist.items())],
     )
-
-    # ── Intron sizes ─────────────────────────────────────────────────────────
-    up_sizes   = [f.upstream_intron_size   for f in all_feats if f.upstream_intron_size   is not None]
-    down_sizes = [f.downstream_intron_size for f in all_feats if f.downstream_intron_size is not None]
     upstream_intron_stats = IntronSizeStats(
         median = round(statistics.median(up_sizes),   1) if up_sizes   else None,
         mean   = round(statistics.mean(up_sizes),     1) if up_sizes   else None,
@@ -554,38 +656,10 @@ async def get_splice_patterns(
         mean   = round(statistics.mean(down_sizes),   1) if down_sizes else None,
     )
 
-    # ── Significance tagging ─────────────────────────────────────────────────
-    n_significant = 0
-    n_not_significant = 0
-    delta_psi_significant: list[float] = []
-    for ev, _ in rows:
-        fdr_ok  = ev.fdr is not None and ev.fdr <= fdr_threshold
-        dpsi_ok = (
-            ev.inc_level_difference is not None
-            and abs(ev.inc_level_difference) >= abs_delta_psi_min
-        )
-        if fdr_ok and dpsi_ok:
-            n_significant += 1
-            delta_psi_significant.append(ev.inc_level_difference)  # type: ignore[arg-type]
-        else:
-            n_not_significant += 1
-
-    # ── Mean ΔΨ ──────────────────────────────────────────────────────────────
-    delta_psi_list = [
-        ev.inc_level_difference
-        for ev, _ in rows
-        if ev.inc_level_difference is not None
-    ]
     mean_delta_psi = round(statistics.mean(delta_psi_list), 3) if delta_psi_list else None
     mean_delta_psi_significant = (
         round(statistics.mean(delta_psi_significant), 3) if delta_psi_significant else None
     )
-
-    # ── Donor (5'SS) ────────────────────────────────────────────────────────
-    donor_seqs = [f.donor_seq for f in feats_with_seq if f.donor_seq and len(f.donor_seq) >= 9]
-    donor_9    = [s[:9] for s in donor_seqs]
-    # Count canonical GT only among events that have a valid donor sequence
-    n_gt       = sum(1 for f in feats_with_seq if f.donor_seq and len(f.donor_seq) >= 9 and f.donor_is_gt)
 
     donor_stats = SiteStats(
         n_sequences   = len(donor_9),
@@ -595,13 +669,6 @@ async def get_splice_patterns(
         pct_canonical = round(n_gt / len(donor_9) * 100, 1) if donor_9 else 0.0,
         examples      = donor_9[:8],
     )
-
-    # ── Acceptor (3'SS) ─────────────────────────────────────────────────────
-    acc_seqs = [f.acceptor_seq for f in feats_with_seq if f.acceptor_seq and len(f.acceptor_seq) >= 23]
-    acc_23   = [s[-23:] for s in acc_seqs]
-    # Count canonical AG only among events that have a valid acceptor sequence
-    n_ag     = sum(1 for f in feats_with_seq if f.acceptor_seq and len(f.acceptor_seq) >= 23 and f.acceptor_is_ag)
-
     acc_stats = SiteStats(
         n_sequences   = len(acc_23),
         consensus     = iupac_consensus(acc_23) if acc_23 else None,
@@ -610,19 +677,11 @@ async def get_splice_patterns(
         pct_canonical = round(n_ag / len(acc_23) * 100, 1) if acc_23 else 0.0,
         examples      = acc_23[:8],
     )
-
-    # ── PPT ─────────────────────────────────────────────────────────────────
-    ppt_scores = [f.ppt_score for f in feats_with_seq if f.ppt_score is not None]
-    ppt_runs   = [f.ppt_longest_run for f in feats_with_seq if f.ppt_longest_run is not None]
-
     ppt_stats = PPTStats(
         mean_score      = round(statistics.mean(ppt_scores),   3) if ppt_scores else None,
         scores          = ppt_scores[:100],
         mean_longest_run= round(statistics.mean(ppt_runs), 1)    if ppt_runs   else None,
     )
-
-    # ── Frame ────────────────────────────────────────────────────────────────
-    fc_counts: Counter[str] = Counter(f.frame_class or "unknown" for f in all_feats)
     frame_stats = FrameStats(
         in_frame   = fc_counts["in_frame"],
         frameshift = fc_counts["frameshift"],
@@ -630,20 +689,17 @@ async def get_splice_patterns(
         unknown    = fc_counts["unknown"],
     )
 
-    # ── Branch-point ─────────────────────────────────────────────────────────
-    bp_total = len(feats_with_seq)
-    bp_found = sum(1 for f in feats_with_seq if f.bp_motif_found)
-    bp_pct   = round(bp_found / bp_total * 100, 1) if bp_total else None
+    bp_pct = round(bp_found_count / n_with_seq * 100, 1) if n_with_seq else None
 
     return PatternAnalysisResponse(
         analysis_id                 = str(analysis_id),
         n_se_events                 = len(rows),
-        n_analyzed                  = len(feats_with_seq),
+        n_analyzed                  = n_with_seq,
         clusters                    = ClusterInfo(
             n_raw_events = len(rows),
-            n_clusters   = len(clusters),
+            n_clusters   = n_clusters,
         ),
-        fasta_available             = bool(feats_with_seq),
+        fasta_available             = bool(n_with_seq),
         fdr_threshold               = fdr_threshold,
         abs_delta_psi_min           = abs_delta_psi_min,
         n_significant               = n_significant,

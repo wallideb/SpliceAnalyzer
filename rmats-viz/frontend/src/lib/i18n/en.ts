@@ -94,6 +94,8 @@ export const en = {
       cancel: "Cancel",
     },
     loading: "Loading events…",
+    loadingAnalysis: "Fetching analysis metadata…",
+    loadingEvents: "Loading first page of events…",
     filters: {
       allTypes: "All types",
       genePlaceholder: "Gene (e.g. PCBP1)",
@@ -156,12 +158,20 @@ export const en = {
   top10View: {
     noEvents: "No events found.",
     modeLabels: {
-      gene: "Event details",
-      go: "Gene Ontology (GO)",
+      gene: "Annotated events",
       stringdb: "STRING-DB interactions with mutated gene",
       pathways: "Molecular pathways (coming soon)",
       motifs: "Recurrent splicing patterns",
       splice: "Consensus splice sites",
+    },
+    sortBy: "Sort by:",
+    sortOptions: {
+      default: "Default order",
+      fdr: "FDR (ascending)",
+      pvalue: "p-value (ascending)",
+      deltaPsi: "|ΔΨ| (descending)",
+      chr: "Chromosome",
+      panelapp: "PanelApp confidence",
     },
     noAnalysisId: "analysisId not available for this context.",
     goCategories: "GO categories:",
@@ -232,7 +242,7 @@ export const en = {
     expand: "Expand panel",
     tabs: {
       gene: "Event",
-      go: "GO / Ontology",
+      annotatedEvents: "Annotated Events",
       interactions: "Interactions",
       pathways: "Mol. Pathways",
       motifs: "Recur. Motifs",
@@ -286,6 +296,10 @@ export const en = {
     direction: {
       skippingUp: "↑ Exon skipping in {{group}}",
     },
+    splice: {
+      showDiagram: "Show diagram",
+      hideDiagram: "Hide diagram",
+    },
   },
   motifPanel: {
     notComputed: "Pattern analysis not yet computed",
@@ -318,6 +332,8 @@ export const en = {
     sectionFrame: "Reading frame class (skipped exon)",
     frameLabelNonCoding: "Non-coding",
     frameLabelUnknown: "Unknown",
+    sectionComparison: "Feature comparison — Significant vs Non-significant",
+    sectionFrameComparison: "Reading frame — Significant vs Non-significant",
     sectionBp: "Branch point detection (YNYURAY motif)",
     bpDetected: "detected",
     histogramAriaLabel: "Skipped exon size distribution",
@@ -550,10 +566,12 @@ export const en = {
     donor5ssCanonical: "5′SS donor site — canonical GT",
     donor5ssNonGt: "5′SS donor site ⚠ non-GT",
     donor5ss: "5′SS donor site",
+    donor5ssNoData: "5′SS donor site — no sequence data",
     seq9nt: "9 nt sequence: {{seq}}",
     acceptor3ssCanonical: "3′SS acceptor site — canonical AG",
     acceptor3ssNonAg: "3′SS acceptor site ⚠ non-AG",
     acceptor3ss: "3′SS acceptor site",
+    acceptor3ssNoData: "3′SS acceptor site — no sequence data",
     seq23nt: "23 nt sequence: {{seq}}",
     pptZone: "Polypyrimidine tract (PPT — 47 nt before 3′SS)",
     pptScore: "Y score: {{pct}}% — {{interp}}",

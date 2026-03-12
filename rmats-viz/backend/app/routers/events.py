@@ -67,32 +67,94 @@ async def list_events(
     return EventsPage(items=rows, total=total, page=page, page_size=page_size, pages=pages)
 
 
+_MANHATTAN_MAX_POINTS = 50_000  # cap for browser performance
+
+
 @router.get("/analyses/{analysis_id}/events/manhattan", response_model=list[ManhattanPoint])
 async def get_manhattan(
     analysis_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return lightweight event data for the Manhattan plot (all events, no pagination)."""
+    """Return lightweight event data for the Manhattan plot.
+
+    For large analyses (>50k events) we keep ALL significant events (FDR < 0.05)
+    and uniformly sample the rest to stay under *_MANHATTAN_MAX_POINTS*.
+    """
     res = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
     if not res.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    q = (
-        select(
-            SplicingEvent.id,
-            SplicingEvent.event_type,
-            SplicingEvent.gene_symbol,
-            SplicingEvent.chr,
-            SplicingEvent.exon_start,
-            SplicingEvent.fdr,
-            SplicingEvent.inc_level_difference,
-        )
-        .where(SplicingEvent.analysis_id == analysis_id)
-        .where(SplicingEvent.chr.isnot(None))
-        .where(SplicingEvent.exon_start.isnot(None))
-        .order_by(SplicingEvent.chr, SplicingEvent.exon_start)
+    base_cond = and_(
+        SplicingEvent.analysis_id == analysis_id,
+        SplicingEvent.chr.isnot(None),
+        SplicingEvent.exon_start.isnot(None),
     )
-    rows = (await db.execute(q)).all()
+    cols = (
+        SplicingEvent.id,
+        SplicingEvent.event_type,
+        SplicingEvent.gene_symbol,
+        SplicingEvent.chr,
+        SplicingEvent.exon_start,
+        SplicingEvent.fdr,
+        SplicingEvent.inc_level_difference,
+    )
+
+    # Check total count first
+    total = (await db.execute(
+        select(func.count()).select_from(
+            select(SplicingEvent.id).where(base_cond).subquery()
+        )
+    )).scalar_one()
+
+    if total <= _MANHATTAN_MAX_POINTS:
+        # Small enough — return everything
+        q = select(*cols).where(base_cond).order_by(SplicingEvent.chr, SplicingEvent.exon_start)
+        rows = (await db.execute(q)).all()
+    else:
+        from sqlalchemy import or_
+
+        # Keep all significant events, sample the rest
+        sig_q = (
+            select(*cols)
+            .where(and_(base_cond, SplicingEvent.fdr < 0.05))
+            .order_by(SplicingEvent.chr, SplicingEvent.exon_start)
+        )
+        sig_rows = (await db.execute(sig_q)).all()
+
+        remaining_budget = max(0, _MANHATTAN_MAX_POINTS - len(sig_rows))
+        if remaining_budget > 0:
+            nonsig_count = total - len(sig_rows)
+            sample_rate = max(1, nonsig_count // remaining_budget)
+            # Non-significant = FDR >= 0.05 OR FDR IS NULL
+            nonsig_cond = or_(SplicingEvent.fdr >= 0.05, SplicingEvent.fdr.is_(None))
+            sub = (
+                select(
+                    *cols,
+                    func.row_number().over(
+                        order_by=[SplicingEvent.chr, SplicingEvent.exon_start]
+                    ).label("rn"),
+                )
+                .where(and_(base_cond, nonsig_cond))
+                .subquery()
+            )
+            sampled_q = (
+                select(
+                    sub.c.id, sub.c.event_type, sub.c.gene_symbol,
+                    sub.c.chr, sub.c.exon_start, sub.c.fdr,
+                    sub.c.inc_level_difference,
+                )
+                .where(sub.c.rn % sample_rate == 0)
+                .order_by(sub.c.chr, sub.c.exon_start)
+            )
+            nonsig_rows = (await db.execute(sampled_q)).all()
+        else:
+            nonsig_rows = []
+
+        rows = sorted(
+            list(sig_rows) + list(nonsig_rows),
+            key=lambda r: (r.chr or "", r.exon_start or 0),
+        )
+
     return [
         ManhattanPoint(
             id=r.id,

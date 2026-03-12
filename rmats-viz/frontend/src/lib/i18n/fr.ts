@@ -95,6 +95,8 @@ export const fr: Translations = {
       cancel: "Annuler",
     },
     loading: "Chargement des événements…",
+    loadingAnalysis: "Récupération des métadonnées…",
+    loadingEvents: "Chargement de la première page…",
     filters: {
       allTypes: "Tous les types",
       genePlaceholder: "Gène (ex: PCBP1)",
@@ -157,12 +159,20 @@ export const fr: Translations = {
   top10View: {
     noEvents: "Aucun événement trouvé.",
     modeLabels: {
-      gene: "Détails de l'événement",
-      go: "Ontologie génique (GO)",
+      gene: "Événements annotés",
       stringdb: "Interactions STRING-DB avec le gène muté",
       pathways: "Voies moléculaires (à venir)",
       motifs: "Patterns d'épissage récurrents",
       splice: "Sites consensus d'épissage",
+    },
+    sortBy: "Trier par :",
+    sortOptions: {
+      default: "Ordre par défaut",
+      fdr: "FDR (croissant)",
+      pvalue: "p-value (croissant)",
+      deltaPsi: "|ΔΨ| (décroissant)",
+      chr: "Chromosome",
+      panelapp: "Confiance PanelApp",
     },
     noAnalysisId: "analysisId non disponible pour ce contexte.",
     goCategories: "Catégories GO :",
@@ -233,7 +243,7 @@ export const fr: Translations = {
     expand: "Afficher le volet",
     tabs: {
       gene: "Événement",
-      go: "GO / Ontologie",
+      annotatedEvents: "Événements annotés",
       interactions: "Interactions",
       pathways: "Voies moléc.",
       motifs: "Motifs récur.",
@@ -289,6 +299,10 @@ export const fr: Translations = {
     direction: {
       skippingUp: "↑ Saut chez {{group}}",
     },
+    splice: {
+      showDiagram: "Afficher le diagramme",
+      hideDiagram: "Masquer le diagramme",
+    },
   },
   motifPanel: {
     notComputed: "Analyse de patterns non calculée",
@@ -321,6 +335,8 @@ export const fr: Translations = {
     sectionFrame: "Classe de cadre de lecture (exon sauté)",
     frameLabelNonCoding: "Non-codant",
     frameLabelUnknown: "Inconnu",
+    sectionComparison: "Comparaison — Significatifs vs Non-significatifs",
+    sectionFrameComparison: "Cadre de lecture — Significatifs vs Non-significatifs",
     sectionBp: "Branch point detection (YNYURAY motif)",
     bpDetected: "détectés",
     histogramAriaLabel: "Distribution des tailles d'exons sautés",
@@ -555,10 +571,12 @@ export const fr: Translations = {
     donor5ssCanonical: "Site donneur 5'SS — GT canonique",
     donor5ssNonGt: "Site donneur 5'SS ⚠ non-GT",
     donor5ss: "Site donneur 5'SS",
+    donor5ssNoData: "Site donneur 5'SS — aucune donnée de séquence",
     seq9nt: "Séquence 9 nt : {{seq}}",
     acceptor3ssCanonical: "Site accepteur 3'SS — AG canonique",
     acceptor3ssNonAg: "Site accepteur 3'SS ⚠ non-AG",
     acceptor3ss: "Site accepteur 3'SS",
+    acceptor3ssNoData: "Site accepteur 3'SS — aucune donnée de séquence",
     seq23nt: "Séquence 23 nt : {{seq}}",
     pptZone: "Zone polypyrimidine (PPT — 47 nt avant 3'SS)",
     pptScore: "Score Y : {{pct}}% — {{interp}}",

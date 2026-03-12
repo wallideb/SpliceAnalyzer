@@ -48,6 +48,8 @@ interface AnnotatedCardProps {
   /** Group labels (e.g. "Patients" / "Contrôles") for direction-of-effect badges. */
   group1Label?: string;
   group2Label?: string;
+  /** 1-based display rank for sorting feedback. */
+  rank?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -671,7 +673,7 @@ function SEDirectionBadge({
   );
 }
 
-export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, analysisId, group1Label, group2Label }: AnnotatedCardProps) {
+export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, analysisId, group1Label, group2Label, rank }: AnnotatedCardProps) {
   const t = useT();
   const symbol = ev.gene_symbol ?? ev.gene_id ?? "";
 
@@ -684,16 +686,16 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
     staleTime: 5 * 60 * 1000,
   });
 
-  // Mode splice : layout compact (header inline + diagramme plein format)
+  // Mode splice : compact header + on-demand diagram (click to expand)
+  const [spliceExpanded, setSpliceExpanded] = useState(false);
+
   if (mode === "splice") {
     return (
       <div className="flex flex-col border border-border dark:border-slate-600 rounded-xl bg-card dark:bg-slate-800/80 shadow-sm">
         {/* Header compact inline */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border dark:border-slate-600/60">
-          <span className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-600 text-white shrink-0">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
+          <span className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold shrink-0">
+            {rank ?? "·"}
           </span>
           <GeneSymbolWithTooltip symbol={symbol || "—"} annotation={annotation} />
           <div className="flex items-center gap-1.5 ml-auto shrink-0 flex-wrap">
@@ -716,12 +718,28 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
               group2Label={group2Label}
               t={t}
             />
+            {/* Toggle diagram button */}
+            <button
+              onClick={() => setSpliceExpanded((v) => !v)}
+              className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-md border transition-colors ${
+                spliceExpanded
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d={spliceExpanded ? "M19 9l-7 7-7-7" : "M9 5l7 7-7 7"} />
+              </svg>
+              {spliceExpanded ? t("annotatedCard.splice.hideDiagram") : t("annotatedCard.splice.showDiagram")}
+            </button>
           </div>
         </div>
-        {/* Diagramme plein format */}
-        <div className="px-2 py-3">
-          <SpliceView event={ev} analysisId={analysisId} group1Label={group1Label} group2Label={group2Label} />
-        </div>
+        {/* Diagram loaded on demand only */}
+        {spliceExpanded && (
+          <div className="px-2 py-3">
+            <SpliceView event={ev} analysisId={analysisId} group1Label={group1Label} group2Label={group2Label} />
+          </div>
+        )}
       </div>
     );
   }
@@ -731,10 +749,8 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
       {/* ── Fixed header ── */}
       <div className="flex items-start justify-between gap-2 p-4 pb-3 border-b border-border dark:border-slate-600/60">
         <div className="flex items-center gap-2.5 min-w-0">
-          <span className="w-7 h-7 flex items-center justify-center rounded-full bg-blue-600 text-white shrink-0">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
+          <span className="w-7 h-7 flex items-center justify-center rounded-full bg-blue-600 text-white text-xs font-bold shrink-0">
+            {rank ?? "·"}
           </span>
           <GeneSymbolWithTooltip symbol={symbol || "—"} annotation={annotation} />
         </div>
@@ -776,8 +792,15 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
 
       {/* ── Dynamic content ── */}
       <div className="p-4 flex-1">
-        {mode === "gene"     && <GeneView ev={ev} annotation={annotation} />}
-        {mode === "go"       && <GOView annotation={annotation} isLoading={annotationLoading} />}
+        {mode === "gene" && (
+          <div className="space-y-4">
+            <GeneView ev={ev} annotation={annotation} />
+            <GOView annotation={annotation} isLoading={annotationLoading} />
+            {annotation?.panels && annotation.panels.length > 0 && (
+              <PanelAppView annotation={annotation} isLoading={annotationLoading} />
+            )}
+          </div>
+        )}
         {mode === "stringdb" && <StringDBView eventSymbol={symbol} mutatedGenes={mutatedGenes} />}
         {(mode === "pathways" || mode === "motifs") && (
           <ComingSoonView mode={mode} />

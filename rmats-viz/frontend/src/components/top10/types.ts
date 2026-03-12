@@ -6,8 +6,7 @@
  * The active display mode selected via the sidebar.
  *
  * Base modes (always available):
- * - gene         → Event details (gene info + rMATS scores)
- * - go           → Gene Ontology terms (BP / MF / CC)
+ * - gene         → Annotated events (gene info + rMATS scores + GO terms + PanelApp)
  * - stringdb     → STRING-DB interaction network with the mutated gene
  *                  (only shown when mutated genes were defined for the analysis)
  *
@@ -18,7 +17,6 @@
  */
 export type ViewMode =
   | "gene"
-  | "go"
   | "stringdb"
   | "pathways"
   | "motifs"

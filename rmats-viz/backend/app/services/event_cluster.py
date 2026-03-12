@@ -106,15 +106,28 @@ def cluster_se_events(
         groups[key].append(i)
 
     for indices in groups.values():
+        if len(indices) <= 1:
+            continue
+        # Sort by exon_start then exon_end.  After sorting, only adjacent
+        # events (in start-order) can be within threshold of each other,
+        # so we use a sliding window instead of all-pairs O(k²).
+        indices.sort(key=lambda i: (
+            _get(se[i], "exon_start") or 0,
+            _get(se[i], "exon_end") or 0,
+        ))
         for a in range(len(indices)):
+            ia = indices[a]
+            s_a = _get(se[ia], "exon_start") or 0
+            e_a = _get(se[ia], "exon_end")   or 0
             for b in range(a + 1, len(indices)):
-                ia, ib = indices[a], indices[b]
-                ea, eb = se[ia], se[ib]
-                s_a = _get(ea, "exon_start") or 0
-                e_a = _get(ea, "exon_end")   or 0
-                s_b = _get(eb, "exon_start") or 0
-                e_b = _get(eb, "exon_end")   or 0
-                if abs(s_a - s_b) <= threshold and abs(e_a - e_b) <= threshold:
+                ib = indices[b]
+                s_b = _get(se[ib], "exon_start") or 0
+                # Early exit: if start diff exceeds threshold, all
+                # subsequent events (sorted) will too.
+                if s_b - s_a > threshold:
+                    break
+                e_b = _get(se[ib], "exon_end") or 0
+                if abs(e_a - e_b) <= threshold:
                     uf.union(ia, ib)
 
     # Collect clusters

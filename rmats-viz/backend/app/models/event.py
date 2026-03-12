@@ -20,6 +20,7 @@ class SplicingEvent(Base):
         Index("ix_events_analysis_fdr", "analysis_id", "fdr"),
         Index("ix_events_analysis_type", "analysis_id", "event_type"),
         Index("ix_events_analysis_gene", "analysis_id", "gene_symbol"),
+        Index("ix_events_analysis_chr_pos", "analysis_id", "chr", "exon_start"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

@@ -27,13 +27,25 @@ services:
       CORS_ORIGINS: '["http://localhost:3000","http://frontend:3000"]'
       GRCH38_FASTA: /data/GRCh38.fa
       MANE_CACHE_DB: /data/mane_cache.db
+      MANE_GFF3: /data/MANE.GRCh38.ensembl_genomic.gff.gz
     volumes:
       - ./rmats-viz/backend:/app
       - ./rmats-viz/data:/data
     ports:
       - "8000:8000"
-    command: >
-      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 600"
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f /data/MANE.GRCh38.ensembl_genomic.gff.gz ]; then
+          echo '[startup] Downloading MANE GFF3 (~3 MB)...'
+          curl -fSL --retry 3 \
+            -o /data/MANE.GRCh38.ensembl_genomic.gff.gz \
+            https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/current/MANE.GRCh38.v1.4.ensembl_genomic.gff.gz \
+            || echo '[startup] MANE GFF3 download failed — will use Ensembl REST fallback'
+        fi
+        alembic upgrade head &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 600
 
   frontend:
     build: ./rmats-viz/frontend

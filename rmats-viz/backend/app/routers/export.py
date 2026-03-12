@@ -571,11 +571,13 @@ async def export_deep_analysis_excel(
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
+    # Sanitise filename to ASCII (Starlette encodes headers as latin-1)
     name = (deep.name or "deep_analysis").replace(" ", "_")[:30]
+    safe_name = name.encode("ascii", "ignore").decode("ascii") or "deep_analysis"
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="rmats_{name}_significant.xlsx"'},
+        headers={"Content-Disposition": f'attachment; filename="rmats_{safe_name}_significant.xlsx"'},
     )
 
 

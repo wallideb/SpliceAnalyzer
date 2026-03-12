@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     SAMTOOLS_BIN: str = "samtools"
     # SQLite cache for MANE transcript lookups (avoids repeated Ensembl calls)
     MANE_CACHE_DB: str = "/data/mane_cache.db"
+    # Local MANE GFF3 file — primary source for MANE annotation (no network needed).
+    # Download from: https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/current/
+    # Expected file: MANE.GRCh38.v*.ensembl_genomic.gff.gz
+    MANE_GFF3: str = "/data/MANE.GRCh38.ensembl_genomic.gff.gz"
     # Intronic window (nt) to fetch around each splice site
     SPLICE_WINDOW: int = 50
 

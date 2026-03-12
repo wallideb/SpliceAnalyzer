@@ -27,6 +27,7 @@ services:
       CORS_ORIGINS: '["http://localhost:3000","http://frontend:3000"]'
       GRCH38_FASTA: /data/GRCh38.fa
       MANE_CACHE_DB: /data/mane_cache.db
+      MANE_GFF3: /data/MANE.GRCh38.ensembl_genomic.gff.gz
     volumes:
       - ./rmats-viz/backend:/app
       - ./rmats-viz/data:/data

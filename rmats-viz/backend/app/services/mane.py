@@ -31,6 +31,12 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.services.mane_local import (
+    annotate_from_local,
+    get_transcript_exons_local,
+    is_loaded as mane_local_loaded,
+    load_mane_gff3,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +280,14 @@ def get_transcript_exons(transcript_id: str) -> list[dict]:
     if cached is not None:
         return cached
 
+    # Try local GFF3 first
+    if _ensure_local_loaded():
+        local_exons = get_transcript_exons_local(transcript_id)
+        if local_exons:
+            _exon_cache_set(transcript_id, local_exons)
+            return local_exons
+
+    # Fall back to Ensembl REST
     struct = _get_transcript_structure(transcript_id)
     if not struct:
         return []
@@ -292,6 +306,13 @@ def get_transcript_exons(transcript_id: str) -> list[dict]:
     return exons
 
 
+def _ensure_local_loaded() -> bool:
+    """Load the local MANE GFF3 if available and not yet loaded."""
+    if mane_local_loaded():
+        return True
+    return load_mane_gff3(settings.MANE_GFF3)
+
+
 def annotate_mane(
     gene_id: str,
     chrom: str,
@@ -304,12 +325,27 @@ def annotate_mane(
     Always returns a dict with keys:
     transcript_id, exon_rank, frame_region, frame_class, cds_exon_length
     (any value may be None on failure).
+
+    Strategy:
+    1. Check SQLite cache
+    2. Try local MANE GFF3 file (no network needed)
+    3. Fall back to Ensembl REST API
     """
     # Check cache first
     cached = _cache_get(gene_id, exon_start, exon_end)
     if cached is not None:
         return cached
 
+    # --- Strategy 1: local MANE GFF3 file ---
+    if _ensure_local_loaded():
+        local_result = annotate_from_local(gene_id, exon_start, exon_end)
+        if local_result and local_result.get("transcript_id"):
+            logger.debug("MANE from local GFF3 for %s: %s", gene_id, local_result["transcript_id"])
+            if local_result.get("frame_class") not in (None, "unknown"):
+                _cache_set(gene_id, exon_start, exon_end, local_result)
+            return local_result
+
+    # --- Strategy 2: Ensembl REST API ---
     result: dict = {
         "transcript_id": None,
         "exon_rank": None,

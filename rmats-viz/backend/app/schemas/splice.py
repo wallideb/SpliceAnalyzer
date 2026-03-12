@@ -29,9 +29,12 @@ class SpliceFeatureResponse(BaseModel):
     # sequences (flanking exon splice sites)
     upstream_donor_seq: str | None = None
     downstream_acceptor_seq: str | None = None
-    # GT-AG
+    # GT-AG (skipped exon)
     donor_is_gt: bool | None = None
     acceptor_is_ag: bool | None = None
+    # GT-AG (flanking exons)
+    upstream_donor_is_gt: bool | None = None
+    downstream_acceptor_is_ag: bool | None = None
     # PPT
     ppt_score: float | None = None
     ppt_longest_run: int | None = None

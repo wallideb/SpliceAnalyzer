@@ -31,6 +31,7 @@ Branch-point (YNYURAY rule-based):
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -121,9 +122,12 @@ class SpliceFeatureResult:
     # sequences (flanking exon splice sites)
     upstream_donor_seq: str = ""
     downstream_acceptor_seq: str = ""
-    # GT-AG
+    # GT-AG (skipped exon)
     donor_is_gt: bool | None = None
     acceptor_is_ag: bool | None = None
+    # GT-AG (flanking exons)
+    upstream_donor_is_gt: bool | None = None
+    downstream_acceptor_is_ag: bool | None = None
     # PPT
     ppt_score: float | None = None
     ppt_longest_run: int | None = None
@@ -190,6 +194,12 @@ def compute_features(
     res.donor_is_gt    = (len(d) >= 5 and d[3:5] == "GT")
     res.acceptor_is_ag = (len(a) >= 21 and a[18:20] == "AG")
 
+    # Flanking exon GT-AG
+    ud = windows.upstream_donor_seq.upper()
+    da = windows.downstream_acceptor_seq.upper()
+    res.upstream_donor_is_gt       = (len(ud) >= 5 and ud[3:5] == "GT") if ud else None
+    res.downstream_acceptor_is_ag  = (len(da) >= 21 and da[18:20] == "AG") if da else None
+
     # PPT
     if windows.ppt_seq:
         res.ppt_score = round(ppt_score(windows.ppt_seq), 4)
@@ -240,7 +250,6 @@ def iupac_consensus(seqs: list[str], threshold: float = 0.40) -> str:
     n = min(len(s) for s in seqs)
     consensus = []
     for i in range(n):
-        from collections import Counter
         counts = Counter(s[i].upper() for s in seqs if i < len(s))
         total = sum(counts.values()) or 1
         present = frozenset(b for b, c in counts.items() if c / total >= threshold)

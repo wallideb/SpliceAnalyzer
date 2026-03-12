@@ -174,6 +174,8 @@ export function SpliceView({
         strand={ev.strand ?? null}
         donorIsGt={data.donor_is_gt}
         acceptorIsAg={data.acceptor_is_ag}
+        upstreamDonorIsGt={data.upstream_donor_is_gt ?? null}
+        downstreamAcceptorIsAg={data.downstream_acceptor_is_ag ?? null}
         psi1={meanPsi(ev.inc_level_1)}
         psi2={meanPsi(ev.inc_level_2)}
         exonStart={ev.exon_start ?? null}

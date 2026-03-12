@@ -73,9 +73,12 @@ class EventSpliceFeature(Base):
     upstream_donor_seq: Mapped[str | None] = mapped_column(Text, nullable=True)       # 9 nt  upstream exon 5'SS
     downstream_acceptor_seq: Mapped[str | None] = mapped_column(Text, nullable=True)  # 23 nt downstream exon 3'SS
 
-    # GT-AG rule
+    # GT-AG rule (skipped exon)
     donor_is_gt: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     acceptor_is_ag: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # GT-AG rule (flanking exons)
+    upstream_donor_is_gt: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    downstream_acceptor_is_ag: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     # PPT metrics
     ppt_score: Mapped[float | None] = mapped_column(Double(precision=53), nullable=True)

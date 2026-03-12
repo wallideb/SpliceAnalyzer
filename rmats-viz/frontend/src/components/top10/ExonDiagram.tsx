@@ -33,6 +33,8 @@ export interface ExonDiagramProps {
   strand: string | null;
   donorIsGt?: boolean | null;
   acceptorIsAg?: boolean | null;
+  upstreamDonorIsGt?: boolean | null;
+  downstreamAcceptorIsAg?: boolean | null;
   // Extended — tooltips
   psi1?: number | null;
   psi2?: number | null;
@@ -270,6 +272,8 @@ export function ExonDiagram({
   strand,
   donorIsGt,
   acceptorIsAg,
+  upstreamDonorIsGt,
+  downstreamAcceptorIsAg,
   psi1,
   psi2,
   exonStart,
@@ -389,6 +393,9 @@ export function ExonDiagram({
   // Only warn non-canonical when we actually have sequence data to prove it
   const warnDonor    = donorIsGt    === false && !!donorSeq;
   const warnAcceptor = acceptorIsAg === false && !!acceptorSeq;
+  // Flanking exon canonical warnings
+  const warnUpDonor    = upstreamDonorIsGt    === false && !!upstreamDonorSeq;
+  const warnDnAcceptor = downstreamAcceptorIsAg === false && !!downstreamAcceptorSeq;
   // Show "no data" state when there's no sequence at all
   const noSeqData    = !donorSeq && !acceptorSeq;
 
@@ -407,6 +414,11 @@ export function ExonDiagram({
   // Acceptor site indicator bounds — at left edge of skipped exon (3'SS acceptor)
   const acceptorIndicatorX = SKIP_X - SITE_W + 5;
   const acceptorIndicatorW = SITE_W;
+
+  // Upstream exon 5'SS indicator — at right edge of upstream flanking exon
+  const upDonorIndicatorX = LEFT_EXON_RIGHT - 5;
+  // Downstream exon 3'SS indicator — at left edge of downstream flanking exon
+  const dnAcceptorIndicatorX = RIGHT_EXON_X - SITE_W + 5;
 
   // Hover hit area: expand the zone around indicator for easier hovering
   const HOVER_PAD = 8;
@@ -449,15 +461,9 @@ export function ExonDiagram({
         )}
 
         {/* ── Exon flanquant gauche ── */}
-        <g
-          style={{ cursor: upstreamDonorSeq ? "crosshair" : "help" }}
-          onMouseEnter={upstreamDonorSeq ? () => setHoveredEl("upDonor") : undefined}
-          onMouseLeave={upstreamDonorSeq ? () => setHoveredEl(null) : undefined}
-        >
+        <g style={{ cursor: "help" }}>
           <rect x={LEFT_EXON_X} y={EXON_Y} width={FLANK_W} height={EXON_H} rx={4}
             fill={COLOR_FLANK}
-            stroke={hoveredEl === "upDonor" ? COLOR_GREEN : "none"}
-            strokeWidth={hoveredEl === "upDonor" ? 1.5 : 0}
           />
           <title>{upstreamTooltip}</title>
         </g>
@@ -468,6 +474,56 @@ export function ExonDiagram({
         >
           {t("exonDiagram.upstreamFlankingExon")}
         </text>
+
+        {/* ── Upstream exon 5'SS indicator box ── */}
+        <g
+          style={{ cursor: "crosshair" }}
+          onMouseEnter={() => setHoveredEl("upDonor")}
+          onMouseLeave={() => setHoveredEl(null)}
+        >
+          <rect
+            x={upDonorIndicatorX - HOVER_PAD}
+            y={EXON_Y - HOVER_PAD}
+            width={SITE_W + HOVER_PAD * 2}
+            height={SITE_H + HOVER_PAD * 2}
+            fill="transparent"
+          />
+          <rect
+            x={upDonorIndicatorX}
+            y={EXON_Y - 4}
+            width={SITE_W}
+            height={SITE_H}
+            rx={2}
+            fill={warnUpDonor ? COLOR_WARN : !upstreamDonorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
+            fillOpacity={hoveredEl === "upDonor" ? 0.4 : 0.22}
+            stroke={warnUpDonor ? COLOR_WARN : !upstreamDonorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
+            strokeWidth={hoveredEl === "upDonor" ? 1.5 : 1}
+          />
+          <text
+            x={upDonorIndicatorX + SITE_W / 2}
+            y={EXON_Y + EXON_H / 2 + 3}
+            textAnchor="middle" fontSize={!upstreamDonorSeq ? 7 : 8.5}
+            fill={warnUpDonor ? COLOR_WARN : !upstreamDonorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
+            fontFamily="monospace" fontWeight="bold"
+          >
+            {warnUpDonor ? "!GT" : !upstreamDonorSeq ? "?" : "GT"}
+          </text>
+          <title>{upstreamTooltip}</title>
+        </g>
+        <text
+          x={upDonorIndicatorX + SITE_W / 2}
+          y={EXON_Y - 7}
+          textAnchor="middle" fontSize={8}
+          fill={warnUpDonor ? COLOR_WARN : !upstreamDonorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
+          fontFamily="monospace" fontWeight="700"
+        >
+          5&apos;SS
+        </text>
+        {warnUpDonor && (
+          <text x={LEFT_EXON_RIGHT + 2} y={EXON_Y - 13} fontSize={8} fill={COLOR_WARN} fontFamily="sans-serif">
+            ⚠ non-GT
+          </text>
+        )}
 
         {/* ── Zone Donor (5'SS) — compact + hover expand ── */}
         <g
@@ -628,15 +684,9 @@ export function ExonDiagram({
         )}
 
         {/* ── Exon flanquant droit ── */}
-        <g
-          style={{ cursor: downstreamAcceptorSeq ? "crosshair" : "help" }}
-          onMouseEnter={downstreamAcceptorSeq ? () => setHoveredEl("dnAcceptor") : undefined}
-          onMouseLeave={downstreamAcceptorSeq ? () => setHoveredEl(null) : undefined}
-        >
+        <g style={{ cursor: "help" }}>
           <rect x={RIGHT_EXON_X} y={EXON_Y} width={FLANK_W} height={EXON_H} rx={4}
             fill={COLOR_FLANK}
-            stroke={hoveredEl === "dnAcceptor" ? COLOR_GREEN : "none"}
-            strokeWidth={hoveredEl === "dnAcceptor" ? 1.5 : 0}
           />
           <title>{downstreamTooltip}</title>
         </g>
@@ -647,6 +697,56 @@ export function ExonDiagram({
         >
           {t("exonDiagram.downstreamFlankingExon")}
         </text>
+
+        {/* ── Downstream exon 3'SS indicator box ── */}
+        <g
+          style={{ cursor: "crosshair" }}
+          onMouseEnter={() => setHoveredEl("dnAcceptor")}
+          onMouseLeave={() => setHoveredEl(null)}
+        >
+          <rect
+            x={dnAcceptorIndicatorX - HOVER_PAD}
+            y={EXON_Y - HOVER_PAD}
+            width={SITE_W + HOVER_PAD * 2}
+            height={SITE_H + HOVER_PAD * 2}
+            fill="transparent"
+          />
+          <rect
+            x={dnAcceptorIndicatorX}
+            y={EXON_Y - 4}
+            width={SITE_W}
+            height={SITE_H}
+            rx={2}
+            fill={warnDnAcceptor ? COLOR_WARN : !downstreamAcceptorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
+            fillOpacity={hoveredEl === "dnAcceptor" ? 0.4 : 0.22}
+            stroke={warnDnAcceptor ? COLOR_WARN : !downstreamAcceptorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
+            strokeWidth={hoveredEl === "dnAcceptor" ? 1.5 : 1}
+          />
+          <text
+            x={dnAcceptorIndicatorX + SITE_W / 2}
+            y={EXON_Y + EXON_H / 2 + 3}
+            textAnchor="middle" fontSize={!downstreamAcceptorSeq ? 7 : 8.5}
+            fill={warnDnAcceptor ? COLOR_WARN : !downstreamAcceptorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
+            fontFamily="monospace" fontWeight="bold"
+          >
+            {warnDnAcceptor ? "!AG" : !downstreamAcceptorSeq ? "?" : "AG"}
+          </text>
+          <title>{downstreamTooltip}</title>
+        </g>
+        <text
+          x={dnAcceptorIndicatorX + SITE_W / 2}
+          y={EXON_Y - 7}
+          textAnchor="middle" fontSize={8}
+          fill={warnDnAcceptor ? COLOR_WARN : !downstreamAcceptorSeq ? COLOR_TEXT_MUTED : COLOR_GREEN}
+          fontFamily="monospace" fontWeight="700"
+        >
+          3&apos;SS
+        </text>
+        {warnDnAcceptor && (
+          <text x={RIGHT_EXON_X - 2} y={EXON_Y - 13} textAnchor="end" fontSize={8} fill={COLOR_WARN} fontFamily="sans-serif">
+            ⚠ non-AG
+          </text>
+        )}
 
         {/* ── Barre PPT — zone hover ── */}
         {pptScore != null && (

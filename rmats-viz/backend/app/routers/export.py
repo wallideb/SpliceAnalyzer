@@ -91,14 +91,17 @@ async def _load_events_and_features(
     )
     events: list[SplicingEvent] = list(result.scalars().all())
 
-    se_event_ids = [e.id for e in events if e.event_type == "SE"]
+    # Use subquery instead of materializing UUIDs (avoids parameter limit with large datasets)
+    se_subq = select(SplicingEvent.id).where(
+        SplicingEvent.analysis_id == analysis_id,
+        SplicingEvent.event_type == "SE",
+    )
     features: dict[uuid.UUID, EventSpliceFeature] = {}
-    if se_event_ids:
-        feat_result = await db.execute(
-            select(EventSpliceFeature).where(EventSpliceFeature.event_id.in_(se_event_ids))
-        )
-        for feat in feat_result.scalars().all():
-            features[feat.event_id] = feat
+    feat_result = await db.execute(
+        select(EventSpliceFeature).where(EventSpliceFeature.event_id.in_(se_subq))
+    )
+    for feat in feat_result.scalars().all():
+        features[feat.event_id] = feat
 
     return events, features
 
@@ -401,15 +404,22 @@ async def export_deep_analysis_excel(
     )
     events = list((await db.execute(sig_q)).scalars().all())
 
-    # Load features for SE events
-    se_event_ids = [e.id for e in events if e.event_type == "SE"]
-    features: dict[uuid.UUID, EventSpliceFeature] = {}
-    if se_event_ids:
-        feat_result = await db.execute(
-            select(EventSpliceFeature).where(EventSpliceFeature.event_id.in_(se_event_ids))
+    # Load features for SE events (subquery avoids parameter limit)
+    se_subq = (
+        select(SplicingEvent.id)
+        .join(DeepAnalysisEvent, DeepAnalysisEvent.event_id == SplicingEvent.id)
+        .where(
+            DeepAnalysisEvent.deep_analysis_id == deep_analysis_id,
+            DeepAnalysisEvent.is_significant == True,
+            SplicingEvent.event_type == "SE",
         )
-        for feat in feat_result.scalars().all():
-            features[feat.event_id] = feat
+    )
+    features: dict[uuid.UUID, EventSpliceFeature] = {}
+    feat_result = await db.execute(
+        select(EventSpliceFeature).where(EventSpliceFeature.event_id.in_(se_subq))
+    )
+    for feat in feat_result.scalars().all():
+        features[feat.event_id] = feat
 
     # External annotations
     unique_symbols = list({e.gene_symbol for e in events if e.gene_symbol})
@@ -1772,17 +1782,24 @@ async def export_deep_analysis_pdf(
     events = [ev for ev, _ in rows]
     sig_map = {ev.id: is_sig for ev, is_sig in rows}
 
-    # Fetch splice features for SE events
-    se_event_ids = [e.id for e in events if e.event_type == "SE"]
-    features: dict[uuid.UUID, EventSpliceFeature] = {}
-    if se_event_ids:
-        feat_result = await db.execute(
-            select(EventSpliceFeature).where(EventSpliceFeature.event_id.in_(se_event_ids))
+    # Fetch splice features for SE events (subquery avoids parameter limit)
+    se_subq = (
+        select(SplicingEvent.id)
+        .join(DeepAnalysisEvent, DeepAnalysisEvent.event_id == SplicingEvent.id)
+        .where(
+            DeepAnalysisEvent.deep_analysis_id == deep_analysis_id,
+            SplicingEvent.event_type == "SE",
         )
-        for feat in feat_result.scalars().all():
-            features[feat.event_id] = feat
+    )
+    features: dict[uuid.UUID, EventSpliceFeature] = {}
+    feat_result = await db.execute(
+        select(EventSpliceFeature).where(EventSpliceFeature.event_id.in_(se_subq))
+    )
+    for feat in feat_result.scalars().all():
+        features[feat.event_id] = feat
 
     # Compute pattern comparison (reusing deep_analyses helpers)
+    se_event_ids = [e.id for e in events if e.event_type == "SE"]
     sig_feats = [features[eid] for eid in se_event_ids if sig_map.get(eid) and eid in features]
     nonsig_feats = [features[eid] for eid in se_event_ids if not sig_map.get(eid) and eid in features]
     sig_events = [e for e in events if e.event_type == "SE" and sig_map.get(e.id)]

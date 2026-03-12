@@ -575,9 +575,23 @@ async def get_splice_patterns(
         if ev.inc_level_difference is not None:
             delta_psi_list.append(ev.inc_level_difference)
 
-        if feat is None:
-            if deep_analysis_id is None:
+        # Significance — must run for ALL events, not just those with features
+        if deep_analysis_id is None:
+            fdr_ok  = ev.fdr is not None and ev.fdr <= fdr_threshold
+            dpsi_ok = (
+                ev.inc_level_difference is not None
+                and abs(ev.inc_level_difference) >= abs_delta_psi_min
+            )
+            if fdr_ok and dpsi_ok:
+                n_significant += 1
+                delta_psi_significant.append(ev.inc_level_difference)  # type: ignore[arg-type]
+            else:
                 n_not_significant += 1
+        else:
+            if ev.inc_level_difference is not None:
+                delta_psi_significant.append(ev.inc_level_difference)
+
+        if feat is None:
             continue
 
         # Frame counts (all feats)
@@ -614,22 +628,6 @@ async def get_splice_patterns(
             # BP
             if feat.bp_motif_found:
                 bp_found_count += 1
-
-        # Significance (non-deep mode only, deep mode handled below)
-        if deep_analysis_id is None:
-            fdr_ok  = ev.fdr is not None and ev.fdr <= fdr_threshold
-            dpsi_ok = (
-                ev.inc_level_difference is not None
-                and abs(ev.inc_level_difference) >= abs_delta_psi_min
-            )
-            if fdr_ok and dpsi_ok:
-                n_significant += 1
-                delta_psi_significant.append(ev.inc_level_difference)  # type: ignore[arg-type]
-            else:
-                n_not_significant += 1
-        else:
-            if ev.inc_level_difference is not None:
-                delta_psi_significant.append(ev.inc_level_difference)
 
     # Deep-analysis significance counts
     if deep_analysis_id is not None:

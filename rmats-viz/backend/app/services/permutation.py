@@ -35,10 +35,9 @@ values across all events × iterations, which is useful for a combined view.
 
 Performance notes
 -----------------
-• Pure Python / statistics module — no numpy required.
+• Uses numpy for vectorized permutation (fast even for large N×K).
 • Events without enough valid PSI values are skipped.
-• For large analyses (N events, K iterations) this can be slow.
-  Call from a thread pool (asyncio.to_thread) in the router.
+• Call from a thread pool (asyncio.to_thread) in the router.
 """
 
 from __future__ import annotations

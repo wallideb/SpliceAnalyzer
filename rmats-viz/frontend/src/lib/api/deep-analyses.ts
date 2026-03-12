@@ -108,6 +108,13 @@ export interface GroupPatternStats {
   acceptor_pwm: Array<{ A: number; C: number; G: number; T: number }> | null;
   donor_consensus: string | null;
   acceptor_consensus: string | null;
+  // Flanking exon splice sites
+  pct_upstream_gt: number | null;
+  pct_downstream_ag: number | null;
+  upstream_donor_pwm: Array<{ A: number; C: number; G: number; T: number }> | null;
+  downstream_acceptor_pwm: Array<{ A: number; C: number; G: number; T: number }> | null;
+  upstream_donor_consensus: string | null;
+  downstream_acceptor_consensus: string | null;
   mean_delta_psi: number | null;
 }
 

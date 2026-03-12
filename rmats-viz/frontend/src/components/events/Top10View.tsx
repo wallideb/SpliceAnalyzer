@@ -87,23 +87,24 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
     ensemblHints[g.symbol.toUpperCase()] = g.ensembl_id;
   }
 
-  // Sort events
+  // Sort events — always use gene_symbol then event id as tiebreaker
+  // to ensure deterministic ordering across re-renders.
   const sortedEvents = useMemo(() => {
     if (sortKey === "default") return events;
     const copy = [...events];
+    const tie = (a: typeof events[0], b: typeof events[0]) =>
+      (a.gene_symbol ?? "").localeCompare(b.gene_symbol ?? "") || a.id.localeCompare(b.id);
     switch (sortKey) {
       case "fdr":
-        return copy.sort((a, b) => (a.fdr ?? 1) - (b.fdr ?? 1));
+        return copy.sort((a, b) => (a.fdr ?? 1) - (b.fdr ?? 1) || tie(a, b));
       case "pvalue":
-        return copy.sort((a, b) => (a.p_value ?? 1) - (b.p_value ?? 1));
+        return copy.sort((a, b) => (a.p_value ?? 1) - (b.p_value ?? 1) || tie(a, b));
       case "deltaPsi":
-        return copy.sort((a, b) => (b.abs_inc_level_diff ?? 0) - (a.abs_inc_level_diff ?? 0));
+        return copy.sort((a, b) => (b.abs_inc_level_diff ?? 0) - (a.abs_inc_level_diff ?? 0) || tie(a, b));
       case "chr":
-        return copy.sort((a, b) => chrNum(a.chr) - chrNum(b.chr) || (a.exon_start ?? 0) - (b.exon_start ?? 0));
+        return copy.sort((a, b) => chrNum(a.chr) - chrNum(b.chr) || (a.exon_start ?? 0) - (b.exon_start ?? 0) || tie(a, b));
       case "panelapp":
-        // Will be applied at render time since PanelApp data is fetched per-card;
-        // for now sort by FDR as a useful secondary
-        return copy.sort((a, b) => (a.fdr ?? 1) - (b.fdr ?? 1));
+        return copy.sort((a, b) => (a.fdr ?? 1) - (b.fdr ?? 1) || tie(a, b));
       default:
         return copy;
     }
@@ -138,28 +139,9 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
 
       {/* ── Main content ── */}
       <div className="flex-1 min-w-0 p-4">
-        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-            {MODE_LABELS[mode]}
-          </p>
-          {showSort && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-muted-foreground font-medium">{t("top10View.sortBy")}</span>
-              <select
-                value={sortKey}
-                onChange={(e) => setSortKey(e.target.value as SortKey)}
-                className="text-[11px] bg-card border border-border rounded-md px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="default">{t("top10View.sortOptions.default")}</option>
-                <option value="fdr">{t("top10View.sortOptions.fdr")}</option>
-                <option value="pvalue">{t("top10View.sortOptions.pvalue")}</option>
-                <option value="deltaPsi">{t("top10View.sortOptions.deltaPsi")}</option>
-                <option value="chr">{t("top10View.sortOptions.chr")}</option>
-                <option value="panelapp">{t("top10View.sortOptions.panelapp")}</option>
-              </select>
-            </div>
-          )}
-        </div>
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-4">
+          {MODE_LABELS[mode]}
+        </p>
 
         {/* Motifs mode → full-width aggregate panel */}
         {mode === "motifs" && analysisId ? (
@@ -173,6 +155,25 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
             {/* Splice mode: show aggregate pattern comparison panel at the top */}
             {mode === "splice" && deepAnalysisId && (
               <PatternComparisonPanel deepId={deepAnalysisId} />
+            )}
+
+            {/* Sort bar — placed between consensus/comparison panels and event cards */}
+            {showSort && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-muted-foreground font-medium">{t("top10View.sortBy")}</span>
+                <select
+                  value={sortKey}
+                  onChange={(e) => setSortKey(e.target.value as SortKey)}
+                  className="text-[11px] bg-card border border-border rounded-md px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="default">{t("top10View.sortOptions.default")}</option>
+                  <option value="fdr">{t("top10View.sortOptions.fdr")}</option>
+                  <option value="pvalue">{t("top10View.sortOptions.pvalue")}</option>
+                  <option value="deltaPsi">{t("top10View.sortOptions.deltaPsi")}</option>
+                  <option value="chr">{t("top10View.sortOptions.chr")}</option>
+                  <option value="panelapp">{t("top10View.sortOptions.panelapp")}</option>
+                </select>
+              </div>
             )}
 
             <div className="grid grid-cols-1 gap-4">

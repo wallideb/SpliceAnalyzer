@@ -50,7 +50,10 @@ from app.schemas.splice import (
 from app.services.event_cluster import cluster_se_events
 from app.services.mane import annotate_mane, get_transcript_exons
 from app.services.permutation import run_permutation
-from app.services.sequence import fasta_available, get_splice_windows, get_splice_windows_from_ensembl
+from app.services.sequence import (
+    fasta_available, get_splice_windows, get_splice_windows_batch,
+    get_splice_windows_from_ensembl,
+)
 from app.services.splice_features import compute_features, compute_pwm, iupac_consensus
 
 logger = logging.getLogger(__name__)
@@ -95,8 +98,13 @@ def _feat_to_response(feat: EventSpliceFeature, event: SplicingEvent) -> SpliceF
     )
 
 
-# Limit concurrent Ensembl + samtools calls to avoid overwhelming external services
-_COMPUTE_SEM = asyncio.Semaphore(5)
+# Limit concurrent samtools + Ensembl calls.
+# With local FASTA + local MANE GFF3 (the common case), each event runs
+# a single batched samtools subprocess + an in-memory dict lookup — purely
+# CPU/IO bound, so 20 concurrent slots keeps throughput high without
+# overwhelming the OS.  When falling back to Ensembl REST, 20 is still
+# well within their rate limits (~15 req/s).
+_COMPUTE_SEM = asyncio.Semaphore(20)
 
 # Limit total concurrent on-the-fly splice feature requests to prevent OOM/crash
 # when the deep analysis page fires dozens of requests simultaneously.
@@ -234,7 +242,7 @@ async def _compute_one(
 # POST /splice/compute/{analysis_id}
 # ---------------------------------------------------------------------------
 
-_COMPUTE_CHUNK = 50  # events processed concurrently per chunk
+_COMPUTE_CHUNK = 200  # events processed concurrently per chunk
 
 
 async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
@@ -242,6 +250,10 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
 
     Creates its own DB session so it can run after the HTTP response is sent.
     Processes events in chunks to avoid OOM with large analyses (200k+).
+
+    When a local FASTA is available, uses mega-batched samtools (one
+    subprocess per chunk of 200 events ≈ 1000 regions) which is 20-50x
+    faster than one subprocess per event.
     """
     try:
         async with AsyncSessionLocal() as db:
@@ -258,14 +270,87 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
             n_computed = 0
             n_total = len(se_events)
 
-            # Process in chunks to cap concurrent coroutines and memory usage
             for chunk_start in range(0, n_total, _COMPUTE_CHUNK):
-                chunk = se_events[chunk_start : chunk_start + _COMPUTE_CHUNK]
-                fetch_results = await asyncio.gather(
-                    *[_fetch_features(ev, fa_ok) for ev in chunk],
+                chunk = list(se_events[chunk_start : chunk_start + _COMPUTE_CHUNK])
+
+                # ── Step 1: Mega-batch samtools (FASTA) or per-event Ensembl ──
+                if fa_ok:
+                    # Build tuples for mega-batch
+                    event_tuples = [
+                        (
+                            ev.chr or "", ev.strand or "+",
+                            ev.exon_start, ev.exon_end,
+                            ev.upstream_ee, ev.downstream_es,
+                        )
+                        for ev in chunk
+                        if ev.exon_start is not None and ev.exon_end is not None
+                    ]
+                    valid_mask = [
+                        ev.exon_start is not None and ev.exon_end is not None
+                        for ev in chunk
+                    ]
+                    # Single samtools call for entire chunk
+                    batch_windows = await asyncio.to_thread(
+                        get_splice_windows_batch, event_tuples,
+                    )
+                    # Map back: valid events get their windows, others get None
+                    windows_list: list = []
+                    wi = 0
+                    for is_valid in valid_mask:
+                        if is_valid:
+                            windows_list.append(batch_windows[wi])
+                            wi += 1
+                        else:
+                            windows_list.append(None)
+                else:
+                    # Ensembl fallback: per-event (semaphore-throttled)
+                    async def _fetch_windows(ev):
+                        async with _COMPUTE_SEM:
+                            if ev.exon_start is None or ev.exon_end is None:
+                                return None
+                            try:
+                                w = await asyncio.to_thread(
+                                    get_splice_windows_from_ensembl,
+                                    ev.chr or "", ev.strand or "+",
+                                    ev.exon_start, ev.exon_end,
+                                    ev.upstream_ee, ev.downstream_es,
+                                )
+                                return w if w.donor_seq else None
+                            except Exception:
+                                return None
+                    windows_list = await asyncio.gather(
+                        *[_fetch_windows(ev) for ev in chunk],
+                        return_exceptions=True,
+                    )
+                    windows_list = [
+                        None if isinstance(w, Exception) else w
+                        for w in windows_list
+                    ]
+
+                # ── Step 2: Compute features + MANE (parallel) ──────────────
+                async def _compute_and_annotate(ev, windows):
+                    feat_data = compute_features(ev, windows)
+                    seq_source = windows.source if windows is not None else None
+                    mane: dict = {}
+                    if ev.gene_id:
+                        try:
+                            mane = await asyncio.to_thread(
+                                annotate_mane, ev.gene_id,
+                                ev.chr or "", ev.strand or "+",
+                                ev.exon_start or 0, ev.exon_end or 0,
+                            )
+                        except Exception as exc:
+                            logger.warning("MANE failed for %s: %s", ev.gene_id, exc)
+                    return feat_data, mane, seq_source
+
+                anno_results = await asyncio.gather(
+                    *[_compute_and_annotate(ev, w)
+                      for ev, w in zip(chunk, windows_list)],
                     return_exceptions=True,
                 )
-                for ev, res in zip(chunk, fetch_results):
+
+                # ── Step 3: DB writes ──────────────────────────────────────
+                for ev, res in zip(chunk, anno_results):
                     if isinstance(res, Exception):
                         logger.error("Feature compute failed for %s: %s", ev.id, res)
                         continue
@@ -276,8 +361,9 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                     except Exception as exc:
                         logger.error("DB write failed for %s: %s", ev.id, exc)
 
-                # Commit after each chunk to release DB resources
                 await db.commit()
+                if chunk_start % 1000 == 0:
+                    logger.info("Compute progress: %d/%d", n_computed, n_total)
 
             clusters = cluster_se_events(se_events)
             await db.execute(
@@ -560,6 +646,12 @@ async def get_splice_patterns(
     acc_23: list[str] = []
     n_gt = 0
     n_ag = 0
+    up_donor_9: list[str] = []
+    dn_acc_23: list[str] = []
+    n_up_gt = 0
+    n_dn_ag = 0
+    n_with_up_seq = 0
+    n_with_dn_seq = 0
     ppt_scores: list[float] = []
     ppt_runs: list[int] = []
     fc_counts: Counter[str] = Counter()
@@ -628,6 +720,19 @@ async def get_splice_patterns(
             # BP
             if feat.bp_motif_found:
                 bp_found_count += 1
+            # Flanking exon splice sites
+            if feat.upstream_donor_seq:
+                n_with_up_seq += 1
+                if len(feat.upstream_donor_seq) >= 9:
+                    up_donor_9.append(feat.upstream_donor_seq[:9])
+                if feat.upstream_donor_is_gt:
+                    n_up_gt += 1
+            if feat.downstream_acceptor_seq:
+                n_with_dn_seq += 1
+                if len(feat.downstream_acceptor_seq) >= 23:
+                    dn_acc_23.append(feat.downstream_acceptor_seq[-23:])
+                if feat.downstream_acceptor_is_ag:
+                    n_dn_ag += 1
 
     # Deep-analysis significance counts
     if deep_analysis_id is not None:
@@ -677,6 +782,22 @@ async def get_splice_patterns(
         pct_canonical = round(n_ag / len(acc_23) * 100, 1) if acc_23 else 0.0,
         examples      = acc_23[:8],
     )
+    up_donor_stats: SiteStats | None = SiteStats(
+        n_sequences   = len(up_donor_9),
+        consensus     = iupac_consensus(up_donor_9) if up_donor_9 else None,
+        pwm           = compute_pwm(up_donor_9),
+        n_canonical   = n_up_gt,
+        pct_canonical = round(n_up_gt / len(up_donor_9) * 100, 1) if up_donor_9 else 0.0,
+        examples      = up_donor_9[:8],
+    ) if up_donor_9 else None
+    dn_acc_stats: SiteStats | None = SiteStats(
+        n_sequences   = len(dn_acc_23),
+        consensus     = iupac_consensus(dn_acc_23) if dn_acc_23 else None,
+        pwm           = compute_pwm(dn_acc_23),
+        n_canonical   = n_dn_ag,
+        pct_canonical = round(n_dn_ag / len(dn_acc_23) * 100, 1) if dn_acc_23 else 0.0,
+        examples      = dn_acc_23[:8],
+    ) if dn_acc_23 else None
     ppt_stats = PPTStats(
         mean_score      = round(statistics.mean(ppt_scores),   3) if ppt_scores else None,
         scores          = ppt_scores[:100],
@@ -711,6 +832,8 @@ async def get_splice_patterns(
         mean_delta_psi_significant  = mean_delta_psi_significant,
         donor_sites                 = donor_stats,
         acceptor_sites              = acc_stats,
+        upstream_donor_sites        = up_donor_stats,
+        downstream_acceptor_sites   = dn_acc_stats,
         ppt                         = ppt_stats,
         frame                       = frame_stats,
         bp_found_pct                = bp_pct,

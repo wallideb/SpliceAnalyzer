@@ -55,6 +55,8 @@ export function ConsensusExonView({ data }: ConsensusExonViewProps) {
     mean_delta_psi,
     donor_sites,
     acceptor_sites,
+    upstream_donor_sites,
+    downstream_acceptor_sites,
     ppt,
     frame,
     fasta_available,
@@ -123,6 +125,10 @@ export function ConsensusExonView({ data }: ConsensusExonViewProps) {
           acceptorIsAg={hasConsensus ? acceptor_sites.pct_canonical >= 80 : null}
           donorSeq={hasConsensus ? donor_sites.consensus ?? null : null}
           acceptorSeq={hasConsensus ? acceptor_sites.consensus ?? null : null}
+          upstreamDonorSeq={upstream_donor_sites?.consensus ?? null}
+          downstreamAcceptorSeq={downstream_acceptor_sites?.consensus ?? null}
+          upstreamDonorIsGt={upstream_donor_sites ? upstream_donor_sites.pct_canonical >= 80 : null}
+          downstreamAcceptorIsAg={downstream_acceptor_sites ? downstream_acceptor_sites.pct_canonical >= 80 : null}
           pptScore={ppt.mean_score}
           frameClass={
             frame.in_frame > frame.frameshift + frame.non_coding

@@ -278,6 +278,79 @@ def get_splice_windows(
     )
 
 
+def get_splice_windows_batch(
+    events: list[tuple[str, str, int, int, int | None, int | None]],
+    fasta_path: str | None = None,
+) -> list[SpliceWindows]:
+    """Extract splice windows for many events in ONE samtools call.
+
+    Parameters
+    ----------
+    events : list of (chrom, strand, exon_start, exon_end, upstream_ee, downstream_es)
+
+    Returns a list of SpliceWindows (same order as *events*).
+    ~20-50x faster than calling get_splice_windows() per event because
+    it spawns a single samtools subprocess for all regions.
+    """
+    if not events:
+        return []
+    fp = fasta_path or settings.GRCH38_FASTA
+
+    # Build a flat region list: 5 regions per event, in order
+    all_regions: list[tuple[str, int, int]] = []
+    event_meta: list[tuple[bool, bool, bool]] = []  # (need_rc, has_up, has_dn)
+
+    for chrom, strand, exon_start, exon_end, upstream_ee, downstream_es in events:
+        need_rc = strand == "-"
+        has_up = upstream_ee is not None
+        has_dn = downstream_es is not None
+        event_meta.append((need_rc, has_up, has_dn))
+
+        if strand == "+":
+            all_regions.append((chrom, exon_end - 3,    exon_end + 6))
+            all_regions.append((chrom, exon_start - 20, exon_start + 3))
+            all_regions.append((chrom, exon_start - 50, exon_start - 3))
+            all_regions.append(
+                (chrom, upstream_ee - 3, upstream_ee + 6)
+                if has_up else (chrom, 0, 0)
+            )
+            all_regions.append(
+                (chrom, downstream_es - 20, downstream_es + 3)
+                if has_dn else (chrom, 0, 0)
+            )
+        else:
+            all_regions.append((chrom, exon_start - 6,  exon_start + 3))
+            all_regions.append((chrom, exon_end - 3,    exon_end + 20))
+            all_regions.append((chrom, exon_end + 3,    exon_end + 50))
+            all_regions.append(
+                (chrom, upstream_ee - 6, upstream_ee + 3)
+                if has_up else (chrom, 0, 0)
+            )
+            all_regions.append(
+                (chrom, downstream_es - 3, downstream_es + 20)
+                if has_dn else (chrom, 0, 0)
+            )
+
+    all_seqs = extract_regions_batch(all_regions, fp)
+
+    # Unpack: 5 seqs per event
+    results: list[SpliceWindows] = []
+    for i, (need_rc, has_up, has_dn) in enumerate(event_meta):
+        seqs = all_seqs[i * 5 : i * 5 + 5]
+        if need_rc:
+            seqs = [reverse_complement(s) if s else "" for s in seqs]
+        results.append(SpliceWindows(
+            donor_seq=seqs[0],
+            acceptor_seq=seqs[1],
+            ppt_seq=seqs[2],
+            upstream_donor_seq=seqs[3] if has_up else "",
+            downstream_acceptor_seq=seqs[4] if has_dn else "",
+            source="fasta",
+        ))
+
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Ensembl REST API fallback (no local FASTA required)
 # ---------------------------------------------------------------------------

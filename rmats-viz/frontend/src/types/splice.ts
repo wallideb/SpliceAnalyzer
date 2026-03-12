@@ -161,6 +161,9 @@ export interface PatternAnalysisResponse {
   mean_delta_psi_significant: number | null;
   donor_sites: SiteStats;
   acceptor_sites: SiteStats;
+  // Flanking exon splice sites
+  upstream_donor_sites: SiteStats | null;
+  downstream_acceptor_sites: SiteStats | null;
   ppt: PPTStats;
   frame: FrameStats;
   bp_found_pct: number | null;

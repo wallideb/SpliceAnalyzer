@@ -225,6 +225,13 @@ class GroupPatternStats(BaseModel):
     acceptor_pwm: list[dict[str, float]] | None = None
     donor_consensus: str | None = None
     acceptor_consensus: str | None = None
+    # Flanking exon splice sites
+    pct_upstream_gt: float | None = None
+    pct_downstream_ag: float | None = None
+    upstream_donor_pwm: list[dict[str, float]] | None = None
+    downstream_acceptor_pwm: list[dict[str, float]] | None = None
+    upstream_donor_consensus: str | None = None
+    downstream_acceptor_consensus: str | None = None
     mean_delta_psi: float | None = None
 
 
@@ -475,6 +482,28 @@ def _compute_stat_tests(
         statistic=z_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
     ))
 
+    # 8. Upstream donor GT (flanking exon) — proportion z-test
+    sig_up = [f for f in sig_feats if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
+    ns_up = [f for f in nonsig_feats if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
+    k1 = sum(1 for f in sig_up if f.upstream_donor_is_gt)
+    k2 = sum(1 for f in ns_up if f.upstream_donor_is_gt)
+    z_stat, p_val = _proportion_z_test(k1, len(sig_up), k2, len(ns_up))
+    results.append(StatTestResult(
+        feature="upstream_canonical_gt", test_name="Proportion z-test",
+        statistic=z_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+    ))
+
+    # 9. Downstream acceptor AG (flanking exon) — proportion z-test
+    sig_dn = [f for f in sig_feats if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
+    ns_dn = [f for f in nonsig_feats if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
+    k1 = sum(1 for f in sig_dn if f.downstream_acceptor_is_ag)
+    k2 = sum(1 for f in ns_dn if f.downstream_acceptor_is_ag)
+    z_stat, p_val = _proportion_z_test(k1, len(sig_dn), k2, len(ns_dn))
+    results.append(StatTestResult(
+        feature="downstream_canonical_ag", test_name="Proportion z-test",
+        statistic=z_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+    ))
+
     return results
 
 
@@ -495,6 +524,14 @@ def _compute_group_stats(
     # Acceptor
     acc_23 = [f.acceptor_seq[-23:] for f in feats_with_seq if f.acceptor_seq and len(f.acceptor_seq) >= 23]
     n_ag = sum(1 for f in feats_with_seq if f.acceptor_seq and len(f.acceptor_seq) >= 23 and f.acceptor_is_ag)
+
+    # Upstream donor (flanking exon)
+    up_donor_9 = [f.upstream_donor_seq[:9] for f in feats_with_seq if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
+    n_up_gt = sum(1 for f in feats_with_seq if f.upstream_donor_seq and f.upstream_donor_is_gt)
+
+    # Downstream acceptor (flanking exon)
+    dn_acc_23 = [f.downstream_acceptor_seq[-23:] for f in feats_with_seq if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
+    n_dn_ag = sum(1 for f in feats_with_seq if f.downstream_acceptor_seq and f.downstream_acceptor_is_ag)
 
     # PPT
     ppt_scores = [f.ppt_score for f in feats_with_seq if f.ppt_score is not None]
@@ -525,5 +562,11 @@ def _compute_group_stats(
         acceptor_pwm=compute_pwm(acc_23) if acc_23 else None,
         donor_consensus=iupac_consensus(donor_9) if donor_9 else None,
         acceptor_consensus=iupac_consensus(acc_23) if acc_23 else None,
+        pct_upstream_gt=round(n_up_gt / len(up_donor_9) * 100, 1) if up_donor_9 else None,
+        pct_downstream_ag=round(n_dn_ag / len(dn_acc_23) * 100, 1) if dn_acc_23 else None,
+        upstream_donor_pwm=compute_pwm(up_donor_9) if up_donor_9 else None,
+        downstream_acceptor_pwm=compute_pwm(dn_acc_23) if dn_acc_23 else None,
+        upstream_donor_consensus=iupac_consensus(up_donor_9) if up_donor_9 else None,
+        downstream_acceptor_consensus=iupac_consensus(dn_acc_23) if dn_acc_23 else None,
         mean_delta_psi=round(statistics.mean(dpsi), 3) if dpsi else None,
     )

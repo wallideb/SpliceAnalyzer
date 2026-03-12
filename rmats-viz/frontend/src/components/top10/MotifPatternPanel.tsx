@@ -376,7 +376,7 @@ export function MotifPatternPanel({ events, analysisId, deepAnalysisId, fdrThres
   }
 
   // ── Computed ─────────────────────────────────────────────────────────────
-  const { exon_sizes, donor_sites, acceptor_sites, ppt, frame, bp_found_pct } = data;
+  const { exon_sizes, donor_sites, acceptor_sites, upstream_donor_sites, downstream_acceptor_sites, ppt, frame, bp_found_pct } = data;
 
   // Frame totals for bar widths
   const frameTotal = (frame.in_frame + frame.frameshift + frame.non_coding + frame.unknown) || 1;
@@ -578,6 +578,46 @@ export function MotifPatternPanel({ events, analysisId, deepAnalysisId, fdrThres
         </Section>
       )}
 
+      {/* ── Upstream flanking exon 5'SS donor logo ── */}
+      {upstream_donor_sites && upstream_donor_sites.pwm.length > 0 && (
+        <Section title={`Upstream exon 5'SS donor (n=${upstream_donor_sites.n_sequences}, ${upstream_donor_sites.pct_canonical}% GT)`}>
+          {upstream_donor_sites.consensus && (
+            <p className="text-[10px] text-muted-foreground mb-1">
+              {t("motifPanel.iupacConsensus")} <code className="font-mono font-bold text-foreground">{upstream_donor_sites.consensus}</code>
+            </p>
+          )}
+          <ConsensusLogoPanel
+            pwm={upstream_donor_sites.pwm}
+            title="Upstream exon 5'SS (9 nt)"
+            startPosition={-3}
+            skipZero
+            canonicalPositions={[1, 2]}
+            id="logo-up-donor"
+            nSequences={upstream_donor_sites.n_sequences}
+          />
+        </Section>
+      )}
+
+      {/* ── Downstream flanking exon 3'SS acceptor logo ── */}
+      {downstream_acceptor_sites && downstream_acceptor_sites.pwm.length > 0 && (
+        <Section title={`Downstream exon 3'SS acceptor (n=${downstream_acceptor_sites.n_sequences}, ${downstream_acceptor_sites.pct_canonical}% AG)`}>
+          {downstream_acceptor_sites.consensus && (
+            <p className="text-[10px] text-muted-foreground mb-1">
+              {t("motifPanel.iupacConsensus")} <code className="font-mono font-bold text-foreground">{downstream_acceptor_sites.consensus}</code>
+            </p>
+          )}
+          <ConsensusLogoPanel
+            pwm={downstream_acceptor_sites.pwm}
+            title="Downstream exon 3'SS (23 nt)"
+            startPosition={-20}
+            skipZero
+            canonicalPositions={[-2, -1]}
+            id="logo-dn-acceptor"
+            nSequences={downstream_acceptor_sites.n_sequences}
+          />
+        </Section>
+      )}
+
       {/* ── PPT score distribution ── */}
       {ppt && ppt.scores.length > 0 && (
         <Section title={t("motifPanel.sectionPpt", { pct: ppt.mean_score !== null ? Math.round(ppt.mean_score * 100) : "—", run: ppt.mean_longest_run ?? "—" })}>
@@ -705,6 +745,8 @@ function FeatureComparisonSection({
               <CmpRow label="In-frame" sigVal={sig.frame_in_frame} nonsigVal={nonsig.frame_in_frame} pValue={p("in_frame_pct")?.p_value} testName={p("in_frame_pct")?.test_name} />
               <CmpRow label="Frameshift" sigVal={sig.frame_frameshift} nonsigVal={nonsig.frame_frameshift} />
               <CmpRow label="Non-coding" sigVal={sig.frame_non_coding} nonsigVal={nonsig.frame_non_coding} />
+              <CmpRow label="Upstream GT (5'SS)" sigVal={sig.pct_upstream_gt} nonsigVal={nonsig.pct_upstream_gt} format="pct" pValue={p("upstream_canonical_gt")?.p_value} testName={p("upstream_canonical_gt")?.test_name} />
+              <CmpRow label="Downstream AG (3'SS)" sigVal={sig.pct_downstream_ag} nonsigVal={nonsig.pct_downstream_ag} format="pct" pValue={p("downstream_canonical_ag")?.p_value} testName={p("downstream_canonical_ag")?.test_name} />
               <CmpRow label="Branch point found" sigVal={sig.bp_found_pct} nonsigVal={nonsig.bp_found_pct} format="pct" pValue={p("bp_found")?.p_value} testName={p("bp_found")?.test_name} />
               <CmpRow label="Mean ΔΨ" sigVal={sig.mean_delta_psi != null ? formatDeltaPSI(sig.mean_delta_psi) : null} nonsigVal={nonsig.mean_delta_psi != null ? formatDeltaPSI(nonsig.mean_delta_psi) : null} pValue={p("mean_delta_psi")?.p_value} testName={p("mean_delta_psi")?.test_name} />
             </tbody>

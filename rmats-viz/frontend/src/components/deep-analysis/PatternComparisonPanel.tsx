@@ -220,7 +220,14 @@ export function PatternComparisonPanel({ deepId }: Props) {
                 {t("deepAnalysis.significant")} ({sig.n_se_with_features})
               </p>
               {sig.upstream_donor_pwm && sig.upstream_donor_pwm.length > 0 ? (
-                <ConsensusLogoPanel pwm={sig.upstream_donor_pwm} title="" startPosition={-3} skipZero canonicalPositions={[1, 2]} id="cmp-up-donor-sig" nSequences={sig.n_se_with_features} />
+                <>
+                  <ConsensusLogoPanel pwm={sig.upstream_donor_pwm} title="" startPosition={-3} skipZero canonicalPositions={[1, 2]} id="cmp-up-donor-sig" nSequences={sig.n_se_with_features} />
+                  {sig.upstream_donor_consensus && (
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      IUPAC: <code className="font-mono text-muted-foreground">{sig.upstream_donor_consensus}</code>
+                    </p>
+                  )}
+                </>
               ) : (
                 <p className="text-[10px] text-muted-foreground">No data</p>
               )}
@@ -230,7 +237,14 @@ export function PatternComparisonPanel({ deepId }: Props) {
                 {t("deepAnalysis.notSignificant")} ({nonsig.n_se_with_features})
               </p>
               {nonsig.upstream_donor_pwm && nonsig.upstream_donor_pwm.length > 0 ? (
-                <ConsensusLogoPanel pwm={nonsig.upstream_donor_pwm} title="" startPosition={-3} skipZero canonicalPositions={[1, 2]} id="cmp-up-donor-nonsig" nSequences={nonsig.n_se_with_features} />
+                <>
+                  <ConsensusLogoPanel pwm={nonsig.upstream_donor_pwm} title="" startPosition={-3} skipZero canonicalPositions={[1, 2]} id="cmp-up-donor-nonsig" nSequences={nonsig.n_se_with_features} />
+                  {nonsig.upstream_donor_consensus && (
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      IUPAC: <code className="font-mono text-muted-foreground">{nonsig.upstream_donor_consensus}</code>
+                    </p>
+                  )}
+                </>
               ) : (
                 <p className="text-[10px] text-muted-foreground">No data</p>
               )}
@@ -252,7 +266,14 @@ export function PatternComparisonPanel({ deepId }: Props) {
                 {t("deepAnalysis.significant")} ({sig.n_se_with_features})
               </p>
               {sig.downstream_acceptor_pwm && sig.downstream_acceptor_pwm.length > 0 ? (
-                <ConsensusLogoPanel pwm={sig.downstream_acceptor_pwm} title="" startPosition={-20} skipZero canonicalPositions={[-2, -1]} id="cmp-dn-acc-sig" nSequences={sig.n_se_with_features} />
+                <>
+                  <ConsensusLogoPanel pwm={sig.downstream_acceptor_pwm} title="" startPosition={-20} skipZero canonicalPositions={[-2, -1]} id="cmp-dn-acc-sig" nSequences={sig.n_se_with_features} />
+                  {sig.downstream_acceptor_consensus && (
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      IUPAC: <code className="font-mono text-muted-foreground">{sig.downstream_acceptor_consensus}</code>
+                    </p>
+                  )}
+                </>
               ) : (
                 <p className="text-[10px] text-muted-foreground">No data</p>
               )}
@@ -262,7 +283,14 @@ export function PatternComparisonPanel({ deepId }: Props) {
                 {t("deepAnalysis.notSignificant")} ({nonsig.n_se_with_features})
               </p>
               {nonsig.downstream_acceptor_pwm && nonsig.downstream_acceptor_pwm.length > 0 ? (
-                <ConsensusLogoPanel pwm={nonsig.downstream_acceptor_pwm} title="" startPosition={-20} skipZero canonicalPositions={[-2, -1]} id="cmp-dn-acc-nonsig" nSequences={nonsig.n_se_with_features} />
+                <>
+                  <ConsensusLogoPanel pwm={nonsig.downstream_acceptor_pwm} title="" startPosition={-20} skipZero canonicalPositions={[-2, -1]} id="cmp-dn-acc-nonsig" nSequences={nonsig.n_se_with_features} />
+                  {nonsig.downstream_acceptor_consensus && (
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      IUPAC: <code className="font-mono text-muted-foreground">{nonsig.downstream_acceptor_consensus}</code>
+                    </p>
+                  )}
+                </>
               ) : (
                 <p className="text-[10px] text-muted-foreground">No data</p>
               )}

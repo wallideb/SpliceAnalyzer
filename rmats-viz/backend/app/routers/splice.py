@@ -646,6 +646,12 @@ async def get_splice_patterns(
     acc_23: list[str] = []
     n_gt = 0
     n_ag = 0
+    up_donor_9: list[str] = []
+    dn_acc_23: list[str] = []
+    n_up_gt = 0
+    n_dn_ag = 0
+    n_with_up_seq = 0
+    n_with_dn_seq = 0
     ppt_scores: list[float] = []
     ppt_runs: list[int] = []
     fc_counts: Counter[str] = Counter()
@@ -714,6 +720,19 @@ async def get_splice_patterns(
             # BP
             if feat.bp_motif_found:
                 bp_found_count += 1
+            # Flanking exon splice sites
+            if feat.upstream_donor_seq:
+                n_with_up_seq += 1
+                if len(feat.upstream_donor_seq) >= 9:
+                    up_donor_9.append(feat.upstream_donor_seq[:9])
+                if feat.upstream_donor_is_gt:
+                    n_up_gt += 1
+            if feat.downstream_acceptor_seq:
+                n_with_dn_seq += 1
+                if len(feat.downstream_acceptor_seq) >= 23:
+                    dn_acc_23.append(feat.downstream_acceptor_seq[-23:])
+                if feat.downstream_acceptor_is_ag:
+                    n_dn_ag += 1
 
     # Deep-analysis significance counts
     if deep_analysis_id is not None:
@@ -763,6 +782,22 @@ async def get_splice_patterns(
         pct_canonical = round(n_ag / len(acc_23) * 100, 1) if acc_23 else 0.0,
         examples      = acc_23[:8],
     )
+    up_donor_stats: SiteStats | None = SiteStats(
+        n_sequences   = len(up_donor_9),
+        consensus     = iupac_consensus(up_donor_9) if up_donor_9 else None,
+        pwm           = compute_pwm(up_donor_9),
+        n_canonical   = n_up_gt,
+        pct_canonical = round(n_up_gt / len(up_donor_9) * 100, 1) if up_donor_9 else 0.0,
+        examples      = up_donor_9[:8],
+    ) if up_donor_9 else None
+    dn_acc_stats: SiteStats | None = SiteStats(
+        n_sequences   = len(dn_acc_23),
+        consensus     = iupac_consensus(dn_acc_23) if dn_acc_23 else None,
+        pwm           = compute_pwm(dn_acc_23),
+        n_canonical   = n_dn_ag,
+        pct_canonical = round(n_dn_ag / len(dn_acc_23) * 100, 1) if dn_acc_23 else 0.0,
+        examples      = dn_acc_23[:8],
+    ) if dn_acc_23 else None
     ppt_stats = PPTStats(
         mean_score      = round(statistics.mean(ppt_scores),   3) if ppt_scores else None,
         scores          = ppt_scores[:100],
@@ -797,6 +832,8 @@ async def get_splice_patterns(
         mean_delta_psi_significant  = mean_delta_psi_significant,
         donor_sites                 = donor_stats,
         acceptor_sites              = acc_stats,
+        upstream_donor_sites        = up_donor_stats,
+        downstream_acceptor_sites   = dn_acc_stats,
         ppt                         = ppt_stats,
         frame                       = frame_stats,
         bp_found_pct                = bp_pct,

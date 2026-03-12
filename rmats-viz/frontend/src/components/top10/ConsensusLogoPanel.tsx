@@ -280,6 +280,13 @@ export function ConsensusLogoPanel({
               .map((b) => ({ b, f: row[b] }))
               .sort((a, z) => a.f - z.f);
 
+            // When IC ≈ 0 after correction, show faint frequency-based letters
+            // so every position with data shows something (minimum 3px column).
+            const rawIc   = Math.max(0, 2 - entropy(row));
+            const MIN_COL = 3;
+            const showFaint = ic < 0.05 && rawIc > 0;
+            const effectiveColH = showFaint ? MIN_COL : colH;
+
             let curY = TOP_PAD + LOGO_H;
             const letterGlyphs: React.ReactNode[] = [];
 
@@ -289,8 +296,8 @@ export function ConsensusLogoPanel({
 
             for (const { b, f } of sorted) {
               if (f <= 0) continue;
-              const h = f * colH;
-              if (h < 0.4) { curY -= h; continue; }
+              const h = f * effectiveColH;
+              if (h < 0.15) { curY -= h; continue; }
               curY -= h;
 
               // Scale the letter glyph so it fills exactly width=COL_W-2, height=h
@@ -311,6 +318,7 @@ export function ConsensusLogoPanel({
                     fontFamily="Arial Black, Impact, Helvetica, sans-serif"
                     fontWeight="900"
                     fill={BASE_COLORS[b]}
+                    opacity={showFaint ? 0.25 : 1}
                   >
                     {b}
                   </text>

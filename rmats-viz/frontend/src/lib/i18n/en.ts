@@ -332,6 +332,8 @@ export const en = {
     sectionFrame: "Reading frame class (skipped exon)",
     frameLabelNonCoding: "Non-coding",
     frameLabelUnknown: "Unknown",
+    sectionComparison: "Feature comparison — Significant vs Non-significant",
+    sectionFrameComparison: "Reading frame — Significant vs Non-significant",
     sectionBp: "Branch point detection (YNYURAY motif)",
     bpDetected: "detected",
     histogramAriaLabel: "Skipped exon size distribution",

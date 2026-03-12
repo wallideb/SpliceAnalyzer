@@ -176,13 +176,14 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
             )}
 
             <div className="grid grid-cols-1 gap-4">
-              {sortedEvents.map((ev) => {
+              {sortedEvents.map((ev, idx) => {
                 const symKey = (ev.gene_symbol ?? "").toUpperCase();
                 return (
                   <AnnotatedCard
                     key={ev.id}
                     event={ev}
                     mode={mode}
+                    rank={idx + 1}
                     ensemblIdHint={ensemblHints[symKey] ?? ev.gene_id}
                     mutatedGenes={mutatedGenes}
                     analysisId={analysisId}

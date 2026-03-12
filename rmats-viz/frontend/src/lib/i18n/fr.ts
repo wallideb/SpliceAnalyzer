@@ -335,6 +335,8 @@ export const fr: Translations = {
     sectionFrame: "Classe de cadre de lecture (exon sauté)",
     frameLabelNonCoding: "Non-codant",
     frameLabelUnknown: "Inconnu",
+    sectionComparison: "Comparaison — Significatifs vs Non-significatifs",
+    sectionFrameComparison: "Cadre de lecture — Significatifs vs Non-significatifs",
     sectionBp: "Branch point detection (YNYURAY motif)",
     bpDetected: "détectés",
     histogramAriaLabel: "Distribution des tailles d'exons sautés",

@@ -49,7 +49,10 @@ class DeepAnalysisEvent(Base):
 
     __tablename__ = "deep_analysis_events"
     __table_args__ = (
+        # Simple index on deep_analysis_id for fast lookups by DA
         Index("ix_dae_deep_analysis_id", "deep_analysis_id"),
+        # Composite index for queries that also filter by is_significant
+        Index("ix_dae_da_sig", "deep_analysis_id", "is_significant"),
     )
 
     deep_analysis_id: Mapped[uuid.UUID] = mapped_column(

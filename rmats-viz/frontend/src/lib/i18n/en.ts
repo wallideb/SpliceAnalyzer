@@ -163,6 +163,8 @@ export const en = {
       pathways: "Molecular pathways (coming soon)",
       motifs: "Recurrent splicing patterns",
       splice: "Consensus splice sites",
+      hnrnp: "hnRNP motif enrichment (rMAPS2-inspired)",
+      enrichr: "Enrichr pathway enrichment",
     },
     sortBy: "Sort by:",
     sortOptions: {
@@ -174,6 +176,7 @@ export const en = {
       panelapp: "PanelApp confidence",
     },
     noAnalysisId: "analysisId not available for this context.",
+    noDeepAnalysis: "This analysis requires a saved deep analysis.",
     goCategories: "GO categories:",
     goBP: "Biological process",
     goMF: "Molecular function",
@@ -247,6 +250,8 @@ export const en = {
       pathways: "Mol. Pathways",
       motifs: "Recur. Motifs",
       splice: "Consensus Sites",
+      hnrnp: "hnRNP Motifs",
+      enrichr: "Enrichr",
     },
   },
   annotatedCard: {
@@ -489,6 +494,30 @@ export const en = {
         "rMATS FDR values use the Benjamini-Hochberg correction " +
         "(Benjamini &amp; Hochberg, 1995).",
     },
+    hnrnpMotifs: {
+      title: "Method — hnRNP motif enrichment analysis",
+      body:
+        "Inspired by rMAPS2 (Hwang et al., NAR 2020; 48:W300-W306), this analysis scans five " +
+        "genomic regions around each skipped exon (upstream exon, upstream intron, skipped exon " +
+        "body, downstream intron, downstream exon) for 17 known hnRNP RNA-binding protein " +
+        "consensus motifs. Motifs include hnRNP A1/A2 (TAGG, AGG), hnRNP F/H (GGG, GGGG), " +
+        "hnRNP K (CCCC), hnRNP C (poly-T), hnRNP L (CA repeats), hnRNP M (GT repeats), and " +
+        "PTB (TCTT, TCTCT). Motif sequences are sourced from CISBP-RNA (Ray et al., Nature 2013) " +
+        "and published studies (Martinez-Contreras et al., 2006). Intronic regions exclude the " +
+        "6-nt 5'SS and 20-nt 3'SS consensus zones, following the rMAPS2 convention that these " +
+        "regions are strongly constrained by splice-site signals. rMAPS2 uses a sliding window " +
+        "(50 bp) with Wilcoxon rank-sum test on motif density; our simplified implementation " +
+        "uses a two-proportion z-test on motif presence per region with Bonferroni correction.",
+    },
+    enrichr: {
+      title: "Method — Enrichr pathway enrichment",
+      body:
+        "Gene symbols from significant events are submitted to the Enrichr REST API " +
+        "(Ma'ayan Lab, Icahn School of Medicine). Enrichment is computed against curated " +
+        "gene-set libraries (KEGG 2021, GO Biological Process, GO Molecular Function, " +
+        "Reactome 2022, WikiPathways 2023). The combined score integrates z-score and " +
+        "p-value for ranking. Reference: Chen et al., Enrichr, BMC Bioinformatics 2013.",
+    },
     exonDiagram: {
       title: "Method — rMATS SE event definition",
       body:
@@ -626,6 +655,37 @@ export const en = {
     seOnlyNotice: "Sequence analysis (motifs, logos, PPT) — SE events only",
     optionalModulesActive: "{{n}} optional module active",
     optionalModulesActivePlural: "{{n}} optional modules active",
+  },
+  hnrnpPanel: {
+    error: "Failed to load hnRNP motif enrichment data.",
+    sigEvents: "Significant events",
+    bgEvents: "Background events",
+    significantMotifs: "Significant motifs",
+    filters: "Filters",
+    showAll: "Show all",
+    significantOnly: "Significant only",
+    allProteins: "All proteins",
+    allRegions: "All regions",
+    noResults: "No motif results found.",
+    noSignificant: "No significantly enriched motifs found. Click \"Show all\" to see all results.",
+    colProtein: "Protein",
+    colMotif: "Motif",
+    colRegion: "Region",
+    colSig: "Sig",
+    colBg: "Background",
+    showing: "Showing {{n}} of {{total}} results",
+    bonferroni: "Bonferroni-corrected p-values",
+    heatmapTitle: "Enrichment heatmap — best motif per protein × region",
+    enriched: "Enriched in sig.",
+    depleted: "Depleted in sig.",
+  },
+  enrichrPanel: {
+    error: "Failed to load Enrichr enrichment results.",
+    genesSubmitted: "Genes submitted",
+    termsFound: "Terms found",
+    libraries: "Libraries queried",
+    allLibraries: "All",
+    noTerms: "No enriched terms found.",
   },
 };
 

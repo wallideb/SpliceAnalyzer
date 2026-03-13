@@ -11,6 +11,7 @@ GET    /deep-analyses/{id}/pattern-comparison — dual-group pattern stats
 
 from __future__ import annotations
 
+import asyncio
 import math
 import statistics
 import uuid
@@ -18,6 +19,7 @@ from collections import Counter
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -34,6 +36,8 @@ from app.schemas.event import SplicingEventResponse
 from app.services.splice_features import compute_pwm, iupac_consensus
 
 router = APIRouter(tags=["deep-analyses"])
+
+_DAE_BATCH = 5_000  # junction rows per pg_insert (stays within PG param limit)
 
 
 # ---------------------------------------------------------------------------
@@ -76,9 +80,9 @@ async def create_deep_analysis(
     rows = (await db.execute(q)).all()
 
     # Tag each event
-    junction_rows: list[DeepAnalysisEvent] = []
     n_sig = 0
     n_not_sig = 0
+    event_records: list[dict] = []
 
     for event_id, fdr, inc_level_diff in rows:
         fdr_ok = fdr is not None and fdr <= body.fdr_threshold
@@ -87,15 +91,11 @@ async def create_deep_analysis(
             and abs(inc_level_diff) >= body.delta_psi_min
         )
         is_sig = fdr_ok and dpsi_ok
-
         if is_sig:
             n_sig += 1
         else:
             n_not_sig += 1
-
-        junction_rows.append(
-            DeepAnalysisEvent(event_id=event_id, is_significant=is_sig)
-        )
+        event_records.append({"event_id": event_id, "is_significant": is_sig})
 
     deep = DeepAnalysis(
         analysis_id=analysis_id,
@@ -108,8 +108,16 @@ async def create_deep_analysis(
         n_not_significant=n_not_sig,
         status="ready",
     )
-    deep.events = junction_rows
     db.add(deep)
+    await db.flush()  # materialise deep.id before bulk insert
+
+    # Bulk-insert junction rows in batches to stay within pg param limit
+    for i in range(0, len(event_records), _DAE_BATCH):
+        batch = event_records[i : i + _DAE_BATCH]
+        for rec in batch:
+            rec["deep_analysis_id"] = deep.id
+        await db.execute(pg_insert(DeepAnalysisEvent).values(batch))
+
     await db.commit()
     await db.refresh(deep)
     return deep
@@ -536,11 +544,11 @@ def _compute_group_stats(
 
     # Upstream donor (flanking exon)
     up_donor_9 = [f.upstream_donor_seq[:9] for f in feats_with_seq if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
-    n_up_gt = sum(1 for f in feats_with_seq if f.upstream_donor_seq and f.upstream_donor_is_gt)
+    n_up_gt = sum(1 for f in feats_with_seq if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9 and f.upstream_donor_is_gt)
 
     # Downstream acceptor (flanking exon)
     dn_acc_23 = [f.downstream_acceptor_seq[-23:] for f in feats_with_seq if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
-    n_dn_ag = sum(1 for f in feats_with_seq if f.downstream_acceptor_seq and f.downstream_acceptor_is_ag)
+    n_dn_ag = sum(1 for f in feats_with_seq if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23 and f.downstream_acceptor_is_ag)
 
     # PPT
     ppt_scores = [f.ppt_score for f in feats_with_seq if f.ppt_score is not None]
@@ -578,4 +586,230 @@ def _compute_group_stats(
         upstream_donor_consensus=iupac_consensus(up_donor_9) if up_donor_9 else None,
         downstream_acceptor_consensus=iupac_consensus(dn_acc_23) if dn_acc_23 else None,
         mean_delta_psi=round(statistics.mean(dpsi), 3) if dpsi else None,
+    )
+
+
+# ===========================================================================
+# hnRNP motif enrichment analysis
+# ===========================================================================
+
+class MotifEnrichmentItem(BaseModel):
+    motif_name: str
+    protein: str
+    region: str
+    sig_hit_count: int
+    sig_total: int
+    bg_hit_count: int
+    bg_total: int
+    sig_density: float
+    bg_density: float
+    z_stat: float | None = None
+    p_value: float | None = None
+    p_adjusted: float | None = None
+    significant: bool = False
+
+
+class HnRNPMotifResponse(BaseModel):
+    n_sig_events: int
+    n_bg_events: int
+    results: list[MotifEnrichmentItem]
+
+
+@router.get(
+    "/deep-analyses/{deep_analysis_id}/hnrnp-motifs",
+    response_model=HnRNPMotifResponse,
+)
+async def get_hnrnp_motifs(
+    deep_analysis_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Run hnRNP motif enrichment: compare motif frequency in significant
+    vs non-significant SE events (rMAPS2-inspired analysis)."""
+    from app.services.hnrnp_motifs import (
+        SERegions, define_se_regions, compare_groups, scan_group,
+    )
+    from app.services.sequence import extract_regions_batch, reverse_complement
+    from app.config import settings
+
+    deep = (
+        await db.execute(
+            select(DeepAnalysis).where(DeepAnalysis.id == deep_analysis_id)
+        )
+    ).scalar_one_or_none()
+    if not deep:
+        raise HTTPException(404, "Deep analysis not found")
+
+    # Fetch all SE events with significance tagging
+    q = (
+        select(
+            SplicingEvent,
+            DeepAnalysisEvent.is_significant,
+        )
+        .join(DeepAnalysisEvent, DeepAnalysisEvent.event_id == SplicingEvent.id)
+        .where(
+            DeepAnalysisEvent.deep_analysis_id == deep_analysis_id,
+            SplicingEvent.event_type == "SE",
+        )
+    )
+    rows = (await db.execute(q)).all()
+
+    sig_events: list[SplicingEvent] = []
+    bg_events: list[SplicingEvent] = []
+    for ev, is_sig in rows:
+        (sig_events if is_sig else bg_events).append(ev)
+
+    def _build_regions(events: list[SplicingEvent]) -> list[SERegions]:
+        """Extract five genomic regions per event and fetch sequences in one batch."""
+        if not events:
+            return []
+        all_bed_regions: list[tuple[str, int, int]] = []
+        strands: list[str] = []
+        for ev in events:
+            if not ev.chr or ev.exon_start is None or ev.exon_end is None:
+                for _ in range(5):
+                    all_bed_regions.append(("", 0, 0))
+                strands.append(ev.strand or "+")
+                continue
+            bed = define_se_regions(
+                ev.chr, ev.strand or "+",
+                ev.exon_start, ev.exon_end,
+                ev.upstream_es, ev.upstream_ee,
+                ev.downstream_es, ev.downstream_ee,
+            )
+            all_bed_regions.extend(bed)
+            strands.append(ev.strand or "+")
+
+        seqs = extract_regions_batch(all_bed_regions, settings.GRCH38_FASTA)
+
+        results: list[SERegions] = []
+        for idx, strand in enumerate(strands):
+            s = seqs[idx * 5 : idx * 5 + 5]
+            if strand == "-":
+                s = [reverse_complement(x) if x else "" for x in s]
+            results.append(SERegions(
+                upstream_exon=s[0],
+                upstream_intron=s[1],
+                skipped_exon=s[2],
+                downstream_intron=s[3],
+                downstream_exon=s[4],
+            ))
+        return results
+
+    # Extract regions for both groups concurrently (two independent samtools calls)
+    sig_regions, bg_regions = await asyncio.gather(
+        asyncio.to_thread(_build_regions, sig_events),
+        asyncio.to_thread(_build_regions, bg_events),
+    )
+
+    # Scan both groups concurrently; compare_groups is fast (pure Python)
+    sig_scan, bg_scan = await asyncio.gather(
+        asyncio.to_thread(scan_group, sig_regions),
+        asyncio.to_thread(scan_group, bg_regions),
+    )
+    enrichment = await asyncio.to_thread(compare_groups, sig_scan, bg_scan)
+
+    return HnRNPMotifResponse(
+        n_sig_events=len(sig_events),
+        n_bg_events=len(bg_events),
+        results=[
+            MotifEnrichmentItem(
+                motif_name=r.motif_name,
+                protein=r.protein,
+                region=r.region,
+                sig_hit_count=r.sig_hit_count,
+                sig_total=r.sig_total,
+                bg_hit_count=r.bg_hit_count,
+                bg_total=r.bg_total,
+                sig_density=r.sig_density,
+                bg_density=r.bg_density,
+                z_stat=r.z_stat,
+                p_value=r.p_value,
+                p_adjusted=r.p_adjusted,
+                significant=r.significant,
+            )
+            for r in enrichment
+        ],
+    )
+
+
+# ===========================================================================
+# Enrichr gene-set enrichment analysis
+# ===========================================================================
+
+class EnrichrTermItem(BaseModel):
+    library: str
+    rank: int
+    term: str
+    p_value: float
+    adjusted_p_value: float
+    z_score: float
+    combined_score: float
+    overlap: str
+    genes: list[str]
+
+
+class EnrichrResponse(BaseModel):
+    n_genes_submitted: int
+    terms: list[EnrichrTermItem]
+    error: str | None = None
+
+
+@router.get(
+    "/deep-analyses/{deep_analysis_id}/enrichr",
+    response_model=EnrichrResponse,
+)
+async def get_enrichr_enrichment(
+    deep_analysis_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Run Enrichr pathway enrichment on gene symbols from significant events."""
+    from app.services.enrichr import run_enrichment
+
+    deep = (
+        await db.execute(
+            select(DeepAnalysis).where(DeepAnalysis.id == deep_analysis_id)
+        )
+    ).scalar_one_or_none()
+    if not deep:
+        raise HTTPException(404, "Deep analysis not found")
+
+    # Get unique gene symbols from significant SE events
+    q = (
+        select(SplicingEvent.gene_symbol)
+        .join(DeepAnalysisEvent, DeepAnalysisEvent.event_id == SplicingEvent.id)
+        .where(
+            DeepAnalysisEvent.deep_analysis_id == deep_analysis_id,
+            DeepAnalysisEvent.is_significant.is_(True),
+            SplicingEvent.gene_symbol.isnot(None),
+        )
+        .distinct()
+    )
+    rows = (await db.execute(q)).scalars().all()
+    gene_symbols = [s for s in rows if s and s.strip()]
+
+    if not gene_symbols:
+        return EnrichrResponse(
+            n_genes_submitted=0,
+            terms=[],
+            error="No gene symbols found in significant events",
+        )
+
+    result = await asyncio.to_thread(run_enrichment, gene_symbols)
+    return EnrichrResponse(
+        n_genes_submitted=result.n_genes_submitted,
+        terms=[
+            EnrichrTermItem(
+                library=t.library,
+                rank=t.rank,
+                term=t.term,
+                p_value=t.p_value,
+                adjusted_p_value=t.adjusted_p_value,
+                z_score=t.z_score,
+                combined_score=t.combined_score,
+                overlap=t.overlap,
+                genes=t.genes,
+            )
+            for t in result.terms
+        ],
+        error=result.error,
     )

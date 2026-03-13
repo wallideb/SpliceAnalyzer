@@ -17,6 +17,8 @@ import type { GeneEntry } from "@/types/gene";
 import { SidebarNav } from "@/components/top10/SidebarNav";
 import { AnnotatedCard } from "@/components/top10/AnnotatedCard";
 import { MotifPatternPanel } from "@/components/top10/MotifPatternPanel";
+import { HnRNPMotifPanel } from "@/components/top10/HnRNPMotifPanel";
+import { EnrichrPanel } from "@/components/top10/EnrichrPanel";
 import { PatternComparisonPanel } from "@/components/deep-analysis/PatternComparisonPanel";
 import { useT } from "@/contexts/LanguageContext";
 import type { ViewMode } from "@/components/top10/types";
@@ -120,6 +122,8 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
     pathways: t("top10View.modeLabels.pathways"),
     motifs:   t("top10View.modeLabels.motifs"),
     splice:   t("top10View.modeLabels.splice"),
+    hnrnp:    t("top10View.modeLabels.hnrnp"),
+    enrichr:  t("top10View.modeLabels.enrichr"),
   };
 
   // Show sort controls for gene mode and splice mode
@@ -143,8 +147,24 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
           {MODE_LABELS[mode]}
         </p>
 
-        {/* Motifs mode → full-width aggregate panel */}
-        {mode === "motifs" && analysisId ? (
+        {/* hnRNP motif enrichment mode → full-width panel */}
+        {mode === "hnrnp" && deepAnalysisId ? (
+          <HnRNPMotifPanel deepAnalysisId={deepAnalysisId} />
+        ) : mode === "hnrnp" ? (
+          <p className="text-xs text-muted-foreground italic">
+            {t("top10View.noDeepAnalysis")}
+          </p>
+
+        /* Enrichr pathway enrichment mode → full-width panel */
+        ) : mode === "enrichr" && deepAnalysisId ? (
+          <EnrichrPanel deepAnalysisId={deepAnalysisId} />
+        ) : mode === "enrichr" ? (
+          <p className="text-xs text-muted-foreground italic">
+            {t("top10View.noDeepAnalysis")}
+          </p>
+
+        /* Motifs mode → full-width aggregate panel */
+        ) : mode === "motifs" && analysisId ? (
           <MotifPatternPanel events={events} analysisId={analysisId} deepAnalysisId={deepAnalysisId} fdrThreshold={fdrThreshold} deltaPsiMin={deltaPsiMin} />
         ) : mode === "motifs" ? (
           <p className="text-xs text-muted-foreground italic">

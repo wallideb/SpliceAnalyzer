@@ -55,6 +55,12 @@ _UCSC_TO_REFSEQ: dict[str, str] = {
 # also re-reads if the cache entry is empty (FASTA not yet assembled at startup).
 _fai_cache: dict[str, set[str]] = {}
 
+# Max samtools region args per subprocess call.
+# Each region string is ~20 chars; 5 000 × 20 B = 100 KB — well within
+# the Linux ARG_MAX of 2 MB. For 120 k SE events × 5 regions = 600 k
+# regions this prevents an OSError: [Errno 7] Argument list too long.
+_SAMTOOLS_CHUNK = 5_000
+
 
 def _fai_contig_set(fasta_path: str) -> set[str]:
     """Return the set of contig names from the .fai index.
@@ -128,37 +134,40 @@ def extract_regions_batch(
     if not valid_indices:
         return [""] * len(regions)
 
-    valid_regions = [sam_regions[i] for i in valid_indices]
+    out = [""] * len(regions)
 
-    try:
-        result = subprocess.run(
-            [settings.SAMTOOLS_BIN, "faidx", fasta] + valid_regions,
-            capture_output=True,
-            text=True,
-            timeout=max(30, len(valid_regions) // 10),
-            check=True,
-        )
-        # Parse multi-FASTA output
-        seqs: list[str] = []
-        current: list[str] = []
-        for line in result.stdout.split("\n"):
-            if line.startswith(">"):
-                if current:
-                    seqs.append("".join(current).upper())
-                    current = []
-            elif line.strip():
-                current.append(line.strip())
-        if current:
-            seqs.append("".join(current).upper())
+    # Process in chunks to stay within OS ARG_MAX limits.
+    for chunk_start in range(0, len(valid_indices), _SAMTOOLS_CHUNK):
+        chunk_idx = valid_indices[chunk_start : chunk_start + _SAMTOOLS_CHUNK]
+        chunk_regions = [sam_regions[i] for i in chunk_idx]
+        try:
+            result = subprocess.run(
+                [settings.SAMTOOLS_BIN, "faidx", fasta] + chunk_regions,
+                capture_output=True,
+                text=True,
+                timeout=max(30, len(chunk_regions) // 100),
+                check=True,
+            )
+            # Parse multi-FASTA output for this chunk
+            seqs: list[str] = []
+            current: list[str] = []
+            for line in result.stdout.split("\n"):
+                if line.startswith(">"):
+                    if current:
+                        seqs.append("".join(current).upper())
+                        current = []
+                elif line.strip():
+                    current.append(line.strip())
+            if current:
+                seqs.append("".join(current).upper())
 
-        # Map back to original indices
-        out = [""] * len(regions)
-        for idx, seq in zip(valid_indices, seqs):
-            out[idx] = seq
-        return out
-    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        logger.warning("Batch samtools faidx failed: %s", exc)
-        return [""] * len(regions)
+            for idx, seq in zip(chunk_idx, seqs):
+                out[idx] = seq
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            logger.warning("Batch samtools faidx failed (chunk %d): %s", chunk_start, exc)
+            # Leave those chunk positions as "" and continue
+
+    return out
 
 
 def extract_region(

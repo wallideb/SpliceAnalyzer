@@ -30,6 +30,8 @@ const MODULES = [
   { key: "motifs", label: "Motif patterns (PWM)" },
   { key: "permutation", label: "Permutation test" },
   { key: "frame", label: "Reading frame analysis" },
+  { key: "hnrnp", label: "hnRNP motif enrichment" },
+  { key: "enrichr", label: "Enrichr pathway analysis" },
 ] as const;
 
 export default function DeepAnalysisListPage() {

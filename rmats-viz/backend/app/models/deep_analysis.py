@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    String, Text, Integer, Double, Boolean, ForeignKey, func,
+    String, Text, Integer, Double, Boolean, ForeignKey, Index, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -48,6 +48,12 @@ class DeepAnalysisEvent(Base):
     """Junction table linking events to a deep analysis with significance flag."""
 
     __tablename__ = "deep_analysis_events"
+    __table_args__ = (
+        # Simple index on deep_analysis_id for fast lookups by DA
+        Index("ix_dae_deep_analysis_id", "deep_analysis_id"),
+        # Composite index for queries that also filter by is_significant
+        Index("ix_dae_da_sig", "deep_analysis_id", "is_significant"),
+    )
 
     deep_analysis_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("deep_analyses.id", ondelete="CASCADE"), primary_key=True,

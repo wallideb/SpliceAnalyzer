@@ -17,17 +17,28 @@ Confidence levels (PanelApp convention):
 Pagination:
     The API returns paginated results (default ~25 per page). All pages are
     fetched by following the ``next`` URL until None.
+
+Circuit breaker:
+    PanelApp AU is occasionally unreachable.  After a connection-level failure
+    (ConnectError, ConnectTimeout) the source is placed in a backoff period
+    (_BACKOFF_SECONDS) so subsequent requests skip it immediately instead of
+    waiting for the full timeout on every call.  This prevents a flaky AU from
+    adding ~8 s of latency per gene in large exports.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-_TIMEOUT = 10.0
+# Separate connect and read timeouts: fail fast on connection issues (the most
+# common failure mode for PanelApp AU) while allowing a generous read timeout
+# for slow but live endpoints.
+_TIMEOUT = httpx.Timeout(connect=4.0, read=8.0, write=4.0, pool=4.0)
 _MAX_PAGES = 10  # safety limit to avoid infinite loops
 
 # Primary and fallback PanelApp base URLs
@@ -41,6 +52,25 @@ _CONFIDENCE_LABEL: dict[str, str] = {
     "2": "amber",
     "1": "red",
 }
+
+# ── Circuit breaker ──────────────────────────────────────────────────────────
+# Maps source base-URL → monotonic timestamp until which the source is skipped.
+_source_down_until: dict[str, float] = {}
+_BACKOFF_SECONDS: float = 300.0  # 5 min backoff after a connection failure
+
+
+def _is_source_available(base: str) -> bool:
+    """Return True if *base* is not currently in its backoff window."""
+    return time.monotonic() >= _source_down_until.get(base, 0.0)
+
+
+def _mark_source_down(base: str) -> None:
+    """Place *base* in backoff for _BACKOFF_SECONDS."""
+    _source_down_until[base] = time.monotonic() + _BACKOFF_SECONDS
+    logger.warning(
+        "PanelApp: %s marked unavailable for %.0f s (connection failed)",
+        base, _BACKOFF_SECONDS,
+    )
 
 
 async def _fetch_all_pages(client: httpx.AsyncClient, url: str, params: dict) -> list[dict]:
@@ -77,8 +107,13 @@ async def _query_source(base: str, symbol: str) -> list[dict]:
       2. If empty, case-insensitive fallback – ``entity_name__icontains=SYMBOL``
          with post-filtering to keep only exact gene-symbol matches.
 
-    Returns raw API result entries (empty list on error or no match).
+    Returns raw API result entries (empty list on error, no match, or when the
+    source is currently in its circuit-breaker backoff period).
     """
+    if not _is_source_available(base):
+        logger.debug("PanelApp: skipping %s (in backoff window)", base)
+        return []
+
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
             # ── 1. Exact match (most common, fastest) ──────────────────────
@@ -105,6 +140,22 @@ async def _query_source(base: str, symbol: str) -> list[dict]:
                 ]
 
         return entries
+
+    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+        # Connection-level failure → engage circuit breaker so subsequent
+        # requests for other genes are not delayed by the same dead endpoint.
+        _mark_source_down(base)
+        logger.warning(
+            "PanelApp connection failed (%s) for %r: %s", base, symbol, exc
+        )
+        return []
+    except httpx.TimeoutException as exc:
+        # Read/pool timeout: likely a slow endpoint rather than a dead one.
+        # Don't trigger circuit breaker but do log and return empty.
+        logger.warning(
+            "PanelApp timeout (%s) for %r: %s", base, symbol, exc
+        )
+        return []
     except httpx.HTTPError as exc:
         logger.warning("PanelApp request failed (%s) for %r: %s", base, symbol, exc)
         return []
@@ -160,7 +211,7 @@ async def get_panels_for_gene(symbol: str) -> list[dict]:
         disorders         (list[str]) – relevant disorder names (up to 5)
 
     Returns an empty list if the gene is not found in either instance or
-    both APIs are unreachable.
+    both APIs are unreachable / in backoff.
     """
     symbol = symbol.upper()
 

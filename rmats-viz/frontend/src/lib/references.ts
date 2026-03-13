@@ -211,6 +211,50 @@ export const REFERENCES: Record<string, Reference> = {
     doi: "10.1002/j.1538-7305.1948.tb01338.x",
   },
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // rMAPS2 — RNA map analysis for splicing regulation
+  // ─────────────────────────────────────────────────────────────────────────
+  rmaps2: {
+    id: "rmaps2",
+    short: "Hwang et al., 2020",
+    full:
+      "Hwang JY, Jung S, Kook TL, Rouchka EC, Bok J, Park JW. " +
+      "rMAPS2: an update of the RNA map analysis and plotting server " +
+      "for alternative splicing regulation. " +
+      "Nucleic Acids Res. 2020;48(W1):W300–W306.",
+    doi: "10.1093/nar/gkaa237",
+    pmid: 32313960,
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Enrichr — gene-set enrichment analysis
+  // ─────────────────────────────────────────────────────────────────────────
+  enrichr: {
+    id: "enrichr",
+    short: "Chen et al., 2013",
+    full:
+      "Chen EY, Tan CM, Kou Y, Duan Q, Wang Z, Meirelles GV, Clark NR, Ma'ayan A. " +
+      "Enrichr: interactive and collaborative HTML5 gene list enrichment analysis tool. " +
+      "BMC Bioinformatics. 2013;14:128.",
+    doi: "10.1186/1471-2105-14-128",
+    pmid: 23586463,
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CISBP-RNA — RNA-binding protein motif database
+  // ─────────────────────────────────────────────────────────────────────────
+  cisbp_rna: {
+    id: "cisbp_rna",
+    short: "Ray et al., 2013",
+    full:
+      "Ray D, Kazan H, Cook KB, Weirauch MT, Najafabadi HS, Li X, " +
+      "Gueroussov S, Albu M, Zheng H, Yang A, Na H, et al. " +
+      "A compendium of RNA-binding motifs for decoding gene regulation. " +
+      "Nature. 2013;499(7457):172–177.",
+    doi: "10.1038/nature12311",
+    pmid: 23846655,
+  },
+
 };
 
 /** Return the PubMed URL for a reference, if a PMID is available. */

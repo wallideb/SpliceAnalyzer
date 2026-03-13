@@ -908,20 +908,18 @@ def _fig_splice_site_consensus(
     n_sequences: int | None = None,
     max_width: float = 440,
 ) -> Drawing | None:
-    """WebLogo3-standard sequence logo for donor (9 nt) or acceptor (23 nt).
+    """Frequency-mode sequence logo for donor (9 nt) or acceptor (23 nt).
 
-    Letter height = frequency × R_i where R_i = 2 − H_i − e_n (bits).
-    Small-sample correction: e_n = (s−1) / (2·ln2·n)  (Schneider et al. 1986).
+    Every column fills the full logo height; letter height is proportional
+    to raw nucleotide frequency only (no IC/bits scaling), matching the
+    frequency view in the web app.
 
     If *pwm_data* is provided, it is used directly; otherwise PWM is computed
     from the splice features in *features_dict*.
     """
 
-
-
     if pwm_data:
         pwm = pwm_data
-        n_seq = n_sequences or 100
     else:
         sequences = []
         for f in features_dict.values():
@@ -932,7 +930,6 @@ def _fig_splice_site_consensus(
                     sequences.append(seq[:expected_len].upper())
         if len(sequences) < 3:
             return None
-        n_seq = len(sequences)
 
         seq_len = len(sequences[0])
         pwm = []
@@ -942,16 +939,13 @@ def _fig_splice_site_consensus(
             freqs = {b: counts.get(b, 0) / total for b in "ACGT"}
             pwm.append(freqs)
 
-    # Small-sample correction (Schneider et al. 1986)
-    e_n = 3 / (2 * _math.log(2) * n_seq) if n_seq > 0 else 0
-
     seq_len = len(pwm)
     BASE_COLORS = {"A": "#22c55e", "C": "#3b82f6", "G": "#f97316", "T": "#ef4444"}
 
-    COL_W = min(22, int((max_width - 52) / seq_len))
+    COL_W  = min(22, int((max_width - 16) / seq_len))
     LOGO_H = 80
-    MARGIN_L, MARGIN_B, MARGIN_T = 32, 24, 8
-    W = min(max_width, MARGIN_L + seq_len * COL_W + 20)
+    MARGIN_L, MARGIN_B, MARGIN_T = 8, 24, 8
+    W = min(max_width, MARGIN_L + seq_len * COL_W + 8)
     H = MARGIN_T + LOGO_H + MARGIN_B
 
     d = Drawing(W, H)
@@ -959,98 +953,65 @@ def _fig_splice_site_consensus(
                strokeColor=_colors.HexColor("#e2e8f0"), strokeWidth=0.5))
 
     start_pos = -3 if site == "donor" else -20
-
-    # Bits Y-axis
-    for bit in [0, 1, 2]:
-        y = MARGIN_B + (bit / 2) * LOGO_H
-        d.add(Line(MARGIN_L - 3, y, MARGIN_L, y,
-                    strokeColor=_colors.HexColor("#475569"), strokeWidth=0.5))
-        d.add(String(MARGIN_L - 5, y - 2, str(bit),
-                      fontSize=6, fontName="Helvetica", fillColor=_colors.HexColor("#475569"),
-                      textAnchor="end"))
-    d.add(Line(MARGIN_L, MARGIN_B, MARGIN_L, MARGIN_B + LOGO_H,
-                strokeColor=_colors.HexColor("#475569"), strokeWidth=0.8))
-
-    g = Group()
-    g.transform = (0, 1, -1, 0, 10, MARGIN_B + LOGO_H / 2 - 10)
-    g.add(String(0, 0, "bits", fontSize=7, fontName="Helvetica-Oblique",
-                  fillColor=_colors.HexColor("#475569"), textAnchor="middle"))
-    d.add(g)
-
     canonical = {1, 2} if site == "donor" else {-2, -1}
 
     for col_idx, freqs in enumerate(pwm):
-        x = MARGIN_L + col_idx * COL_W
-        pos = start_pos + col_idx
+        x    = MARGIN_L + col_idx * COL_W
+        pos  = start_pos + col_idx
         if pos >= 0:
             pos += 1
 
+        # Yellow highlight for canonical GT/AG positions
         if pos in canonical:
             d.add(Rect(x, MARGIN_B, COL_W, LOGO_H,
-                        fillColor=_colors.HexColor("#fef08a"), fillOpacity=0.3,
+                        fillColor=_colors.HexColor("#fef08a"), fillOpacity=0.35,
                         strokeColor=None))
 
-        # IC with small-sample correction
-        entropy_val = sum(-f * _math.log2(f) if f > 0 else 0 for f in freqs.values())
-        raw_ic = max(0, 2 - entropy_val)
-        ic = max(0, raw_ic - e_n)
-        col_h = (ic / 2) * LOGO_H
-
-        # When IC ≈ 0 after correction but frequency data exists, show
-        # faint frequency-based letters so every position is populated.
-        MIN_COL = 3
-        show_faint = ic < 0.05 and raw_ic > 0
-        effective_col_h = MIN_COL if show_faint else col_h
-
+        # Frequency mode: every column fills LOGO_H; letter height ∝ frequency
         sorted_bases = sorted(freqs.items(), key=lambda kv: kv[1])
         cur_y = MARGIN_B
         for base, freq in sorted_bases:
             if freq <= 0:
                 continue
-            h = freq * effective_col_h
-            if h < 0.3:
+            h = freq * LOGO_H
+            if h < 0.5:
                 cur_y += h
                 continue
-            # Font size must fit within allocated height h.
-            # Courier-Bold ascent ≈ 0.80 × fontSize; we use 0.75 to
-            # leave a small gap and prevent letters from touching.
+            # Font size: fits letter glyph in its allocated band (ascent ≈ 75 % of fontSize)
             fs = min(h / 0.75, COL_W * 1.2)
             fs = max(fs, 4)
-            hex_c = BASE_COLORS[base]
-            if show_faint:
-                # Blend with white to simulate 25% opacity
-                r = int(hex_c[1:3], 16)
-                g_c = int(hex_c[3:5], 16)
-                b_c = int(hex_c[5:7], 16)
-                r = int(r * 0.25 + 255 * 0.75)
-                g_c = int(g_c * 0.25 + 255 * 0.75)
-                b_c = int(b_c * 0.25 + 255 * 0.75)
-                fill = _colors.Color(r / 255, g_c / 255, b_c / 255)
-            else:
-                fill = _colors.HexColor(hex_c)
-            # Vertically center the glyph within its allocated band
-            d.add(String(x + COL_W / 2, cur_y + (h - fs * 0.75) / 2,
-                          base, fontSize=fs,
-                          fontName="Courier-Bold",
-                          fillColor=fill,
-                          textAnchor="middle"))
+            d.add(String(
+                x + COL_W / 2,
+                cur_y + (h - fs * 0.75) / 2,
+                base,
+                fontSize=fs,
+                fontName="Courier-Bold",
+                fillColor=_colors.HexColor(BASE_COLORS[base]),
+                textAnchor="middle",
+            ))
             cur_y += h
 
-        label = f"+{pos}" if pos > 0 else str(pos)
-        is_canon = pos in canonical
-        d.add(String(x + COL_W / 2, MARGIN_B - 12, label,
-                      fontSize=6 if not is_canon else 7,
-                      fontName="Courier-Bold" if is_canon else "Courier",
-                      fillColor=_colors.HexColor("#b45309") if is_canon else _colors.HexColor("#94a3b8"),
-                      textAnchor="middle"))
+        # Position label
+        label     = f"+{pos}" if pos > 0 else str(pos)
+        is_canon  = pos in canonical
+        d.add(String(
+            x + COL_W / 2, MARGIN_B - 12, label,
+            fontSize=6 if not is_canon else 7,
+            fontName="Courier-Bold" if is_canon else "Courier",
+            fillColor=_colors.HexColor("#b45309") if is_canon else _colors.HexColor("#94a3b8"),
+            textAnchor="middle",
+        ))
 
     site_label = "5'SS donor position" if site == "donor" else "3'SS acceptor position"
-    d.add(String(MARGIN_L + seq_len * COL_W / 2, 3, site_label,
-                  fontSize=7, fontName="Helvetica-Oblique", fillColor=_colors.HexColor("#475569"),
-                  textAnchor="middle"))
-
-    d.add(Line(MARGIN_L, MARGIN_B, MARGIN_L + seq_len * COL_W, MARGIN_B,
-                strokeColor=_colors.HexColor("#475569"), strokeWidth=0.8))
+    d.add(String(
+        MARGIN_L + seq_len * COL_W / 2, 3, site_label,
+        fontSize=7, fontName="Helvetica-Oblique",
+        fillColor=_colors.HexColor("#475569"), textAnchor="middle",
+    ))
+    d.add(Line(
+        MARGIN_L, MARGIN_B, MARGIN_L + seq_len * COL_W, MARGIN_B,
+        strokeColor=_colors.HexColor("#475569"), strokeWidth=0.8,
+    ))
 
     return d
 
@@ -1323,7 +1284,7 @@ def _build_pdf(
                             donor_logo,
                             caption(
                                 "Skipped exon 5'SS donor splice site sequence logo (9 nt: 3 nt exon + 6 nt intron). "
-                                "Letter height = frequency x R<sub>i</sub> (bits), with small-sample correction "
+                                "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
                                 "e<sub>n</sub> = (s-1)/(2 ln2 n). Canonical GT at positions +1/+2 highlighted in yellow. "
                                 f"n = {n_donor} sequences. "
                                 "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
@@ -1340,7 +1301,7 @@ def _build_pdf(
                             acceptor_logo,
                             caption(
                                 "Skipped exon 3'SS acceptor splice site sequence logo (23 nt: 20 nt intron + 3 nt exon). "
-                                "Letter height = frequency x R<sub>i</sub> (bits), with small-sample correction. "
+                                "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
                                 "Canonical AG at positions -2/-1 highlighted in yellow. "
                                 f"n = {n_acc} sequences. "
                                 "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
@@ -1368,7 +1329,7 @@ def _build_pdf(
                                 up_logo,
                                 caption(
                                     "Upstream flanking exon donor (5'SS) sequence logo (9 nt: 3 nt exon + 6 nt intron). "
-                                    "Letter height = frequency x R<sub>i</sub> (bits). "
+                                    "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
                                     "Canonical GT at positions +1/+2 highlighted in yellow. "
                                     f"n = {len(up_seqs)} sequences."
                                 ),
@@ -1395,7 +1356,7 @@ def _build_pdf(
                                 dn_logo,
                                 caption(
                                     "Downstream flanking exon acceptor (3'SS) sequence logo (23 nt: 20 nt intron + 3 nt exon). "
-                                    "Letter height = frequency x R<sub>i</sub> (bits). "
+                                    "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
                                     "Canonical AG at positions -2/-1 highlighted in yellow. "
                                     f"n = {len(dn_seqs)} sequences."
                                 ),
@@ -1518,7 +1479,7 @@ def _build_pdf(
             ))
         _block.append(caption(
             "Skipped exon 5'SS donor sequence logos: significant vs non-significant events. "
-            "Letter height = frequency x R<sub>i</sub> (bits) with small-sample correction. "
+            "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
             "Canonical GT at positions +1/+2 highlighted. "
             "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
         ))
@@ -1556,7 +1517,7 @@ def _build_pdf(
             ))
         _block.append(caption(
             "Skipped exon 3'SS acceptor sequence logos: significant vs non-significant events. "
-            "Letter height = frequency x R<sub>i</sub> (bits) with small-sample correction. "
+            "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
             "Canonical AG at positions -2/-1 highlighted. "
             "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
         ))
@@ -1595,7 +1556,7 @@ def _build_pdf(
                 ))
             _block.append(caption(
                 "Upstream flanking exon 5'SS donor sequence logos: significant vs non-significant events. "
-                "Letter height = frequency x R<sub>i</sub> (bits). "
+                "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
                 "Canonical GT at positions +1/+2 highlighted."
             ))
             story += [KeepTogether(_block), sp()]
@@ -1633,7 +1594,7 @@ def _build_pdf(
                 ))
             _block.append(caption(
                 "Downstream flanking exon 3'SS acceptor sequence logos: significant vs non-significant events. "
-                "Letter height = frequency x R<sub>i</sub> (bits). "
+                "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
                 "Canonical AG at positions -2/-1 highlighted."
             ))
             story += [KeepTogether(_block), sp()]
@@ -1885,13 +1846,13 @@ def _build_pdf(
           "(Coolidge et al., 1997).", "body"),
         p("<b>3. Sequence Logos</b>", "h3"),
         p("Position weight matrices (PWMs) are computed from all extracted "
-          "sequences per group. Information content at each position follows the "
-          "Schneider &amp; Stephens (1990) formulation: R<sub>i</sub> = 2 - H<sub>i</sub> - e<sub>n</sub>, "
-          "where H<sub>i</sub> = -Sum f(b,i) log<sub>2</sub> f(b,i) (Shannon entropy) "
-          "and e<sub>n</sub> = (s-1) / (2 ln2 n) is the small-sample correction "
-          "(Schneider et al., 1986; s = 4 for DNA, n = number of sequences). "
-          "Letter height = frequency x R<sub>i</sub>. This is consistent with "
-          "WebLogo 3 (Crooks et al., 2004).", "body"),
+          "sequences per group. Logos are displayed in <b>frequency mode</b>: "
+          "every column fills the full logo height, and the height of each letter "
+          "is proportional to the raw nucleotide frequency f(b,i) at that position. "
+          "No information-content (bits) scaling is applied, making each column "
+          "directly comparable across positions regardless of conservation level. "
+          "Canonical splice-site positions (GT at +1/+2 for donor; AG at -2/-1 for "
+          "acceptor) are highlighted in yellow.", "body"),
         p("<b>4. Reading Frame Classification</b>", "h3"),
         p("The skipped exon is classified by reading-frame impact using the "
           "MANE Select transcript (Morales et al., 2022) when available:", "body"),
@@ -2028,14 +1989,14 @@ def _build_pdf(
           "on the individual sample PSI values.", "body"),
         p("• <b>FDR</b>: Benjamini-Hochberg correction across all events.", "body"),
         p("<b>C.2 Sequence Logos</b>", "h3"),
-        p("The information content R<sub>i</sub> at position i is:", "body"),
-        p("&nbsp;&nbsp;&nbsp;R<sub>i</sub> = log<sub>2</sub>(s) - H<sub>i</sub> - e<sub>n</sub>", "code"),
-        p("where s = 4 (DNA alphabet), H<sub>i</sub> = -Sum f(b,i) log<sub>2</sub> f(b,i) "
-          "is the Shannon entropy at position i, and e<sub>n</sub> = (s-1) / (2 ln2 n) is the "
-          "small-sample correction (Schneider et al., 1986). "
-          "The height of each letter b at position i is: height(b,i) = f(b,i) x R<sub>i</sub>. "
-          "This standard is consistent with WebLogo 3 (Crooks et al., 2004) and "
-          "seqLogo (Bioconductor).", "body"),
+        p("Logos are rendered in <b>frequency mode</b>: every column fills the full "
+          "logo height and the height of each letter at position i is:", "body"),
+        p("&nbsp;&nbsp;&nbsp;height(b,i) = f(b,i) × H<sub>logo</sub>", "code"),
+        p("where f(b,i) is the raw nucleotide frequency of base b at position i "
+          "and H<sub>logo</sub> is the fixed column height. No information-content "
+          "(bits) scaling or small-sample correction is applied. This makes every "
+          "column directly comparable and matches the frequency view in the web "
+          "application. Base colours: A = green, C = blue, G = orange, T = red.", "body"),
         p("<b>C.3 PPT Score</b>", "h3"),
         p("The polypyrimidine tract (PPT) score is the fraction of pyrimidine "
           "nucleotides (C, T) in the ~47 nt window upstream of the acceptor site. "

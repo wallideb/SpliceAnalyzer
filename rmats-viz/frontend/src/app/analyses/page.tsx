@@ -17,7 +17,11 @@ export default function AnalysesPage() {
     e.preventDefault();
     e.stopPropagation();
     if (!confirm(t("analyses.confirmDelete", { name }))) return;
-    await deleteAnalysis(id);
+    try {
+      await deleteAnalysis(id);
+    } catch {
+      // silently ignore – analysis may already be deleted
+    }
     refetch();
   };
 
@@ -76,59 +80,63 @@ export default function AnalysesPage() {
 
       <div className="grid gap-3">
         {analyses?.map((a) => (
-          <Link
+          <div
             key={a.id}
-            href={`/analyses/${a.id}`}
-            className="group block border border-border rounded-xl p-4 bg-card hover:shadow-md hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-150"
+            className="relative group border border-border rounded-xl bg-card hover:shadow-md hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-150"
           >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <p className="font-semibold text-base text-card-foreground group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
-                    {a.name}
-                  </p>
-                  <StatusBadge status={a.status} />
-                </div>
-
-                {a.mutated_genes && a.mutated_genes.length > 0 && (
-                  <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-                    <span className="text-xs text-muted-foreground font-medium">{t("analyses.mutatedGenes")}</span>
-                    {a.mutated_genes.map((gene) => (
-                      <span
-                        key={typeof gene === "string" ? gene : gene.ensembl_id}
-                        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
-                      >
-                        {typeof gene === "string" ? gene : gene.display}
-                      </span>
-                    ))}
+            <Link
+              href={`/analyses/${a.id}`}
+              className="block p-4"
+            >
+              <div className="flex items-start gap-3 pr-20">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <p className="font-semibold text-base text-card-foreground group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
+                      {a.name}
+                    </p>
+                    <StatusBadge status={a.status} />
                   </div>
-                )}
 
-                <p className="text-xs text-muted-foreground mt-1.5">
-                  <span className="inline-flex items-center gap-1">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    {new Date(a.created_at).toLocaleString(lang === "fr" ? "fr-FR" : "en-GB")}
-                  </span>
-                </p>
-              </div>
+                  {a.mutated_genes && a.mutated_genes.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                      <span className="text-xs text-muted-foreground font-medium">{t("analyses.mutatedGenes")}</span>
+                      {a.mutated_genes.map((gene) => (
+                        <span
+                          key={typeof gene === "string" ? gene : gene.ensembl_id}
+                          className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
+                        >
+                          {typeof gene === "string" ? gene : gene.display}
+                        </span>
+                      ))}
+                    </div>
+                  )}
 
-              {/* Action buttons */}
-              <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.preventDefault()}>
-                <ShareButton analysisId={a.id} />
-                <button
-                  onClick={(e) => handleDelete(a.id, a.name, e)}
-                  title={t("analyses.delete")}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
+                  <p className="text-xs text-muted-foreground mt-1.5">
+                    <span className="inline-flex items-center gap-1">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      {new Date(a.created_at).toLocaleString(lang === "fr" ? "fr-FR" : "en-GB")}
+                    </span>
+                  </p>
+                </div>
               </div>
+            </Link>
+
+            {/* Action buttons — outside Link to avoid event conflicts */}
+            <div className="absolute top-4 right-4 flex items-center gap-1">
+              <ShareButton analysisId={a.id} />
+              <button
+                onClick={(e) => handleDelete(a.id, a.name, e)}
+                title={t("analyses.delete")}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
             </div>
-          </Link>
+          </div>
         ))}
       </div>
     </div>

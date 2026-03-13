@@ -131,9 +131,9 @@ export function ConsensusExonView({ data }: ConsensusExonViewProps) {
           downstreamAcceptorIsAg={downstream_acceptor_sites ? downstream_acceptor_sites.pct_canonical >= 50 : null}
           pptScore={ppt.mean_score}
           frameClass={
-            frame.in_frame > frame.frameshift + frame.non_coding
+            frame.in_frame >= frame.frameshift && frame.in_frame >= frame.non_coding
               ? "in_frame"
-              : frame.frameshift > frame.non_coding
+              : frame.frameshift >= frame.non_coding
               ? "frameshift"
               : "non_coding"
           }

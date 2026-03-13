@@ -60,7 +60,6 @@ const HEIGHT = 350;
 const INNER_W = WIDTH - MARGIN.left - MARGIN.right;
 const INNER_H = HEIGHT - MARGIN.top - MARGIN.bottom;
 const GENOME_SIGNIFICANCE = -Math.log10(0.05);     // 1.301
-const STRINGENT_SIGNIFICANCE = -Math.log10(0.001); // 3.0
 const CHR_GAP = 4; // px gap between chromosomes
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -294,31 +293,6 @@ export function ManhattanPlot({ data, loading, mutatedGenes = [], onEventClick }
             >
               FDR 0.05
             </text>
-
-            {/* Stringent significance line (FDR 0.001) */}
-            {maxY >= STRINGENT_SIGNIFICANCE && (
-              <>
-                <line
-                  x1={0}
-                  x2={INNER_W}
-                  y1={yScale(STRINGENT_SIGNIFICANCE)}
-                  y2={yScale(STRINGENT_SIGNIFICANCE)}
-                  stroke="#7c3aed"
-                  strokeWidth={0.8}
-                  strokeDasharray="3,4"
-                  opacity={0.5}
-                />
-                <text
-                  x={INNER_W + 2}
-                  y={yScale(STRINGENT_SIGNIFICANCE) + 4}
-                  className="fill-violet-500 dark:fill-violet-400"
-                  fontSize={8}
-                  fontWeight={600}
-                >
-                  FDR 0.001
-                </text>
-              </>
-            )}
 
             {/* Significance band shading (above FDR 0.05 = significant region) */}
             <rect

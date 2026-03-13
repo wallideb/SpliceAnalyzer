@@ -142,7 +142,7 @@ async def debug_fasta():
     if info["fasta_exists"] and info["fai_exists"] and info["samtools_rc"] == 0:
         try:
             r2 = subprocess.run(
-                [samtools_bin, "faidx", fasta, "chr19:1000000-1000010"],
+                [samtools_bin, "faidx", fasta, "chr1:1000000-1000010"],
                 capture_output=True, text=True, timeout=10,
             )
             info["faidx_test_rc"] = r2.returncode

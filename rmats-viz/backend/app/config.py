@@ -9,7 +9,6 @@ class Settings(BaseSettings):
 
     # ── Splice pattern analysis ──────────────────────────────────────────────
     # Path to the GRCh38 FASTA file (must be indexed with samtools faidx).
-    # For dev: chr19-only FASTA; for prod: full genome.
     GRCH38_FASTA: str = "/data/GRCh38.fa"
     # samtools binary (full path or name if in PATH)
     SAMTOOLS_BIN: str = "samtools"

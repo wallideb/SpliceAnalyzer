@@ -59,6 +59,58 @@ def _rename_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def filter_low_coverage(df: pd.DataFrame, min_coverage: int = 10) -> pd.DataFrame:
+    """Drop events where mean per-replicate coverage (IJC+SJC) < min_coverage
+    in either sample group.
+
+    Coverage per replicate = IJC + SJC.  For each group the average across
+    replicates must be >= *min_coverage*.  Events missing count columns
+    entirely are kept (they may come from summary-level rMATS output).
+    """
+    needed = {"ijc_sample_1", "sjc_sample_1", "ijc_sample_2", "sjc_sample_2"}
+    if not needed.issubset(df.columns):
+        return df
+
+    def _mean_coverage(ijc_col: str, sjc_col: str) -> pd.Series:
+        """Return mean per-replicate (IJC+SJC) for each row."""
+        def _row_mean(ijc_val, sjc_val):
+            if pd.isna(ijc_val) or pd.isna(sjc_val):
+                return float("nan")
+            try:
+                ijc_vals = [int(x) for x in str(ijc_val).split(",") if x.strip()]
+                sjc_vals = [int(x) for x in str(sjc_val).split(",") if x.strip()]
+            except (ValueError, TypeError):
+                return float("nan")
+            if len(ijc_vals) != len(sjc_vals) or not ijc_vals:
+                return float("nan")
+            cov = [i + s for i, s in zip(ijc_vals, sjc_vals)]
+            return sum(cov) / len(cov)
+
+        return pd.Series(
+            [_row_mean(i, s) for i, s in zip(df[ijc_col], df[sjc_col])],
+            index=df.index,
+        )
+
+    mean_cov_1 = _mean_coverage("ijc_sample_1", "sjc_sample_1")
+    mean_cov_2 = _mean_coverage("ijc_sample_2", "sjc_sample_2")
+
+    # Keep rows where both groups have sufficient coverage (or where coverage is unknown)
+    mask = (
+        (mean_cov_1 >= min_coverage) | mean_cov_1.isna()
+    ) & (
+        (mean_cov_2 >= min_coverage) | mean_cov_2.isna()
+    )
+    before = len(df)
+    result = df[mask].reset_index(drop=True)
+    dropped = before - len(result)
+    if dropped:
+        logger.info(
+            "Coverage filter (>=%dX): dropped %d / %d events",
+            min_coverage, dropped, before,
+        )
+    return result
+
+
 def _coerce_types(df: pd.DataFrame) -> pd.DataFrame:
     """Coerce coordinate and stat columns to appropriate numeric types."""
     coord_cols = ["exon_start", "exon_end", "upstream_es", "upstream_ee",
@@ -262,6 +314,7 @@ async def parse_and_store(
         return 0
 
     combined = pd.concat(all_dfs, ignore_index=True)
+    combined = filter_low_coverage(combined, min_coverage=10)
     deduped = deduplicate_events(combined)
     deduped = deduplicate_with_overlap(deduped, overlap_bp=50)
 

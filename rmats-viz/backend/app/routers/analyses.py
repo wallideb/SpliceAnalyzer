@@ -5,7 +5,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -93,9 +93,12 @@ async def get_analysis(analysis_id: uuid.UUID, db: AsyncSession = Depends(get_db
 
 @router.delete("/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_analysis(analysis_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
-    analysis = result.scalar_one_or_none()
-    if not analysis:
+    # Check existence first
+    result = await db.execute(select(Analysis.id).where(Analysis.id == analysis_id))
+    if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Analysis not found")
-    await db.delete(analysis)
+    # Use SQL DELETE instead of ORM db.delete() to avoid loading all
+    # cascade relationships (events, features, deep analyses) into memory.
+    # The DB-level ON DELETE CASCADE handles child table cleanup.
+    await db.execute(delete(Analysis).where(Analysis.id == analysis_id))
     await db.commit()

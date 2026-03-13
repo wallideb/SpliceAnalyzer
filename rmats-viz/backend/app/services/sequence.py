@@ -82,22 +82,29 @@ def _fai_contig_set(fasta_path: str) -> set[str]:
     return set()
 
 
-def _resolve_chrom(chrom: str, fasta_path: str) -> str:
-    """Return the contig name as it appears in the FASTA index.
+def _resolve_chrom(chrom: str, fasta_path: str) -> str | None:
+    """Return the contig name as it appears in the FASTA index, or None if unknown.
 
     Handles two common cases:
     - rMATS uses UCSC names (chr1…chr22, chrX, chrY, chrM)
     - NCBI FASTA files use RefSeq accessions (NC_000001.11 …)
+
+    Returns None when the contig is not present in the index so callers can
+    skip the region instead of passing an invalid name to samtools (which would
+    cause the entire subprocess call to fail with exit status 1).
     """
     contigs = _fai_contig_set(fasta_path)
+    if not contigs:
+        # Index not yet available; pass through and let samtools report the error
+        return chrom
     if chrom in contigs:
         return chrom
     # Try RefSeq alias
     alias = _UCSC_TO_REFSEQ.get(chrom)
     if alias and alias in contigs:
         return alias
-    # Return as-is; samtools will emit a warning but we catch the error
-    return chrom
+    # Contig is genuinely absent from this FASTA — skip it
+    return None
 
 
 def reverse_complement(seq: str) -> str:
@@ -120,13 +127,17 @@ def extract_regions_batch(
     if not regions:
         return []
     fasta = fasta_path or settings.GRCH38_FASTA
-    # Build samtools region strings
+    # Build samtools region strings; skip regions with unknown contigs so a
+    # single bad chromosome does not abort the entire chunk.
     sam_regions: list[str] = []
     for chrom, start, end in regions:
         if end <= start:
             sam_regions.append("")
             continue
         resolved = _resolve_chrom(chrom, fasta)
+        if resolved is None:
+            sam_regions.append("")  # unknown contig — skip silently
+            continue
         sam_regions.append(f"{resolved}:{start + 1}-{end}")
 
     # Filter out empty regions
@@ -163,8 +174,16 @@ def extract_regions_batch(
 
             for idx, seq in zip(chunk_idx, seqs):
                 out[idx] = seq
-        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-            logger.warning("Batch samtools faidx failed (chunk %d): %s", chunk_start, exc)
+        except FileNotFoundError as exc:
+            logger.warning("samtools not found: %s", exc)
+        except subprocess.TimeoutExpired as exc:
+            logger.warning("Batch samtools faidx timed out (chunk offset %d)", chunk_start)
+        except subprocess.CalledProcessError as exc:
+            logger.warning(
+                "Batch samtools faidx failed (chunk offset %d, rc=%d): %s",
+                chunk_start, exc.returncode,
+                exc.stderr.strip() if exc.stderr else "(no stderr)",
+            )
             # Leave those chunk positions as "" and continue
 
     return out
@@ -186,6 +205,8 @@ def extract_region(
         return ""
     fasta = fasta_path or settings.GRCH38_FASTA
     resolved = _resolve_chrom(chrom, fasta)
+    if resolved is None:
+        return ""
     # samtools faidx region: 1-based inclusive
     region = f"{resolved}:{start + 1}-{end}"
     try:

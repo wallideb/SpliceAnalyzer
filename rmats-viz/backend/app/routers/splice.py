@@ -177,22 +177,18 @@ async def _fetch_features(
         return feat_data, mane, seq_source
 
 
-async def _upsert_feature(
+def _build_feature_row(
     event: SplicingEvent,
     feat_data: Any,
     mane: dict,
-    db: AsyncSession,
     seq_source: str | None = None,
-) -> EventSpliceFeature:
-    """DB write step (sequential, single session)."""
-    # Determine frame_class: prefer MANE-based result; fall back to exon-size
-    # divisibility when MANE lookup was not available (Ensembl unreachable,
-    # gene_id missing, or no MANE transcript found).
+) -> dict:
+    """Build a plain dict suitable for bulk INSERT into EventSpliceFeature."""
     mane_frame_class = mane.get("frame_class", "unknown") or "unknown"
     if mane_frame_class in ("unknown", None) and feat_data.exon_size is not None:
         mane_frame_class = "in_frame" if feat_data.exon_size % 3 == 0 else "frameshift"
-
-    values: dict = dict(
+    return dict(
+        id                     = uuid.uuid4(),
         event_id               = event.id,
         exon_size              = feat_data.exon_size,
         upstream_intron_size   = feat_data.upstream_intron_size,
@@ -218,10 +214,25 @@ async def _upsert_feature(
         cds_exon_length        = mane.get("cds_exon_length"),
         sequence_source        = seq_source,
     )
+
+
+async def _upsert_feature(
+    event: SplicingEvent,
+    feat_data: Any,
+    mane: dict,
+    db: AsyncSession,
+    seq_source: str | None = None,
+) -> EventSpliceFeature:
+    """Single-row upsert — used only by the per-event GET endpoint."""
+    row = _build_feature_row(event, feat_data, mane, seq_source)
+    ins = pg_insert(EventSpliceFeature)
+    update_cols = [c for c in row if c != "id"]
     stmt = (
-        pg_insert(EventSpliceFeature)
-        .values(id=uuid.uuid4(), **values)
-        .on_conflict_do_update(index_elements=["event_id"], set_=values)
+        ins.values(**row)
+        .on_conflict_do_update(
+            index_elements=["event_id"],
+            set_={col: ins.excluded[col] for col in update_cols},
+        )
         .returning(EventSpliceFeature)
     )
     result = await db.execute(stmt)
@@ -242,7 +253,7 @@ async def _compute_one(
 # POST /splice/compute/{analysis_id}
 # ---------------------------------------------------------------------------
 
-_COMPUTE_CHUNK = 200  # events processed concurrently per chunk
+_COMPUTE_CHUNK = 2_000  # events processed per MANE/feature chunk
 
 
 async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
@@ -349,18 +360,29 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                     return_exceptions=True,
                 )
 
-                # ── Step 3: DB writes ──────────────────────────────────────
+                # ── Step 3: DB writes (bulk upsert — 1 round-trip per chunk) ──
+                bulk_rows: list[dict] = []
                 for ev, res in zip(chunk, anno_results):
                     if isinstance(res, Exception):
                         logger.error("Feature compute failed for %s: %s", ev.id, res)
                         continue
                     try:
                         feat_data, mane, seq_source = res
-                        await _upsert_feature(ev, feat_data, mane, db, seq_source)
+                        row = _build_feature_row(ev, feat_data, mane, seq_source)
+                        bulk_rows.append(row)
                         n_computed += 1
                     except Exception as exc:
-                        logger.error("DB write failed for %s: %s", ev.id, exc)
+                        logger.error("Feature build failed for %s: %s", ev.id, exc)
 
+                if bulk_rows:
+                    ins = pg_insert(EventSpliceFeature)
+                    update_cols = [c for c in bulk_rows[0] if c != "id"]
+                    await db.execute(
+                        ins.values(bulk_rows).on_conflict_do_update(
+                            index_elements=["event_id"],
+                            set_={col: ins.excluded[col] for col in update_cols},
+                        )
+                    )
                 await db.commit()
                 if chunk_start % 1000 == 0:
                     logger.info("Compute progress: %d/%d", n_computed, n_total)
@@ -369,20 +391,24 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
             await db.execute(
                 delete(EventCluster).where(EventCluster.analysis_id == analysis_id)
             )
-            for cl in clusters:
-                rep_id = uuid.UUID(cl.rep_event_id) if cl.rep_event_id else None
-                db.add(EventCluster(
-                    id=cl.cluster_id,
-                    analysis_id=analysis_id,
-                    gene_symbol=cl.gene_symbol,
-                    chr=cl.chr,
-                    strand=cl.strand,
-                    exon_start=cl.exon_start,
-                    exon_end=cl.exon_end,
-                    n_events=cl.n_events,
-                    source_ids=[str(i) for i in cl.source_ids],
-                    rep_event_id=rep_id,
-                ))
+            if clusters:
+                from sqlalchemy.dialects.postgresql import insert as _pg_insert
+                cluster_rows = [
+                    dict(
+                        id=cl.cluster_id,
+                        analysis_id=analysis_id,
+                        gene_symbol=cl.gene_symbol,
+                        chr=cl.chr,
+                        strand=cl.strand,
+                        exon_start=cl.exon_start,
+                        exon_end=cl.exon_end,
+                        n_events=cl.n_events,
+                        source_ids=[str(i) for i in cl.source_ids],
+                        rep_event_id=(uuid.UUID(cl.rep_event_id) if cl.rep_event_id else None),
+                    )
+                    for cl in clusters
+                ]
+                await db.execute(_pg_insert(EventCluster).values(cluster_rows))
             await db.commit()
             logger.info("Background compute done: %d/%d SE events for %s", n_computed, n_total, analysis_id)
     except Exception as exc:

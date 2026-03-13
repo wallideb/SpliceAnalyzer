@@ -19,6 +19,7 @@ from collections import Counter
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -77,9 +78,9 @@ async def create_deep_analysis(
     rows = (await db.execute(q)).all()
 
     # Tag each event
-    junction_rows: list[DeepAnalysisEvent] = []
     n_sig = 0
     n_not_sig = 0
+    event_records: list[dict] = []
 
     for event_id, fdr, inc_level_diff in rows:
         fdr_ok = fdr is not None and fdr <= body.fdr_threshold
@@ -88,15 +89,11 @@ async def create_deep_analysis(
             and abs(inc_level_diff) >= body.delta_psi_min
         )
         is_sig = fdr_ok and dpsi_ok
-
         if is_sig:
             n_sig += 1
         else:
             n_not_sig += 1
-
-        junction_rows.append(
-            DeepAnalysisEvent(event_id=event_id, is_significant=is_sig)
-        )
+        event_records.append({"event_id": event_id, "is_significant": is_sig})
 
     deep = DeepAnalysis(
         analysis_id=analysis_id,
@@ -109,8 +106,17 @@ async def create_deep_analysis(
         n_not_significant=n_not_sig,
         status="ready",
     )
-    deep.events = junction_rows
     db.add(deep)
+    await db.flush()  # materialise deep.id before bulk insert
+
+    # Bulk-insert junction rows in batches of 5 000 to stay within pg param limit
+    _BATCH = 5_000
+    for i in range(0, len(event_records), _BATCH):
+        batch = event_records[i : i + _BATCH]
+        for rec in batch:
+            rec["deep_analysis_id"] = deep.id
+        await db.execute(pg_insert(DeepAnalysisEvent).values(batch))
+
     await db.commit()
     await db.refresh(deep)
     return deep

@@ -93,6 +93,7 @@ async def get_analysis(analysis_id: uuid.UUID, db: AsyncSession = Depends(get_db
 
 @router.delete("/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_analysis(analysis_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    logger.info("DELETE /analyses/%s — starting", analysis_id)
     # Check existence first
     result = await db.execute(select(Analysis.id).where(Analysis.id == analysis_id))
     if not result.scalar_one_or_none():
@@ -102,3 +103,4 @@ async def delete_analysis(analysis_id: uuid.UUID, db: AsyncSession = Depends(get
     # The DB-level ON DELETE CASCADE handles child table cleanup.
     await db.execute(delete(Analysis).where(Analysis.id == analysis_id))
     await db.commit()
+    logger.info("DELETE /analyses/%s — done", analysis_id)

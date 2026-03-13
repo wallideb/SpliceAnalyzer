@@ -49,7 +49,7 @@ from app.schemas.splice import (
 )
 from app.services.event_cluster import cluster_se_events
 from app.services.mane import annotate_mane, get_transcript_exons
-from app.services.permutation import run_permutation
+from app.services.permutation import run_permutation, _make_histogram
 from app.services.sequence import (
     fasta_available, get_splice_windows, get_splice_windows_batch,
     get_splice_windows_from_ensembl,
@@ -955,15 +955,26 @@ async def run_permutation_test(
         run_permutation, se_events, features_list, n_iterations
     )
 
-    # Count significant events using deep analysis thresholds (if provided)
+    # Count significant events and build observed histogram from significant
+    # events only (so it's visually distinct from the null distribution).
     n_total = perm_result.n_events_tested
+    obs_hist_bins = perm_result.observed_hist_bins
+    obs_hist_counts = perm_result.observed_hist_counts
+
     if fdr_threshold is not None and delta_psi_min is not None:
-        n_sig = sum(
-            1 for ev in se_events
-            if ev.fdr is not None and ev.fdr <= fdr_threshold
-            and ev.inc_level_difference is not None
-            and abs(ev.inc_level_difference) >= delta_psi_min
-        )
+        sig_deltas: list[float] = []
+        n_sig = 0
+        for ev in se_events:
+            if (ev.fdr is not None and ev.fdr <= fdr_threshold
+                    and ev.inc_level_difference is not None
+                    and abs(ev.inc_level_difference) >= delta_psi_min):
+                n_sig += 1
+                sig_deltas.append(ev.inc_level_difference)
+        # Rebuild observed histogram from significant events only
+        if sig_deltas:
+            obs_hist_bins, obs_hist_counts = _make_histogram(sig_deltas, n_bins=40)
+        else:
+            obs_hist_bins, obs_hist_counts = [], []
     else:
         n_sig = n_total
 
@@ -987,8 +998,8 @@ async def run_permutation_test(
         ],
         global_null_hist_bins   = perm_result.global_null_hist_bins,
         global_null_hist_counts = perm_result.global_null_hist_counts,
-        observed_hist_bins      = perm_result.observed_hist_bins,
-        observed_hist_counts    = perm_result.observed_hist_counts,
+        observed_hist_bins      = obs_hist_bins,
+        observed_hist_counts    = obs_hist_counts,
         pct_p05                 = perm_result.pct_p05,
         pct_p01                 = perm_result.pct_p01,
         metric_results          = [

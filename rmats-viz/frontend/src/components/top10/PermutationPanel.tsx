@@ -29,8 +29,8 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
   const t = useT();
   if (!nullBins.length) return null;
 
-  const MARGIN_L = 42;
-  const MARGIN_R = 12;
+  const MARGIN_L = 38;   // left Y-axis space
+  const MARGIN_R = 42;   // right Y-axis space
   const W = 540;
   const CHART_W = W - MARGIN_L - MARGIN_R;
   const MARGIN_T = 18;
@@ -38,26 +38,22 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
   const MARGIN_B = 24;
   const SVG_H = MARGIN_T + CHART_H + MARGIN_B;
 
-  // Normalize both distributions to proportions so they share the same Y-axis
-  const nullTotal = nullCounts.reduce((a, b) => a + b, 0) || 1;
-  const obsTotal = obsCounts.reduce((a, b) => a + b, 0) || 1;
-  const nullProp = nullCounts.map((c) => c / nullTotal);
-  const obsProp = obsCounts.map((c) => c / obsTotal);
-
-  const maxProp = Math.max(...nullProp, ...obsProp, 0.01);
+  const maxNullCount = Math.max(...nullCounts, 1);
+  const maxObsCount = Math.max(...obsCounts, 1);
   const n = nullBins.length;
   const barW = Math.max(3, Math.floor(CHART_W / n) - 1);
 
-  // Y-axis ticks (proportion %)
-  const pctTicks = _nicePctTicks(maxProp * 100, 4);
+  // Y-axis tick helpers
+  const nullTicks = _niceTicks(maxNullCount, 4);
+  const obsTicks = _niceTicks(maxObsCount, 4);
 
-  // Build outline polyline for observed distribution
+  // Build outline polyline points connecting tops of orange dashed lines
   const outlinePoints: string[] = [];
   obsBins.forEach((_, i) => {
-    const p = obsProp[i] ?? 0;
-    if (p <= 0) return;
+    const c = obsCounts[i] ?? 0;
+    if (c <= 0) return;
     const x = MARGIN_L + i * (barW + 1) + barW / 2;
-    const h = Math.round((p / maxProp) * CHART_H);
+    const h = Math.round((c / maxObsCount) * CHART_H);
     outlinePoints.push(`${x},${MARGIN_T + CHART_H - h}`);
   });
 
@@ -69,28 +65,40 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
         style={{ maxWidth: W, minWidth: 400, display: "block" }}
         aria-label={t("permutation.results.nullDistribution")}
       >
-        {/* Y-axis — shared proportion scale */}
-        {pctTicks.map((pct) => {
-          const y = MARGIN_T + CHART_H - Math.round(((pct / 100) / maxProp) * CHART_H);
+        {/* Left Y-axis — iteration counts (blue) */}
+        {nullTicks.map((tick) => {
+          const y = MARGIN_T + CHART_H - Math.round((tick / maxNullCount) * CHART_H);
           return (
-            <g key={`yt-${pct}`}>
-              <line x1={MARGIN_L - 3} y1={y} x2={MARGIN_L} y2={y} stroke="hsl(var(--muted-foreground))" strokeWidth={0.5} opacity={0.5} />
-              <text x={MARGIN_L - 5} y={y + 3} textAnchor="end" fontSize={7} fontFamily="monospace" fill="hsl(var(--muted-foreground))">{pct}%</text>
+            <g key={`lyt-${tick}`}>
+              <line x1={MARGIN_L - 3} y1={y} x2={MARGIN_L} y2={y} stroke="#3b82f6" strokeWidth={0.5} />
+              <text x={MARGIN_L - 5} y={y + 3} textAnchor="end" fontSize={7} fontFamily="monospace" fill="#3b82f6">{tick}</text>
             </g>
           );
         })}
-        <text x={4} y={MARGIN_T - 3} fontSize={8} fill="hsl(var(--muted-foreground))" fontFamily="sans-serif" fontWeight="600">Proportion</text>
+        <text x={4} y={MARGIN_T - 3} fontSize={8} fill="#3b82f6" fontFamily="sans-serif" fontWeight="600">N iter.</text>
+
+        {/* Right Y-axis — observed event counts (orange) */}
+        {obsTicks.map((tick) => {
+          const y = MARGIN_T + CHART_H - Math.round((tick / maxObsCount) * CHART_H);
+          return (
+            <g key={`ryt-${tick}`}>
+              <line x1={MARGIN_L + CHART_W} y1={y} x2={MARGIN_L + CHART_W + 3} y2={y} stroke="#f97316" strokeWidth={0.5} />
+              <text x={MARGIN_L + CHART_W + 5} y={y + 3} textAnchor="start" fontSize={7} fontFamily="monospace" fill="#f97316">{tick}</text>
+            </g>
+          );
+        })}
+        <text x={W - 2} y={MARGIN_T - 3} textAnchor="end" fontSize={8} fill="#f97316" fontFamily="sans-serif" fontWeight="600">N events</text>
 
         {/* Null distribution bars (blue) */}
         {nullBins.map((bin, i) => {
-          const h = Math.round((nullProp[i] / maxProp) * CHART_H);
+          const nullH = Math.round((nullCounts[i] / maxNullCount) * CHART_H);
           const x = MARGIN_L + i * (barW + 1);
           return (
             <g key={i}>
-              <title>{`ΔΨ ≈ ${bin.toFixed(2)} — H₀: ${nullCounts[i]} (${(nullProp[i] * 100).toFixed(1)}%)`}</title>
+              <title>{`ΔΨ ≈ ${bin.toFixed(2)} — H₀: ${nullCounts[i]}`}</title>
               <rect
-                x={x} y={MARGIN_T + CHART_H - h}
-                width={barW} height={h}
+                x={x} y={MARGIN_T + CHART_H - nullH}
+                width={barW} height={nullH}
                 fill="#3b82f6" opacity={0.45}
               />
               {i % 5 === 0 && (
@@ -105,15 +113,15 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
             </g>
           );
         })}
-        {/* Observed ΔΨ — dashed lines (orange), same proportion scale */}
+        {/* Observed ΔΨ — proportionate dashed lines (orange) */}
         {obsBins.map((bin, i) => {
-          const p = obsProp[i] ?? 0;
-          if (p <= 0) return null;
+          const c = obsCounts[i] ?? 0;
+          if (c <= 0) return null;
           const x = MARGIN_L + i * (barW + 1) + barW / 2;
-          const h = Math.round((p / maxProp) * CHART_H);
+          const h = Math.round((c / maxObsCount) * CHART_H);
           return (
             <g key={`obs-${i}`}>
-              <title>{`ΔΨ ≈ ${bin.toFixed(2)} — observed: ${obsCounts[i]} (${(p * 100).toFixed(1)}%)`}</title>
+              <title>{`ΔΨ ≈ ${bin.toFixed(2)} — observed: ${c}`}</title>
               <line
                 x1={x} y1={MARGIN_T + CHART_H}
                 x2={x} y2={MARGIN_T + CHART_H - h}
@@ -136,7 +144,7 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
       <div className="flex items-center gap-4 text-[11px] text-muted-foreground mt-1.5">
         <span className="flex items-center gap-1">
           <span className="inline-block w-4 h-2.5 rounded-sm bg-blue-500/45" />
-          H₀ ({t("permutation.results.nullDistribution").toLowerCase()})
+          {t("permutation.results.nullDistribution")} (permutations)
         </span>
         <span className="flex items-center gap-1">
           <span className="inline-block w-4 h-0.5 border-t-2 border-dashed border-orange-500" />
@@ -147,19 +155,19 @@ function DualHistogram({ nullBins, nullCounts, obsBins, obsCounts }: DualHistPro
   );
 }
 
-/** Generate nice round tick values for a percentage Y-axis. */
-function _nicePctTicks(maxPct: number, count: number): number[] {
-  if (maxPct <= 0) return [0];
-  const rough = maxPct / count;
+/** Generate nice round tick values for a Y-axis. */
+function _niceTicks(maxVal: number, count: number): number[] {
+  if (maxVal <= 0) return [0];
+  const rough = maxVal / count;
   const mag = Math.pow(10, Math.floor(Math.log10(rough)));
   const residual = rough / mag;
   const nice = residual <= 1.5 ? 1 : residual <= 3.5 ? 2 : residual <= 7.5 ? 5 : 10;
   const step = nice * mag;
   const ticks: number[] = [];
-  for (let v = step; v <= maxPct * 1.01; v += step) {
-    ticks.push(Math.round(v * 10) / 10);
+  for (let v = step; v <= maxVal * 1.01; v += step) {
+    ticks.push(Math.round(v));
   }
-  return ticks.length ? ticks : [Math.round(maxPct * 10) / 10];
+  return ticks.length ? ticks : [Math.round(maxVal)];
 }
 
 // ---------------------------------------------------------------------------

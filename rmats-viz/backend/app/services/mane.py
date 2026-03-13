@@ -58,7 +58,9 @@ def _db_conn() -> sqlite3.Connection:
         return conn
     path = Path(settings.MANE_CACHE_DB)
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    conn = sqlite3.connect(str(path), timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS mane_cache (
             gene_id TEXT NOT NULL,

@@ -430,8 +430,8 @@ export const en = {
       significant: "Significant",
     },
     empty: {
-      main: "Run the test to estimate the empirical significance of ΔΨ and splice signal properties.",
-      params: "5 parameters tested: ΔΨ · PPT score · exon size · phase · GT-AG sites.",
+      main: "Run the test to estimate the empirical significance of the ΔΨ score distribution.",
+      params: "",
     },
   },
   scienceNotes: {

@@ -688,12 +688,14 @@ async def get_hnrnp_motifs(
             ))
         return results
 
-    sig_regions = _build_regions(sig_events)
-    bg_regions = _build_regions(bg_events)
+    import asyncio
 
-    sig_scan = scan_group(sig_regions)
-    bg_scan = scan_group(bg_regions)
-    enrichment = compare_groups(sig_scan, bg_scan)
+    sig_regions = await asyncio.to_thread(_build_regions, sig_events)
+    bg_regions = await asyncio.to_thread(_build_regions, bg_events)
+
+    sig_scan = await asyncio.to_thread(scan_group, sig_regions)
+    bg_scan = await asyncio.to_thread(scan_group, bg_regions)
+    enrichment = await asyncio.to_thread(compare_groups, sig_scan, bg_scan)
 
     return HnRNPMotifResponse(
         n_sig_events=len(sig_events),
@@ -781,7 +783,8 @@ async def get_enrichr_enrichment(
             error="No gene symbols found in significant events",
         )
 
-    result = run_enrichment(gene_symbols)
+    import asyncio
+    result = await asyncio.to_thread(run_enrichment, gene_symbols)
     return EnrichrResponse(
         n_genes_submitted=result.n_genes_submitted,
         terms=[

@@ -157,7 +157,7 @@ def define_se_regions(
             iend = min(istart + _FLANK_LEN, downstream_es - _THREE_SS_EXCL)
         else:
             iend = exon_start - _FIVE_SS_EXCL
-            istart = max(iend - _FLANK_LEN, downstream_ee + _THREE_SS_EXCL if downstream_ee else iend)
+            istart = max(iend - _FLANK_LEN, downstream_ee + _THREE_SS_EXCL if downstream_ee is not None else iend)
         if iend > istart:
             regions.append((chrom, istart, iend))
         else:

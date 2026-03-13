@@ -136,7 +136,7 @@ def run_enrichment(
                 overlap_genes = row[5] if isinstance(row[5], list) else []
                 all_terms.append(EnrichrTerm(
                     library=lib,
-                    rank=i + 1,
+                    rank=int(row[0]) if row[0] is not None else i + 1,
                     term=str(row[1]),
                     p_value=float(row[2]),
                     adjusted_p_value=float(row[6]),

@@ -655,15 +655,6 @@ def _tbl_style(header_bg: str = "#1e3a5f") -> TableStyle:
     ])
 
 
-_FIG_NUM = 0
-
-
-def _next_fig() -> int:
-    global _FIG_NUM
-    _FIG_NUM += 1
-    return _FIG_NUM
-
-
 # ---------------------------------------------------------------------------
 # Figure builders (reportlab Drawings — resolution-independent vector)
 # ---------------------------------------------------------------------------
@@ -672,8 +663,6 @@ def _fig_exon_size_histogram(exon_sizes: list[int]) -> Drawing | None:
     """Exon-size distribution histogram (25 nt bins)."""
     if not exon_sizes:
         return None
-
-
 
     BIN = 25
     max_size = max(exon_sizes)
@@ -819,8 +808,6 @@ def _fig_dpsi_distribution(events: list, group1_label: str = "Group 1") -> Drawi
                  if e.inc_level_difference is not None]
     if len(dpsi_vals) < 3:
         return None
-
-
 
     BIN_W = 0.1
     bins = {}  # rounded bin_start → count
@@ -1094,8 +1081,13 @@ def _build_pdf(
         Each dict: {"iterations": int, "n_tested": int,
                      "pct_p05": float, "pct_p01": float}.
     """
-    global _FIG_NUM
-    _FIG_NUM = 0
+    # Thread-local figure counter: avoids data races when multiple PDF
+    # requests are served concurrently via asyncio.to_thread.
+    _fig_count: list[int] = [0]
+
+    def _next_fig() -> int:
+        _fig_count[0] += 1
+        return _fig_count[0]
 
     buf = BytesIO()
     USABLE_W = _W - 2 * _MARGIN          # ~15.27 cm

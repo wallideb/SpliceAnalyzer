@@ -164,6 +164,8 @@ export const fr: Translations = {
       pathways: "Voies moléculaires (à venir)",
       motifs: "Patterns d'épissage récurrents",
       splice: "Sites consensus d'épissage",
+      hnrnp: "Enrichissement de motifs hnRNP (inspiré rMAPS2)",
+      enrichr: "Enrichissement de voies Enrichr",
     },
     sortBy: "Trier par :",
     sortOptions: {
@@ -175,6 +177,7 @@ export const fr: Translations = {
       panelapp: "Confiance PanelApp",
     },
     noAnalysisId: "analysisId non disponible pour ce contexte.",
+    noDeepAnalysis: "Cette analyse nécessite une analyse approfondie sauvegardée.",
     goCategories: "Catégories GO :",
     goBP: "Processus biologique",
     goMF: "Fonction moléculaire",
@@ -248,6 +251,8 @@ export const fr: Translations = {
       pathways: "Voies moléc.",
       motifs: "Motifs récur.",
       splice: "Sites consensus",
+      hnrnp: "Motifs hnRNP",
+      enrichr: "Enrichr",
     },
   },
   annotatedCard: {
@@ -494,6 +499,27 @@ export const fr: Translations = {
         "Les valeurs FDR de rMATS utilisent la correction de Benjamini-Hochberg " +
         "(Benjamini &amp; Hochberg, 1995).",
     },
+    hnrnpMotifs: {
+      title: "Méthode — Analyse d'enrichissement de motifs hnRNP",
+      body:
+        "Cette analyse recherche dans cinq régions génomiques autour de chaque exon sauté (exon amont, " +
+        "intron amont, corps de l'exon sauté, intron aval, exon aval) 17 motifs consensus connus de " +
+        "protéines de liaison à l'ARN de la famille hnRNP. Les motifs incluent hnRNP A1/A2 (TAGG, AGG), " +
+        "hnRNP F/H (GGG, GGGG), hnRNP K (CCCC), hnRNP C (poly-T), hnRNP L (répétitions CA), " +
+        "hnRNP M (répétitions GT) et PTB (TCTT, TCTCT). Les régions introniques excluent les 6 nt du " +
+        "5'SS et les 20 nt du 3'SS (convention rMAPS2). Un test z de deux proportions compare la " +
+        "présence des motifs entre événements significatifs et de référence, avec correction de Bonferroni. " +
+        "Référence : Hwang et al., rMAPS2, NAR 2020 ; 48:W300-W306.",
+    },
+    enrichr: {
+      title: "Méthode — Enrichissement de voies Enrichr",
+      body:
+        "Les symboles de gènes des événements significatifs sont soumis à l'API REST Enrichr " +
+        "(Ma'ayan Lab, Icahn School of Medicine). L'enrichissement est calculé par rapport à des " +
+        "bibliothèques de jeux de gènes curatées (KEGG 2021, GO Processus biologique, GO Fonction " +
+        "moléculaire, Reactome 2022, WikiPathways 2023). Le score combiné intègre le z-score et " +
+        "la p-value pour le classement. Référence : Chen et al., Enrichr, BMC Bioinformatics 2013.",
+    },
     exonDiagram: {
       title: "Méthode — Définition d'un événement SE dans rMATS",
       body:
@@ -631,5 +657,36 @@ export const fr: Translations = {
     seOnlyNotice: "Analyse séquences (motifs, logos, PPT) — SE uniquement",
     optionalModulesActive: "{{n}} module optionnel activé",
     optionalModulesActivePlural: "{{n}} modules optionnels activés",
+  },
+  hnrnpPanel: {
+    error: "Erreur lors du chargement des données d'enrichissement de motifs hnRNP.",
+    sigEvents: "Événements significatifs",
+    bgEvents: "Événements de référence",
+    significantMotifs: "Motifs significatifs",
+    filters: "Filtres",
+    showAll: "Tout afficher",
+    significantOnly: "Significatifs uniquement",
+    allProteins: "Toutes les protéines",
+    allRegions: "Toutes les régions",
+    noResults: "Aucun résultat de motif trouvé.",
+    noSignificant: "Aucun motif significativement enrichi. Cliquez sur « Tout afficher » pour voir tous les résultats.",
+    colProtein: "Protéine",
+    colMotif: "Motif",
+    colRegion: "Région",
+    colSig: "Sig.",
+    colBg: "Référence",
+    showing: "Affichage de {{n}} sur {{total}} résultats",
+    bonferroni: "p-values corrigées par Bonferroni",
+    heatmapTitle: "Carte de chaleur — meilleur motif par protéine × région",
+    enriched: "Enrichi chez sig.",
+    depleted: "Appauvri chez sig.",
+  },
+  enrichrPanel: {
+    error: "Erreur lors du chargement des résultats Enrichr.",
+    genesSubmitted: "Gènes soumis",
+    termsFound: "Termes trouvés",
+    libraries: "Bibliothèques interrogées",
+    allLibraries: "Toutes",
+    noTerms: "Aucun terme enrichi trouvé.",
   },
 };

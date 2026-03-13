@@ -20,4 +20,6 @@ export type ViewMode =
   | "stringdb"
   | "pathways"
   | "motifs"
-  | "splice";
+  | "splice"
+  | "hnrnp"
+  | "enrichr";

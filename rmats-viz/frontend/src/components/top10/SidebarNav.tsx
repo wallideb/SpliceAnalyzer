@@ -70,6 +70,24 @@ const EXTRA_TABS: Record<string, TabDef> = {
       </svg>
     ),
   },
+  hnrnp: {
+    mode: "hnrnp",
+    labelKey: "sidebarNav.tabs.hnrnp",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+      </svg>
+    ),
+  },
+  enrichr: {
+    mode: "enrichr",
+    labelKey: "sidebarNav.tabs.enrichr",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" />
+      </svg>
+    ),
+  },
 };
 
 export function SidebarNav({
@@ -85,7 +103,7 @@ export function SidebarNav({
   const tabs = [
     ...BASE_TABS,
     ...(showStringDB ? [STRINGDB_TAB] : []),
-    ...["pathways", "motifs", "splice"]
+    ...["pathways", "motifs", "splice", "hnrnp", "enrichr"]
       .filter((k) => activeModules?.has(k))
       .map((k) => EXTRA_TABS[k]),
   ];

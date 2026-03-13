@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from io import BytesIO
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -1063,6 +1066,8 @@ def _build_pdf(
     comparison=None,
     sig_map: dict | None = None,
     permutation_table: list[dict] | None = None,
+    hnrnp_data: dict | None = None,
+    enrichr_data: dict | None = None,
 ) -> bytes:
     """Build PDF report.
 
@@ -1080,6 +1085,12 @@ def _build_pdf(
         ΔΨ permutation results at multiple iteration counts.
         Each dict: {"iterations": int, "n_tested": int,
                      "pct_p05": float, "pct_p01": float}.
+    hnrnp_data : dict | None
+        Result from hnRNP motif enrichment analysis.
+        Keys: n_sig_events, n_bg_events, results (list of enrichment items).
+    enrichr_data : dict | None
+        Result from Enrichr pathway enrichment.
+        Keys: n_genes_submitted, terms (list of EnrichrTermItem dicts).
     """
     # Thread-local figure counter: avoids data races when multiple PDF
     # requests are served concurrently via asyncio.to_thread.
@@ -1684,6 +1695,132 @@ def _build_pdf(
         ))
         story.append(sp())
 
+    # ── Section E: hnRNP Motif Enrichment (deep analysis only) ─────────────
+    if hnrnp_data:
+        story.append(PageBreak())
+        hnrnp_sec = section_n
+        section_n += 1
+        story.append(p(f"{hnrnp_sec}. hnRNP Motif Enrichment Analysis", "h2"))
+        story.append(p(
+            "Inspired by rMAPS2 (Hwang et al., 2020), this analysis scans five genomic regions "
+            "around each skipped exon for known hnRNP RNA-binding protein consensus motifs "
+            "and compares their frequency between significant and non-significant events using "
+            "a two-proportion z-test with Bonferroni correction.",
+            "body",
+        ))
+
+        n_sig_e = hnrnp_data.get("n_sig_events", 0)
+        n_bg_e = hnrnp_data.get("n_bg_events", 0)
+        story.append(p(
+            f"Significant events: <b>{n_sig_e}</b> · "
+            f"Background events: <b>{n_bg_e}</b>",
+            "body",
+        ))
+        story.append(sp(0.2))
+
+        sig_motifs = [r for r in hnrnp_data.get("results", []) if r.get("significant")]
+        if sig_motifs:
+            # Sort by p_adjusted ascending
+            sig_motifs_sorted = sorted(
+                sig_motifs,
+                key=lambda r: (r.get("p_adjusted") or 1.0, r.get("region", ""), r.get("motif_name", "")),
+            )
+            _region_labels = {
+                "upstream_exon": "Upstream exon",
+                "upstream_intron": "Upstream intron",
+                "skipped_exon": "Skipped exon",
+                "downstream_intron": "Downstream intron",
+                "downstream_exon": "Downstream exon",
+            }
+            hnrnp_headers = ["Protein", "Motif", "Region", "Sig %", "Bg %", "z", "p (adj)"]
+            hnrnp_rows = [hnrnp_headers]
+            for r in sig_motifs_sorted[:20]:  # top 20
+                sig_pct = f"{r['sig_hit_count'] / r['sig_total'] * 100:.1f}%" if r.get("sig_total") else "—"
+                bg_pct = f"{r['bg_hit_count'] / r['bg_total'] * 100:.1f}%" if r.get("bg_total") else "—"
+                p_adj = r.get("p_adjusted")
+                p_str = f"{p_adj:.2e}" if p_adj is not None and p_adj < 0.001 else (f"{p_adj:.4f}" if p_adj is not None else "—")
+                z_str = f"{r['z_stat']:.2f}" if r.get("z_stat") is not None else "—"
+                hnrnp_rows.append([
+                    r.get("protein", "—"),
+                    r.get("motif_name", "—"),
+                    _region_labels.get(r.get("region", ""), r.get("region", "—")),
+                    sig_pct,
+                    bg_pct,
+                    z_str,
+                    p_str,
+                ])
+            hnrnp_tbl = Table(hnrnp_rows, colWidths=[3.0*_cm, 1.8*_cm, 3.5*_cm, 1.8*_cm, 1.8*_cm, 1.5*_cm, 2.0*_cm])
+            hnrnp_tbl.setStyle(_tbl_style())
+            story += [hnrnp_tbl, sp(0.2)]
+            story.append(p(
+                f"Showing {min(len(sig_motifs_sorted), 20)} of {len(sig_motifs)} significant motif-region "
+                "associations (Bonferroni-corrected p &lt; 0.05). "
+                "Sig % / Bg % = percentage of events with at least one motif hit.",
+                "small",
+            ))
+        else:
+            story.append(p(
+                "No motif-region combinations reached significance after Bonferroni correction.",
+                "body",
+            ))
+        story.append(sp())
+
+    # ── Section F: Enrichr Pathway Enrichment (deep analysis only) ─────────
+    if enrichr_data and enrichr_data.get("terms"):
+        story.append(PageBreak())
+        enr_sec = section_n
+        section_n += 1
+        n_genes = enrichr_data.get("n_genes_submitted", 0)
+        story.append(p(f"{enr_sec}. Pathway Enrichment Analysis (Enrichr)", "h2"))
+        story.append(p(
+            f"Gene symbols from significant events (n = {n_genes} unique genes) were submitted "
+            "to the Enrichr REST API (Ma'ayan Lab). Enrichment was computed against five curated "
+            "gene-set libraries: KEGG 2021, GO Biological Process, GO Molecular Function, "
+            "Reactome 2022, and WikiPathways 2023. The combined score = |z-score| × log(p-value) "
+            "(Chen et al., 2013).",
+            "body",
+        ))
+        story.append(sp(0.2))
+
+        _lib_labels = {
+            "KEGG_2021_Human": "KEGG 2021",
+            "GO_Biological_Process_2023": "GO Biol. Process",
+            "GO_Molecular_Function_2023": "GO Mol. Function",
+            "Reactome_2022": "Reactome 2022",
+            "WikiPathway_2023_Human": "WikiPathways 2023",
+        }
+        # Show top 5 per library
+        by_lib: dict[str, list] = {}
+        for term in enrichr_data.get("terms", []):
+            lib = term.get("library", "Unknown")
+            by_lib.setdefault(lib, []).append(term)
+
+        for lib, terms in by_lib.items():
+            top_terms = sorted(terms, key=lambda t: t.get("adjusted_p_value", 1.0))[:5]
+            lib_label = _lib_labels.get(lib, lib)
+            story.append(p(lib_label, "h3"))
+            enr_headers = ["Rank", "Term", "Overlap", "Adj. p-value", "Combined Score"]
+            enr_rows = [enr_headers]
+            for term in top_terms:
+                adj_p = term.get("adjusted_p_value", 1.0)
+                p_str = f"{adj_p:.2e}" if adj_p < 0.001 else f"{adj_p:.4f}"
+                enr_rows.append([
+                    str(term.get("rank", "—")),
+                    str(term.get("term", "—")),
+                    str(term.get("overlap", "—")),
+                    p_str,
+                    f"{term.get('combined_score', 0.0):.1f}",
+                ])
+            enr_tbl = Table(enr_rows, colWidths=[1.0*_cm, 7.5*_cm, 1.8*_cm, 2.2*_cm, 2.7*_cm])
+            enr_tbl.setStyle(_tbl_style())
+            story += [enr_tbl, sp(0.2)]
+        story.append(p(
+            "FDR-adjusted p-values use the Benjamini-Hochberg method (Enrichr internal correction). "
+            "Top 5 terms per library shown.",
+            "small",
+        ))
+        story.append(sp())
+
     # ── Top SE events ──────────────────────────────────────────────────────
     story.append(PageBreak())
     story.append(p(f"{section_n}. Top SE Events (ranked by FDR, |ΔΨ|)", "h2"))
@@ -1783,8 +1920,35 @@ def _build_pdf(
             p("For each significant SE event, sample labels are randomly permuted (keeping "
               "group sizes fixed) to build a null distribution of ΔΨ. The empirical two-tailed "
               "p-value equals the fraction of permuted |ΔΨ| values ≥ the observed |ΔΨ|, "
-              "plus one (Phipson &amp; Smyth, 2010). The test is run at multiple iteration "
+              "plus one (Phipson &amp; Smyth, 2010 [13]). The test is run at multiple iteration "
               "counts (50, 100, 250, 500) to assess convergence.", "body"),
+            p("<b>8. hnRNP Motif Enrichment Analysis</b>", "h3"),
+            p("RNA-binding protein (RBP) motif enrichment is computed in a rMAPS2-inspired "
+              "framework (Hwang et al., 2020 [14]). For each SE event five flanking regions are "
+              "extracted from GRCh38 (samtools faidx): upstream exon (50 nt), upstream intron "
+              "(200 nt), skipped exon (full sequence), downstream intron (200 nt), and downstream "
+              "exon (50 nt). Minus-strand events are reverse-complemented before scanning.", "body"),
+            p("Seventeen consensus motifs for ten hnRNP proteins (hnRNP A1/A2, C, D, E1, F/H, "
+              "I/PTB, K, L, M, U) are matched using IUPAC-degenerate pattern search derived from "
+              "CISBP-RNA (Ray et al., 2013 [17]) and Martinez-Contreras et al. (2006). "
+              "For each motif-region pair, the hit rate (fraction of events with ≥ 1 match) is "
+              "compared between the significant and background groups using a two-proportion z-test "
+              "(pooled proportion). Bonferroni correction (n = 5 regions × 17 motifs = 85 tests) "
+              "is applied; associations with p<sub>adj</sub> &lt; 0.05 are reported as significant. "
+              "This differs from rMAPS2, which uses a Wilcoxon rank-sum test on sliding-window "
+              "densities; our approach tests binary hit rates across genomic sub-regions.", "body"),
+            p("<b>9. Pathway Enrichment (Enrichr)</b>", "h3"),
+            p("Unique HGNC gene symbols derived from significant splicing events are submitted to "
+              "the Enrichr REST API (Ma'ayan Lab; Chen et al., 2013 [15]; Kuleshov et al., 2016 "
+              "[16]) via a POST request to <i>/addList</i>. Enrichment is retrieved for five "
+              "curated gene-set libraries: KEGG 2021 Human, GO Biological Process 2023, GO "
+              "Molecular Function 2023, Reactome 2022, and WikiPathways 2023 Human.", "body"),
+            p("For each term the Enrichr combined score is defined as: "
+              "CS = |z| × log(p), where z is the deviation from a random background (computed "
+              "by Enrichr using a random gene-list model) and p is the Fisher's exact test "
+              "p-value. FDR-adjusted p-values use Benjamini-Hochberg correction applied "
+              "internally by Enrichr. The top 10 terms per library by adjusted p-value are "
+              "retained and displayed in this report.", "body"),
         ]
     story.append(sp())
 
@@ -1810,15 +1974,32 @@ def _build_pdf(
         p("[8] Cunningham F et al. <i>Ensembl 2022.</i> Nucleic Acids Res. "
           "2022;50(D1):D988-D995.", "body"),
         p("[9] Gene Ontology Consortium. <i>The Gene Ontology resource: enriching a "
-          "GOld mine.</i> Nucleic Acids Res. 2021;49(D1):D331-D338.", "body"),
+          "GOld mine.</i> Nucleic Acids Res. 2021;49(D1):D325-D334.", "body"),
         p("[10] Szklarczyk D et al. <i>The STRING database in 2023: protein–protein "
           "association networks with increased coverage.</i> Nucleic Acids Res. "
-          "2023;51(D1):D483-D489.", "body"),
-        p("[11] Coolidge CJ, Seely RJ, Bhatt H. <i>Functional analysis of the "
+          "2023;51(D1):D638-D646.", "body"),
+        p("[11] Coolidge CJ, Seely RJ, Patton JG. <i>Functional analysis of the "
           "polypyrimidine tract in pre-mRNA splicing.</i> Nucleic Acids Res. "
           "1997;25(4):888-896.", "body"),
-        p("[12] Padgett RA et al. <i>Lariat RNAs as intermediates and products in the "
-          "splicing of messenger RNA precursors.</i> Science. 1984;225(4665):898-903.", "body"),
+        p("[12] Padgett RA, Grabowski PJ, Konarska MM, Seiler SR, Sharp PA. "
+          "<i>Splicing of messenger RNA precursors.</i> Annu Rev Biochem. "
+          "1986;55:1119-1150.", "body"),
+        p("[13] Phipson B, Smyth GK. <i>Permutation P-values should never be zero: "
+          "calculating exact P-values when permutations are randomly drawn.</i> "
+          "Stat Appl Genet Mol Biol. 2010;9(1):Article 39.", "body"),
+        p("[14] Hwang JY, Jung S, Kook TL, Rouchka EC, Bok J, Park JW. "
+          "<i>rMAPS2: An update of the RNA map analysis and plotting server for "
+          "alternative splicing regulation.</i> Nucleic Acids Res. 2020;48(W1):W300-W306.", "body"),
+        p("[15] Chen EY, Tan CM, Kou Y, Duan Q, Wang Z, Meirelles GV, Clark NR, "
+          "Ma'ayan A. <i>Enrichr: interactive and collaborative HTML5 gene list "
+          "enrichment analysis tool.</i> BMC Bioinformatics. 2013;14:128.", "body"),
+        p("[16] Kuleshov MV, Jones MR, Rouillard AD, Fernandez NF, Duan Q, Wang Z, "
+          "Koplev S, Jenkins SL, Jagodnik KM, Lachmann A, McDermott MG, Bhatt DL, "
+          "Eisenberg D, Ma'ayan A. <i>Enrichr: a comprehensive gene set enrichment "
+          "analysis web server 2016 update.</i> Nucleic Acids Res. 2016;44(W1):W90-W97.", "body"),
+        p("[17] Ray D, Kazan H, Cook KB, Weirauch MT, Najafabadi HS, Li X et al. "
+          "<i>A compendium of RNA-binding motifs for decoding gene regulation.</i> "
+          "Nature. 2013;499(7457):172-177.", "body"),
         sp(),
     ]
 
@@ -1870,8 +2051,26 @@ def _build_pdf(
             p("For each significant SE event, sample-label permutation generates a null ΔΨ "
               "distribution.  The empirical p-value is: p = (r + 1) / (K + 1), where r is "
               "the number of permuted |ΔΨ| ≥ observed |ΔΨ| and K is the number of iterations.  "
-              "The +1 correction avoids p = 0 (Phipson &amp; Smyth, 2010).  "
+              "The +1 correction avoids p = 0 (Phipson &amp; Smyth, 2010 [13]).  "
               "The test is run at 50, 100, 250 and 500 iterations to demonstrate convergence.", "body"),
+            p("<b>C.6 hnRNP Motif Enrichment — Two-Proportion z-Test</b>", "h3"),
+            p("For each motif m in region r, let x<sub>1</sub> / n<sub>1</sub> be the hit rate "
+              "in the significant group and x<sub>2</sub> / n<sub>2</sub> in the background. "
+              "The pooled proportion is p̂ = (x<sub>1</sub> + x<sub>2</sub>) / "
+              "(n<sub>1</sub> + n<sub>2</sub>). The test statistic is:", "body"),
+            p("&nbsp;&nbsp;&nbsp;z = (p̂<sub>1</sub> - p̂<sub>2</sub>) / "
+              "sqrt[ p̂(1 - p̂)(1/n<sub>1</sub> + 1/n<sub>2</sub>) ]", "code"),
+            p("Two-tailed p-values are computed from the standard normal CDF. "
+              "Bonferroni correction multiplies each p-value by the number of tests "
+              "(85 = 5 regions × 17 motifs). Groups with fewer than 5 events are skipped.", "body"),
+            p("<b>C.7 Enrichr Combined Score</b>", "h3"),
+            p("The Enrichr combined score (Chen et al., 2013 [15]) is defined as:", "body"),
+            p("&nbsp;&nbsp;&nbsp;CS = |z| × log(p)", "code"),
+            p("where z is the z-score computed by Enrichr against a random background model "
+              "(draws from the full human gene set) and p is the Fisher's exact test p-value "
+              "for overlap between the submitted gene list and the gene set. "
+              "A higher CS indicates stronger enrichment signal beyond background expectation. "
+              "BH-FDR adjusted p-values are applied within each library.", "body"),
         ]
     story.append(sp())
 
@@ -1964,13 +2163,135 @@ async def export_deep_analysis_pdf(
         ],
     }
 
+    # ── hnRNP motif enrichment ────────────────────────────────────────────
+    async def _compute_hnrnp() -> dict | None:
+        """Run hnRNP motif enrichment on SE events; returns plain dict or None."""
+        try:
+            from app.services.hnrnp_motifs import SERegions, define_se_regions, compare_groups, scan_group
+            from app.services.sequence import extract_regions_batch, reverse_complement
+            from app.config import settings
+
+            se_sig = [e for e in sig_events if e.event_type == "SE"]
+            se_bg = [e for e in nonsig_events if e.event_type == "SE"]
+
+            def _build_regions(evs: list) -> list:
+                if not evs:
+                    return []
+                all_bed: list = []
+                strands: list[str] = []
+                for ev in evs:
+                    if not ev.chr or ev.exon_start is None or ev.exon_end is None:
+                        for _ in range(5):
+                            all_bed.append(("", 0, 0))
+                        strands.append(ev.strand or "+")
+                        continue
+                    bed = define_se_regions(
+                        ev.chr, ev.strand or "+",
+                        ev.exon_start, ev.exon_end,
+                        ev.upstream_es, ev.upstream_ee,
+                        ev.downstream_es, ev.downstream_ee,
+                    )
+                    all_bed.extend(bed)
+                    strands.append(ev.strand or "+")
+                seqs = extract_regions_batch(all_bed, settings.GRCH38_FASTA)
+                result: list = []
+                for idx, strand in enumerate(strands):
+                    s = seqs[idx * 5: idx * 5 + 5]
+                    if strand == "-":
+                        s = [reverse_complement(x) if x else "" for x in s]
+                    result.append(SERegions(
+                        upstream_exon=s[0], upstream_intron=s[1],
+                        skipped_exon=s[2], downstream_intron=s[3], downstream_exon=s[4],
+                    ))
+                return result
+
+            sig_regions, bg_regions = await asyncio.gather(
+                asyncio.to_thread(_build_regions, se_sig),
+                asyncio.to_thread(_build_regions, se_bg),
+            )
+            sig_scan, bg_scan = await asyncio.gather(
+                asyncio.to_thread(scan_group, sig_regions),
+                asyncio.to_thread(scan_group, bg_regions),
+            )
+            enrichment = await asyncio.to_thread(compare_groups, sig_scan, bg_scan)
+            return {
+                "n_sig_events": len(se_sig),
+                "n_bg_events": len(se_bg),
+                "results": [
+                    {
+                        "motif_name": r.motif_name,
+                        "protein": r.protein,
+                        "region": r.region,
+                        "sig_hit_count": r.sig_hit_count,
+                        "sig_total": r.sig_total,
+                        "bg_hit_count": r.bg_hit_count,
+                        "bg_total": r.bg_total,
+                        "sig_density": r.sig_density,
+                        "bg_density": r.bg_density,
+                        "z_stat": r.z_stat,
+                        "p_value": r.p_value,
+                        "p_adjusted": r.p_adjusted,
+                        "significant": r.significant,
+                    }
+                    for r in enrichment
+                ],
+            }
+        except Exception as exc:
+            logger.warning("hnRNP computation skipped in PDF (non-fatal): %s", exc)
+            return None
+
+    # ── Enrichr pathway enrichment ────────────────────────────────────────
+    async def _compute_enrichr() -> dict | None:
+        """Run Enrichr on gene symbols from significant events; returns plain dict or None."""
+        try:
+            from app.services.enrichr import run_enrichment
+
+            q_genes = (
+                select(SplicingEvent.gene_symbol)
+                .join(DeepAnalysisEvent, DeepAnalysisEvent.event_id == SplicingEvent.id)
+                .where(
+                    DeepAnalysisEvent.deep_analysis_id == deep_analysis_id,
+                    DeepAnalysisEvent.is_significant.is_(True),
+                    SplicingEvent.gene_symbol.isnot(None),
+                )
+                .distinct()
+            )
+            gene_rows = (await db.execute(q_genes)).scalars().all()
+            gene_symbols = [s for s in gene_rows if s and s.strip()]
+            if not gene_symbols:
+                return None
+            result = await asyncio.to_thread(run_enrichment, gene_symbols)
+            if result.error and not result.terms:
+                return None
+            return {
+                "n_genes_submitted": result.n_genes_submitted,
+                "terms": [
+                    {
+                        "library": t.library,
+                        "rank": t.rank,
+                        "term": t.term,
+                        "p_value": t.p_value,
+                        "adjusted_p_value": t.adjusted_p_value,
+                        "z_score": t.z_score,
+                        "combined_score": t.combined_score,
+                        "overlap": t.overlap,
+                        "genes": t.genes,
+                    }
+                    for t in result.terms
+                ],
+            }
+        except Exception as exc:
+            logger.warning("Enrichr computation skipped in PDF (non-fatal): %s", exc)
+            return None
+
     # ── Permutation test (single run at 500 iterations) ─────────────────
     from app.services.permutation import run_permutation
 
-    # Build parallel feature list aligned with sig_events
     sig_features_list = [features.get(e.id) for e in sig_events]
-    permutation_table: list[dict] = []
-    if sig_events:
+
+    async def _compute_permutation() -> list[dict]:
+        if not sig_events:
+            return []
         perm_res = await asyncio.to_thread(
             run_permutation,
             sig_events,
@@ -1979,17 +2300,25 @@ async def export_deep_analysis_pdf(
             only_se=True,
             seed=42,
         )
-        permutation_table.append({
+        return [{
             "iterations": 500,
             "n_tested": perm_res.n_events_tested,
             "pct_p05": perm_res.pct_p05,
             "pct_p01": perm_res.pct_p01,
-        })
+        }]
+
+    # Run all three analyses concurrently
+    permutation_table, hnrnp_data, enrichr_data = await asyncio.gather(
+        _compute_permutation(),
+        _compute_hnrnp(),
+        _compute_enrichr(),
+    )
 
     pdf_bytes = await asyncio.to_thread(
         _build_pdf, analysis, events, features, group1_label, group2_label,
         deep_analysis=deep, comparison=comparison,
         sig_map=sig_map, permutation_table=permutation_table,
+        hnrnp_data=hnrnp_data, enrichr_data=enrichr_data,
     )
 
     return StreamingResponse(

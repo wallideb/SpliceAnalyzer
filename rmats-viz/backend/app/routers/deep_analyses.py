@@ -537,11 +537,11 @@ def _compute_group_stats(
 
     # Upstream donor (flanking exon)
     up_donor_9 = [f.upstream_donor_seq[:9] for f in feats_with_seq if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
-    n_up_gt = sum(1 for f in feats_with_seq if f.upstream_donor_seq and f.upstream_donor_is_gt)
+    n_up_gt = sum(1 for f in feats_with_seq if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9 and f.upstream_donor_is_gt)
 
     # Downstream acceptor (flanking exon)
     dn_acc_23 = [f.downstream_acceptor_seq[-23:] for f in feats_with_seq if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
-    n_dn_ag = sum(1 for f in feats_with_seq if f.downstream_acceptor_seq and f.downstream_acceptor_is_ag)
+    n_dn_ag = sum(1 for f in feats_with_seq if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23 and f.downstream_acceptor_is_ag)
 
     # PPT
     ppt_scores = [f.ppt_score for f in feats_with_seq if f.ppt_score is not None]

@@ -248,29 +248,64 @@ class MotifEnrichmentResult:
 def scan_group(
     sequences_by_region: list[SERegions],
 ) -> list[MotifRegionResult]:
-    """Scan a group of events and return per-motif per-region stats."""
-    results: list[MotifRegionResult] = []
-    for motif_name, protein, pattern in HNRNP_MOTIFS:
-        for region_name in REGION_NAMES:
-            n_with_hit = 0
-            densities: list[float] = []
-            n_total = 0
-            for sr in sequences_by_region:
-                seq = getattr(sr, region_name, "")
-                if not seq:
+    """Scan a group of events and return per-motif per-region stats.
+
+    Performance notes (optimised for 120 k-event datasets):
+    - Iterates events in the *outer* loop so each SERegions object is
+      accessed once → better cache locality.
+    - Skips redundant ``str.upper()`` calls: sequences produced by
+      ``extract_regions_batch`` are already uppercase; motif patterns in
+      ``HNRNP_MOTIFS`` are defined uppercase.
+    - Uses the fast ``in`` operator as an early-exit hit check before the
+      overlapping-count loop, skipping the count for ~50-80 % of pairs.
+    - Accumulates a running density sum instead of building per-region
+      lists, eliminating repeated list allocations.
+    """
+    n_motifs = len(HNRNP_MOTIFS)
+    n_regions = len(REGION_NAMES)
+
+    # Flat pre-allocated accumulators: index = mi * n_regions + ri
+    n_totals = [0]   * (n_motifs * n_regions)
+    n_hits   = [0]   * (n_motifs * n_regions)
+    sum_dens = [0.0] * (n_motifs * n_regions)
+
+    for sr in sequences_by_region:
+        for ri, region_name in enumerate(REGION_NAMES):
+            seq = getattr(sr, region_name, "")
+            if not seq:
+                continue
+            seq_len = len(seq)
+            for mi, (_, _, pattern) in enumerate(HNRNP_MOTIFS):
+                cell = mi * n_regions + ri
+                n_totals[cell] += 1
+                # Fast early exit: no density computation needed for misses
+                if pattern not in seq:
                     continue
-                n_total += 1
-                d = motif_density(seq, pattern)
-                densities.append(d)
-                if d > 0:
-                    n_with_hit += 1
+                n_hits[cell] += 1
+                # Count overlapping occurrences for density
+                count = 0
+                start = 0
+                pat_len = len(pattern)
+                while True:
+                    pos = seq.find(pattern, start)
+                    if pos == -1:
+                        break
+                    count += 1
+                    start = pos + 1
+                sum_dens[cell] += min(1.0, count * pat_len / seq_len)
+
+    results: list[MotifRegionResult] = []
+    for mi, (motif_name, protein, _) in enumerate(HNRNP_MOTIFS):
+        for ri, region_name in enumerate(REGION_NAMES):
+            cell = mi * n_regions + ri
+            nt = n_totals[cell]
             results.append(MotifRegionResult(
                 motif_name=motif_name,
                 protein=protein,
                 region=region_name,
-                count_events_with_hit=n_with_hit,
-                total_events=n_total,
-                mean_density=sum(densities) / len(densities) if densities else 0.0,
+                count_events_with_hit=n_hits[cell],
+                total_events=nt,
+                mean_density=sum_dens[cell] / nt if nt > 0 else 0.0,
             ))
     return results
 

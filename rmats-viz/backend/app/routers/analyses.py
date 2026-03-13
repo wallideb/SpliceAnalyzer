@@ -98,9 +98,39 @@ async def delete_analysis(analysis_id: uuid.UUID, db: AsyncSession = Depends(get
     result = await db.execute(select(Analysis.id).where(Analysis.id == analysis_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Analysis not found")
-    # Use SQL DELETE instead of ORM db.delete() to avoid loading all
-    # cascade relationships (events, features, deep analyses) into memory.
-    # The DB-level ON DELETE CASCADE handles child table cleanup.
+
+    # For large analyses the DB-level ON DELETE CASCADE can be slow because
+    # PostgreSQL must scan and delete from every child table in a single
+    # transaction.  Set a generous statement timeout (5 min) so the delete
+    # does not hang indefinitely, and pre-delete the heaviest child tables
+    # in separate batches before removing the parent row.
+    from sqlalchemy import text
+    await db.execute(text("SET LOCAL statement_timeout = '300s'"))
+
+    # Pre-delete heavy child tables to keep the final CASCADE lightweight.
+    # deep_analysis_events → deep_analyses → (via analysis_id)
+    await db.execute(text(
+        "DELETE FROM deep_analysis_events WHERE deep_analysis_id IN "
+        "(SELECT id FROM deep_analyses WHERE analysis_id = :aid)"
+    ), {"aid": analysis_id})
+    await db.execute(text(
+        "DELETE FROM deep_analyses WHERE analysis_id = :aid"
+    ), {"aid": analysis_id})
+    # event_splice_feature → splicing_events
+    await db.execute(text(
+        "DELETE FROM event_splice_feature WHERE event_id IN "
+        "(SELECT id FROM splicing_events WHERE analysis_id = :aid)"
+    ), {"aid": analysis_id})
+    # event_cluster (direct FK)
+    await db.execute(text(
+        "DELETE FROM event_cluster WHERE analysis_id = :aid"
+    ), {"aid": analysis_id})
+    # splicing_events (direct FK)
+    await db.execute(text(
+        "DELETE FROM splicing_events WHERE analysis_id = :aid"
+    ), {"aid": analysis_id})
+
+    # Now the parent row delete is lightweight (only sample_groups left)
     await db.execute(delete(Analysis).where(Analysis.id == analysis_id))
     await db.commit()
     logger.info("DELETE /analyses/%s — done", analysis_id)

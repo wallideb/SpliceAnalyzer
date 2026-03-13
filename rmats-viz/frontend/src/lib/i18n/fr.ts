@@ -439,9 +439,8 @@ export const fr: Translations = {
       significant: "Significatif",
     },
     empty: {
-      main: "Lancez le test pour estimer la significativité empirique des ΔΨ et des propriétés de splice signal.",
-      params:
-        "5 paramètres testés : ΔΨ · score PPT · taille exon · phase · sites GT-AG.",
+      main: "Lancez le test pour estimer la significativité empirique de la distribution des scores ΔΨ.",
+      params: "",
     },
   },
   scienceNotes: {

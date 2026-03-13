@@ -258,6 +258,9 @@ async def _compute_one(
 # ---------------------------------------------------------------------------
 
 _COMPUTE_CHUNK = 2_000  # events processed per MANE/feature chunk
+# asyncpg hard-limits query parameters to 32 767.  Each EventSpliceFeature row
+# has 25 columns, so the safe DB-write batch size is floor(32767 / 25) = 1310.
+_DB_WRITE_BATCH = 1_000  # keep a round number well under the limit
 
 
 async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
@@ -377,13 +380,16 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                         logger.error("Feature build failed for %s: %s", ev.id, exc)
 
                 if bulk_rows:
-                    ins = pg_insert(EventSpliceFeature)
-                    await db.execute(
-                        ins.values(bulk_rows).on_conflict_do_update(
-                            index_elements=["event_id"],
-                            set_=_feature_conflict_set(ins, bulk_rows[0]),
+                    # Sub-batch to stay under asyncpg's 32 767-parameter limit.
+                    for i in range(0, len(bulk_rows), _DB_WRITE_BATCH):
+                        sub = bulk_rows[i : i + _DB_WRITE_BATCH]
+                        ins = pg_insert(EventSpliceFeature)
+                        await db.execute(
+                            ins.values(sub).on_conflict_do_update(
+                                index_elements=["event_id"],
+                                set_=_feature_conflict_set(ins, sub[0]),
+                            )
                         )
-                    )
                     n_computed += len(bulk_rows)
                 await db.commit()
                 if chunk_start % 1000 == 0:

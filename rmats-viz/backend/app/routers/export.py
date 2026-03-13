@@ -1937,6 +1937,18 @@ def _build_pdf(
               "is applied; associations with p<sub>adj</sub> &lt; 0.05 are reported as significant. "
               "This differs from rMAPS2, which uses a Wilcoxon rank-sum test on sliding-window "
               "densities; our approach tests binary hit rates across genomic sub-regions.", "body"),
+            p("<b>Summary — SpliceAnalyzer vs. rMAPS2:</b> rMAPS2 characterises positional RBP "
+              "binding preferences through nucleotide-resolution sliding-window density plots and "
+              "rank-based non-parametric statistics, making it well-suited for visualising where "
+              "along a splicing window a motif is enriched. SpliceAnalyzer instead adopts a "
+              "region-centric binary enrichment model: each of the five predefined genomic "
+              "sub-regions is treated as a unit, hit rates (fraction of events containing ≥ 1 "
+              "motif match) are compared between the significant and background event sets via a "
+              "two-proportion z-test, and family-wise error control is applied with Bonferroni "
+              "correction across all motif–region pairs. This design trades positional resolution "
+              "for statistical clarity and direct interpretability in the context of discrete "
+              "regulatory zones (exonic body, proximal/distal intronic flanks), providing a "
+              "complementary, region-level view of hnRNP motif associations.", "body"),
             p("<b>9. Pathway Enrichment (Enrichr)</b>", "h3"),
             p("Unique HGNC gene symbols derived from significant splicing events are submitted to "
               "the Enrichr REST API (Ma'ayan Lab; Chen et al., 2013 [15]; Kuleshov et al., 2016 "

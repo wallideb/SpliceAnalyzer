@@ -32,7 +32,7 @@
 - [Usage Guide](#usage-guide)
   - [Creating an Analysis](#creating-an-analysis)
   - [Browsing Events](#browsing-events)
-  - [Top-10 View](#top-10-view)
+  - [Event Cards](#event-cards)
   - [Deep Splice Analysis](#deep-splice-analysis)
   - [Gene Annotations](#gene-annotations)
   - [Exporting Results](#exporting-results)
@@ -75,7 +75,7 @@ The application supports all five rMATS event types:
 - **Coverage filtering** &mdash; Events with mean per-replicate junction coverage (IJC + SJC) below 10X in either sample group are automatically filtered out on import
 - **Analysis management** &mdash; Create, list, navigate, and delete named analyses
 - **Event browser** &mdash; Sortable, filterable, paginated table of all splicing events with support for filtering by event type, gene symbol, FDR threshold, P-value, and minimum |&Delta;&Psi;|
-- **Top-10 ranking** &mdash; Events automatically ranked by statistical significance (FDR) and inclusion-level difference (|&Delta;&Psi;|)
+- **Event ranking** &mdash; Significant events ranked by statistical significance (FDR) and inclusion-level difference (|&Delta;&Psi;|), displayed as annotated cards
 - **Gene basket** &mdash; Collect genes of interest across analyses for batch annotation and export
 - **Dark mode** &mdash; Toggle-able theme with persistent preference via `localStorage`
 - **Internationalisation** &mdash; Full English / French language switcher; all UI strings are externalized
@@ -113,7 +113,7 @@ The application supports all five rMATS event types:
 
 ### Export
 
-- **PDF report** &mdash; Multi-page document including analysis summary, top SE events ranked by FDR and |&Delta;&Psi;|, methodology appendix, bibliographic references, and statistical methods
+- **PDF report** &mdash; Multi-page document including analysis summary, significant SE events ranked by FDR and |&Delta;&Psi;|, methodology appendix, bibliographic references, and statistical methods
 - **Parameterized Excel export** &mdash; Interactive modal for selecting annotation column groups (`core`, `panelapp`, `go`, `stringdb`) before download; optional groups are fetched in parallel at export time
 
 ### Scientific Provenance
@@ -190,7 +190,7 @@ SpliceAnalyzer/
     │       │   └── splice.py           # EventCluster, EventSpliceFeature
     │       ├── routers/
     │       │   ├── analyses.py         # CRUD + file upload
-    │       │   ├── events.py           # Event listing + Top-10
+    │       │   ├── events.py           # Event listing + ranking
     │       │   ├── genes.py            # Gene search / autocomplete
     │       │   ├── annotations.py      # PanelApp, GO, UniProt, STRING
     │       │   ├── splice.py           # Splice feature compute + patterns
@@ -198,7 +198,7 @@ SpliceAnalyzer/
     │       ├── schemas/                # Pydantic request/response models
     │       ├── services/               # Business logic layer
     │       │   ├── parser.py           # rMATS TSV parsing + coverage filter
-    │       │   ├── event_selector.py   # Top-10 ranking by FDR / ΔΨ
+    │       │   ├── event_selector.py   # Event ranking by FDR / ΔΨ
     │       │   ├── event_cluster.py    # Union-Find SE event deduplication
     │       │   ├── sequence.py         # samtools faidx wrapper + UCSC↔RefSeq
     │       │   ├── splice_features.py  # GT-AG, PPT score, branch-point
@@ -346,9 +346,9 @@ The event browser (`/analyses/{id}`) provides a fully interactive table with:
 - **Pagination** &mdash; Configurable page size
 - **Direction-of-effect badges** &mdash; Visual indicators for exon skipping vs. inclusion
 
-### Top-10 View
+### Event Cards
 
-The Top-10 view (`/analyses/{id}/top10`) displays the most significant events ranked by FDR and |&Delta;&Psi;|. Each event card includes:
+The event cards view displays significant events ranked by FDR and |&Delta;&Psi;|. Each event card includes:
 
 - **SpliceView** &mdash; Schematic of the splicing event with inclusion/exclusion levels
 - **ExonDiagram** &mdash; Interactive exon-intron diagram with donor/acceptor/PPT/branch-point annotations
@@ -399,7 +399,7 @@ Search for any gene by HUGO symbol using the Ensembl-backed autocomplete. The an
 Click the **Export PDF** button to generate a multi-page report containing:
 
 - Analysis summary table
-- Top SE events ranked by FDR and |&Delta;&Psi;|
+- Significant SE events ranked by FDR and |&Delta;&Psi;|
 - Appendix A: Pipeline methodology
 - Appendix B: Bibliographic references
 - Appendix C: Statistical methods applied
@@ -440,7 +440,7 @@ The backend exposes a versioned REST API under `/api/v1`. Full interactive docum
 | `GET` | `/api/v1/analyses/{id}` | Get analysis details + sample groups |
 | `DELETE` | `/api/v1/analyses/{id}` | Delete analysis and all associated data |
 | `GET` | `/api/v1/analyses/{id}/events` | Paginated, filterable event list |
-| `GET` | `/api/v1/analyses/{id}/events/top10` | Top-10 events by FDR rank |
+| `GET` | `/api/v1/analyses/{id}/events/top10` | Ranked significant events by FDR |
 
 **Event query parameters:**
 

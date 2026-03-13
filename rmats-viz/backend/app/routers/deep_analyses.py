@@ -11,6 +11,7 @@ GET    /deep-analyses/{id}/pattern-comparison — dual-group pattern stats
 
 from __future__ import annotations
 
+import asyncio
 import math
 import statistics
 import uuid
@@ -651,17 +652,16 @@ async def get_hnrnp_motifs(
         (sig_events if is_sig else bg_events).append(ev)
 
     def _build_regions(events: list[SplicingEvent]) -> list[SERegions]:
-        """Extract five genomic regions per event and fetch sequences."""
+        """Extract five genomic regions per event and fetch sequences in one batch."""
         if not events:
             return []
         all_bed_regions: list[tuple[str, int, int]] = []
-        event_indices: list[tuple[int, str]] = []  # (event_idx, strand)
-        for i, ev in enumerate(events):
+        strands: list[str] = []
+        for ev in events:
             if not ev.chr or ev.exon_start is None or ev.exon_end is None:
-                # Placeholder — 5 empty regions
                 for _ in range(5):
                     all_bed_regions.append(("", 0, 0))
-                event_indices.append((i, ev.strand or "+"))
+                strands.append(ev.strand or "+")
                 continue
             bed = define_se_regions(
                 ev.chr, ev.strand or "+",
@@ -670,12 +670,12 @@ async def get_hnrnp_motifs(
                 ev.downstream_es, ev.downstream_ee,
             )
             all_bed_regions.extend(bed)
-            event_indices.append((i, ev.strand or "+"))
+            strands.append(ev.strand or "+")
 
         seqs = extract_regions_batch(all_bed_regions, settings.GRCH38_FASTA)
 
         results: list[SERegions] = []
-        for idx, (_, strand) in enumerate(event_indices):
+        for idx, strand in enumerate(strands):
             s = seqs[idx * 5 : idx * 5 + 5]
             if strand == "-":
                 s = [reverse_complement(x) if x else "" for x in s]
@@ -688,13 +688,17 @@ async def get_hnrnp_motifs(
             ))
         return results
 
-    import asyncio
+    # Extract regions for both groups concurrently (two independent samtools calls)
+    sig_regions, bg_regions = await asyncio.gather(
+        asyncio.to_thread(_build_regions, sig_events),
+        asyncio.to_thread(_build_regions, bg_events),
+    )
 
-    sig_regions = await asyncio.to_thread(_build_regions, sig_events)
-    bg_regions = await asyncio.to_thread(_build_regions, bg_events)
-
-    sig_scan = await asyncio.to_thread(scan_group, sig_regions)
-    bg_scan = await asyncio.to_thread(scan_group, bg_regions)
+    # Scan both groups concurrently; compare_groups is fast (pure Python)
+    sig_scan, bg_scan = await asyncio.gather(
+        asyncio.to_thread(scan_group, sig_regions),
+        asyncio.to_thread(scan_group, bg_regions),
+    )
     enrichment = await asyncio.to_thread(compare_groups, sig_scan, bg_scan)
 
     return HnRNPMotifResponse(
@@ -783,7 +787,6 @@ async def get_enrichr_enrichment(
             error="No gene symbols found in significant events",
         )
 
-    import asyncio
     result = await asyncio.to_thread(run_enrichment, gene_symbols)
     return EnrichrResponse(
         n_genes_submitted=result.n_genes_submitted,

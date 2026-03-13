@@ -40,7 +40,7 @@ DEFAULT_LIBRARIES = [
     "WikiPathway_2023_Human",
 ]
 
-TIMEOUT = 30  # seconds per HTTP call
+TIMEOUT = 15  # seconds per HTTP call
 
 
 @dataclass
@@ -134,15 +134,24 @@ def run_enrichment(
                 if len(row) < 7:
                     continue
                 overlap_genes = row[5] if isinstance(row[5], list) else []
+                # Overlap string: "k/n" where k = overlapping genes, n = gene-set size.
+                # Gene-set size is sometimes embedded in the term name (e.g. "Pathway (124)")
+                # but this is library-specific and unreliable; report count only when absent.
+                term_str = str(row[1])
+                if "(" in term_str and term_str.endswith(")"):
+                    geneset_size = term_str.rsplit("(", 1)[-1].rstrip(")")
+                    overlap_str = f"{len(overlap_genes)}/{geneset_size}"
+                else:
+                    overlap_str = str(len(overlap_genes))
                 all_terms.append(EnrichrTerm(
                     library=lib,
                     rank=int(row[0]) if row[0] is not None else i + 1,
-                    term=str(row[1]),
+                    term=term_str,
                     p_value=float(row[2]),
                     adjusted_p_value=float(row[6]),
                     z_score=float(row[3]),
                     combined_score=float(row[4]),
-                    overlap=f"{len(overlap_genes)}/{row[1].split('(')[-1].rstrip(')') if '(' in str(row[1]) else '?'}",
+                    overlap=overlap_str,
                     genes=overlap_genes,
                 ))
         except Exception as exc:

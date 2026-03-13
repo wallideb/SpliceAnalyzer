@@ -1440,7 +1440,6 @@ def _build_pdf(
             return "★" if t.get("significant") else "n.s."
 
         # Ca. Feature comparison table
-        story.append(p(f"{cmp_sec}.1 Feature Comparison", "h3"))
         cmp_headers = ["Feature", f"Significant (n={sig['n_se_with_features']})",
                         f"Non-significant (n={nonsig['n_se_with_features']})", "Test", "p-value", ""]
         cmp_rows = [cmp_headers]
@@ -1477,20 +1476,22 @@ def _build_pdf(
 
         cmp_tbl = Table(cmp_rows, colWidths=[3.2*_cm, 3.5*_cm, 3.5*_cm, 2.8*_cm, 2.2*_cm, 1*_cm])
         cmp_tbl.setStyle(_tbl_style())
-        story += [cmp_tbl, sp()]
-        story.append(p("★ = p &lt; 0.05; n.s. = not significant", "small"))
-        story.append(sp())
+        story += [KeepTogether([
+            p(f"{cmp_sec}.1 Feature Comparison", "h3"),
+            cmp_tbl,
+            p("★ = p &lt; 0.05; n.s. = not significant", "small"),
+        ]), sp()]
 
         # Cb. Comparison logos — donor
-        story.append(p(f"{cmp_sec}.2 5'SS Donor Logo: Significant vs Non-Significant", "h3"))
         half_w = FIG_MAX_W * 0.48
+        _block: list = [p(f"{cmp_sec}.2 5'SS Donor Logo: Significant vs Non-Significant", "h3")]
         if sig.get("donor_pwm"):
             d_sig = _fig_splice_site_consensus(
                 {}, site="donor", pwm_data=sig["donor_pwm"],
                 n_sequences=sig["n_se_with_features"], max_width=half_w,
             )
             if d_sig:
-                story += [
+                _block += [
                     p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
                     d_sig,
                 ]
@@ -1500,37 +1501,35 @@ def _build_pdf(
                 n_sequences=nonsig["n_se_with_features"], max_width=half_w,
             )
             if d_nonsig:
-                story += [
+                _block += [
                     p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
                     d_nonsig,
                 ]
         t_gt = test_map.get("canonical_gt")
         if t_gt:
-            story.append(p(
+            _block.append(p(
                 f"Canonical GT proportion — {t_gt['test_name']}: "
                 f"p = {_fmt_pval(t_gt['p_value'])} "
                 f"({'significant' if t_gt['significant'] else 'not significant'})",
                 "small",
             ))
-        story += [
-            caption(
-                "Skipped exon 5'SS donor sequence logos: significant vs non-significant events. "
-                "Letter height = frequency x R<sub>i</sub> (bits) with small-sample correction. "
-                "Canonical GT at positions +1/+2 highlighted. "
-                "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
-            ),
-            sp(),
-        ]
+        _block.append(caption(
+            "Skipped exon 5'SS donor sequence logos: significant vs non-significant events. "
+            "Letter height = frequency x R<sub>i</sub> (bits) with small-sample correction. "
+            "Canonical GT at positions +1/+2 highlighted. "
+            "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+        ))
+        story += [KeepTogether(_block), sp()]
 
         # Cc. Comparison logos — acceptor
-        story.append(p(f"{cmp_sec}.3 3'SS Acceptor Logo: Significant vs Non-Significant", "h3"))
+        _block = [p(f"{cmp_sec}.3 3'SS Acceptor Logo: Significant vs Non-Significant", "h3")]
         if sig.get("acceptor_pwm"):
             a_sig = _fig_splice_site_consensus(
                 {}, site="acceptor", pwm_data=sig["acceptor_pwm"],
                 n_sequences=sig["n_se_with_features"], max_width=half_w,
             )
             if a_sig:
-                story += [
+                _block += [
                     p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
                     a_sig,
                 ]
@@ -1540,38 +1539,36 @@ def _build_pdf(
                 n_sequences=nonsig["n_se_with_features"], max_width=half_w,
             )
             if a_nonsig:
-                story += [
+                _block += [
                     p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
                     a_nonsig,
                 ]
         t_ag = test_map.get("canonical_ag")
         if t_ag:
-            story.append(p(
+            _block.append(p(
                 f"Canonical AG proportion — {t_ag['test_name']}: "
                 f"p = {_fmt_pval(t_ag['p_value'])} "
                 f"({'significant' if t_ag['significant'] else 'not significant'})",
                 "small",
             ))
-        story += [
-            caption(
-                "Skipped exon 3'SS acceptor sequence logos: significant vs non-significant events. "
-                "Letter height = frequency x R<sub>i</sub> (bits) with small-sample correction. "
-                "Canonical AG at positions -2/-1 highlighted. "
-                "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
-            ),
-            sp(),
-        ]
+        _block.append(caption(
+            "Skipped exon 3'SS acceptor sequence logos: significant vs non-significant events. "
+            "Letter height = frequency x R<sub>i</sub> (bits) with small-sample correction. "
+            "Canonical AG at positions -2/-1 highlighted. "
+            "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+        ))
+        story += [KeepTogether(_block), sp()]
 
         # Cd. Flanking exon — upstream donor (5'SS)
         if sig.get("upstream_donor_pwm") or nonsig.get("upstream_donor_pwm"):
-            story.append(p(f"{cmp_sec}.4 Upstream Donor 5'SS Logo: Significant vs Non-Significant", "h3"))
+            _block = [p(f"{cmp_sec}.4 Upstream Donor 5'SS Logo: Significant vs Non-Significant", "h3")]
             if sig.get("upstream_donor_pwm"):
                 ud_sig = _fig_splice_site_consensus(
                     {}, site="donor", pwm_data=sig["upstream_donor_pwm"],
                     n_sequences=sig["n_se_with_features"], max_width=half_w,
                 )
                 if ud_sig:
-                    story += [
+                    _block += [
                         p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
                         ud_sig,
                     ]
@@ -1581,37 +1578,35 @@ def _build_pdf(
                     n_sequences=nonsig["n_se_with_features"], max_width=half_w,
                 )
                 if ud_nonsig:
-                    story += [
+                    _block += [
                         p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
                         ud_nonsig,
                     ]
             t_up_gt = test_map.get("upstream_canonical_gt")
             if t_up_gt:
-                story.append(p(
+                _block.append(p(
                     f"Upstream canonical GT — {t_up_gt['test_name']}: "
                     f"p = {_fmt_pval(t_up_gt['p_value'])} "
                     f"({'significant' if t_up_gt['significant'] else 'not significant'})",
                     "small",
                 ))
-            story += [
-                caption(
-                    "Upstream flanking exon 5'SS donor sequence logos: significant vs non-significant events. "
-                    "Letter height = frequency x R<sub>i</sub> (bits). "
-                    "Canonical GT at positions +1/+2 highlighted."
-                ),
-                sp(),
-            ]
+            _block.append(caption(
+                "Upstream flanking exon 5'SS donor sequence logos: significant vs non-significant events. "
+                "Letter height = frequency x R<sub>i</sub> (bits). "
+                "Canonical GT at positions +1/+2 highlighted."
+            ))
+            story += [KeepTogether(_block), sp()]
 
         # Ce. Flanking exon — downstream acceptor (3'SS)
         if sig.get("downstream_acceptor_pwm") or nonsig.get("downstream_acceptor_pwm"):
-            story.append(p(f"{cmp_sec}.5 Downstream Acceptor 3'SS Logo: Significant vs Non-Significant", "h3"))
+            _block = [p(f"{cmp_sec}.5 Downstream Acceptor 3'SS Logo: Significant vs Non-Significant", "h3")]
             if sig.get("downstream_acceptor_pwm"):
                 da_sig = _fig_splice_site_consensus(
                     {}, site="acceptor", pwm_data=sig["downstream_acceptor_pwm"],
                     n_sequences=sig["n_se_with_features"], max_width=half_w,
                 )
                 if da_sig:
-                    story += [
+                    _block += [
                         p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
                         da_sig,
                     ]
@@ -1621,47 +1616,43 @@ def _build_pdf(
                     n_sequences=nonsig["n_se_with_features"], max_width=half_w,
                 )
                 if da_nonsig:
-                    story += [
+                    _block += [
                         p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
                         da_nonsig,
                     ]
             t_dn_ag = test_map.get("downstream_canonical_ag")
             if t_dn_ag:
-                story.append(p(
+                _block.append(p(
                     f"Downstream canonical AG — {t_dn_ag['test_name']}: "
                     f"p = {_fmt_pval(t_dn_ag['p_value'])} "
                     f"({'significant' if t_dn_ag['significant'] else 'not significant'})",
                     "small",
                 ))
-            story += [
-                caption(
-                    "Downstream flanking exon 3'SS acceptor sequence logos: significant vs non-significant events. "
-                    "Letter height = frequency x R<sub>i</sub> (bits). "
-                    "Canonical AG at positions -2/-1 highlighted."
-                ),
-                sp(),
-            ]
+            _block.append(caption(
+                "Downstream flanking exon 3'SS acceptor sequence logos: significant vs non-significant events. "
+                "Letter height = frequency x R<sub>i</sub> (bits). "
+                "Canonical AG at positions -2/-1 highlighted."
+            ))
+            story += [KeepTogether(_block), sp()]
 
         # Cf. Frame comparison
-        story.append(p(f"{cmp_sec}.6 Reading Frame Comparison", "h3"))
+        _block = [p(f"{cmp_sec}.6 Reading Frame Comparison", "h3")]
         frame_sig = _fig_frame_breakdown(sig["frame_in_frame"], sig["frame_frameshift"], sig["frame_non_coding"], sig["n_se_with_features"])
         if frame_sig:
-            story += [p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"), frame_sig]
+            _block += [p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"), frame_sig]
         frame_nonsig = _fig_frame_breakdown(nonsig["frame_in_frame"], nonsig["frame_frameshift"], nonsig["frame_non_coding"], nonsig["n_se_with_features"])
         if frame_nonsig:
-            story += [p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"), frame_nonsig]
+            _block += [p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"), frame_nonsig]
         t_frame = test_map.get("in_frame_pct")
         if t_frame:
-            story.append(p(
+            _block.append(p(
                 f"In-frame proportion — {t_frame['test_name']}: "
                 f"p = {_fmt_pval(t_frame['p_value'])} "
                 f"({'significant' if t_frame['significant'] else 'not significant'})",
                 "small",
             ))
-        story += [
-            caption("Reading-frame breakdown: significant vs non-significant events."),
-            sp(),
-        ]
+        _block.append(caption("Reading-frame breakdown: significant vs non-significant events."))
+        story += [KeepTogether(_block), sp()]
 
     # ── Section D: Permutation Test (deep analysis only) ──────────────────
     if permutation_table:

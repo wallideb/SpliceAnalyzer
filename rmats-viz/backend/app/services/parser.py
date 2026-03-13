@@ -277,7 +277,7 @@ def _df_to_records(df: pd.DataFrame, analysis_id: uuid.UUID) -> list[dict[str, A
     ]
     # Keep only columns that exist in the DataFrame
     present_cols = [c for c in columns if c in df.columns]
-    sub = df[present_cols].copy()
+    sub = df[present_cols]
 
     # Replace pandas NA/NaT/NaN with None (vectorised)
     sub = sub.where(sub.notna(), other=None)
@@ -287,10 +287,9 @@ def _df_to_records(df: pd.DataFrame, analysis_id: uuid.UUID) -> list[dict[str, A
     raw_records: list[dict] = sub.to_dict("records")
 
     # Convert any remaining numpy scalars (int64/float64) that survived
-    str_analysis_id = analysis_id  # keep as UUID object for SQLAlchemy
     records: list[dict[str, Any]] = []
     for rec in raw_records:
-        out: dict[str, Any] = {"id": uuid.uuid4(), "analysis_id": str_analysis_id}
+        out: dict[str, Any] = {"id": uuid.uuid4(), "analysis_id": analysis_id}
         for k, v in rec.items():
             if hasattr(v, "item"):   # numpy scalar
                 v = v.item()

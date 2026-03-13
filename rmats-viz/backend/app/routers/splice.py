@@ -177,6 +177,11 @@ async def _fetch_features(
         return feat_data, mane, seq_source
 
 
+def _feature_conflict_set(ins: Any, row: dict) -> dict:
+    """Return the SET clause dict for on_conflict_do_update, excluding 'id'."""
+    return {col: ins.excluded[col] for col in row if col != "id"}
+
+
 def _build_feature_row(
     event: SplicingEvent,
     feat_data: Any,
@@ -226,12 +231,11 @@ async def _upsert_feature(
     """Single-row upsert — used only by the per-event GET endpoint."""
     row = _build_feature_row(event, feat_data, mane, seq_source)
     ins = pg_insert(EventSpliceFeature)
-    update_cols = [c for c in row if c != "id"]
     stmt = (
         ins.values(**row)
         .on_conflict_do_update(
             index_elements=["event_id"],
-            set_={col: ins.excluded[col] for col in update_cols},
+            set_=_feature_conflict_set(ins, row),
         )
         .returning(EventSpliceFeature)
     )
@@ -368,21 +372,19 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                         continue
                     try:
                         feat_data, mane, seq_source = res
-                        row = _build_feature_row(ev, feat_data, mane, seq_source)
-                        bulk_rows.append(row)
-                        n_computed += 1
+                        bulk_rows.append(_build_feature_row(ev, feat_data, mane, seq_source))
                     except Exception as exc:
                         logger.error("Feature build failed for %s: %s", ev.id, exc)
 
                 if bulk_rows:
                     ins = pg_insert(EventSpliceFeature)
-                    update_cols = [c for c in bulk_rows[0] if c != "id"]
                     await db.execute(
                         ins.values(bulk_rows).on_conflict_do_update(
                             index_elements=["event_id"],
-                            set_={col: ins.excluded[col] for col in update_cols},
+                            set_=_feature_conflict_set(ins, bulk_rows[0]),
                         )
                     )
+                    n_computed += len(bulk_rows)
                 await db.commit()
                 if chunk_start % 1000 == 0:
                     logger.info("Compute progress: %d/%d", n_computed, n_total)
@@ -392,7 +394,6 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                 delete(EventCluster).where(EventCluster.analysis_id == analysis_id)
             )
             if clusters:
-                from sqlalchemy.dialects.postgresql import insert as _pg_insert
                 cluster_rows = [
                     dict(
                         id=cl.cluster_id,
@@ -408,7 +409,7 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                     )
                     for cl in clusters
                 ]
-                await db.execute(_pg_insert(EventCluster).values(cluster_rows))
+                await db.execute(pg_insert(EventCluster).values(cluster_rows))
             await db.commit()
             logger.info("Background compute done: %d/%d SE events for %s", n_computed, n_total, analysis_id)
     except Exception as exc:

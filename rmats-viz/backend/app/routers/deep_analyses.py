@@ -37,6 +37,8 @@ from app.services.splice_features import compute_pwm, iupac_consensus
 
 router = APIRouter(tags=["deep-analyses"])
 
+_DAE_BATCH = 5_000  # junction rows per pg_insert (stays within PG param limit)
+
 
 # ---------------------------------------------------------------------------
 # POST /analyses/{analysis_id}/deep-analyses
@@ -109,10 +111,9 @@ async def create_deep_analysis(
     db.add(deep)
     await db.flush()  # materialise deep.id before bulk insert
 
-    # Bulk-insert junction rows in batches of 5 000 to stay within pg param limit
-    _BATCH = 5_000
-    for i in range(0, len(event_records), _BATCH):
-        batch = event_records[i : i + _BATCH]
+    # Bulk-insert junction rows in batches to stay within pg param limit
+    for i in range(0, len(event_records), _DAE_BATCH):
+        batch = event_records[i : i + _DAE_BATCH]
         for rec in batch:
             rec["deep_analysis_id"] = deep.id
         await db.execute(pg_insert(DeepAnalysisEvent).values(batch))

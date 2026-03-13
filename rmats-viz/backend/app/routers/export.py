@@ -948,7 +948,7 @@ def _fig_splice_site_consensus(
         pwm = []
         for pos in range(seq_len):
             counts = Counter(seq[pos] for seq in sequences)
-            total = sum(counts.values())
+            total = sum(counts[b] for b in "ACGT") or 1
             freqs = {b: counts.get(b, 0) / total for b in "ACGT"}
             pwm.append(freqs)
 
@@ -1353,7 +1353,7 @@ def _build_pdf(
                     up_pwm = []
                     for pos_i in range(9):
                         cnt = Counter(s[pos_i] for s in up_seqs)
-                        tot = sum(cnt.values())
+                        tot = sum(cnt[b] for b in "ACGT") or 1
                         up_pwm.append({b: cnt.get(b, 0) / tot for b in "ACGT"})
                     up_logo = _fig_splice_site_consensus(
                         {}, site="donor", pwm_data=up_pwm,
@@ -1380,7 +1380,7 @@ def _build_pdf(
                     dn_pwm = []
                     for pos_i in range(23):
                         cnt = Counter(s[pos_i] for s in dn_seqs)
-                        tot = sum(cnt.values())
+                        tot = sum(cnt[b] for b in "ACGT") or 1
                         dn_pwm.append({b: cnt.get(b, 0) / tot for b in "ACGT"})
                     dn_logo = _fig_splice_site_consensus(
                         {}, site="acceptor", pwm_data=dn_pwm,

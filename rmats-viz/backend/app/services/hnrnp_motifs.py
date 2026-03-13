@@ -32,10 +32,21 @@ For each motif in each region, we compute:
   - motif density = (# occurrences × motif_length) / region_length
   - A proportion z-test (significant vs background) with Bonferroni correction
 
+Note
+----
+rMAPS2 uses a sliding window (default 50 bp) with Wilcoxon rank-sum test on
+per-window motif density, and separates events into upregulated, downregulated,
+and background groups.  Our simplified implementation uses a two-proportion
+z-test on motif presence per region with Bonferroni correction, comparing
+significant vs non-significant events.
+
 References
 ----------
-- Hwang JY et al. rMAPS2. Nucleic Acids Res 2020; 48:W300-W306
-- Ray D et al. A compendium of RNA-binding motifs. Nature 2013
+- Hwang JY, Jung S, Kook TL, Rouchka EC, Bok J, Park JW. rMAPS2.
+  Nucleic Acids Res 2020; 48:W300-W306 (doi:10.1093/nar/gkaa237)
+- Ray D et al. A compendium of RNA-binding motifs. Nature 2013; 499:172-177
+- Martinez-Contreras R et al. Intronic binding sites for hnRNP A/B and
+  hnRNP F/H proteins stimulate pre-mRNA splicing. PLoS Biol 2006; 4:e21
 - Geuens T et al. The hnRNP family. Hum Genet 2016
 """
 

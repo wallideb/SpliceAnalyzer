@@ -502,14 +502,18 @@ export const fr: Translations = {
     hnrnpMotifs: {
       title: "Méthode — Analyse d'enrichissement de motifs hnRNP",
       body:
-        "Cette analyse recherche dans cinq régions génomiques autour de chaque exon sauté (exon amont, " +
-        "intron amont, corps de l'exon sauté, intron aval, exon aval) 17 motifs consensus connus de " +
-        "protéines de liaison à l'ARN de la famille hnRNP. Les motifs incluent hnRNP A1/A2 (TAGG, AGG), " +
+        "Inspirée de rMAPS2 (Hwang et al., NAR 2020 ; 48:W300-W306), cette analyse recherche " +
+        "dans cinq régions génomiques autour de chaque exon sauté (exon amont, intron amont, " +
+        "corps de l'exon sauté, intron aval, exon aval) 17 motifs consensus connus de protéines " +
+        "de liaison à l'ARN de la famille hnRNP. Les motifs incluent hnRNP A1/A2 (TAGG, AGG), " +
         "hnRNP F/H (GGG, GGGG), hnRNP K (CCCC), hnRNP C (poly-T), hnRNP L (répétitions CA), " +
-        "hnRNP M (répétitions GT) et PTB (TCTT, TCTCT). Les régions introniques excluent les 6 nt du " +
-        "5'SS et les 20 nt du 3'SS (convention rMAPS2). Un test z de deux proportions compare la " +
-        "présence des motifs entre événements significatifs et de référence, avec correction de Bonferroni. " +
-        "Référence : Hwang et al., rMAPS2, NAR 2020 ; 48:W300-W306.",
+        "hnRNP M (répétitions GT) et PTB (TCTT, TCTCT). Les séquences de motifs proviennent de " +
+        "CISBP-RNA (Ray et al., Nature 2013) et d'études publiées (Martinez-Contreras et al., 2006). " +
+        "Les régions introniques excluent les 6 nt du 5'SS et les 20 nt du 3'SS, suivant la convention " +
+        "rMAPS2 (ces régions sont fortement contraintes par les signaux de sites d'épissage). " +
+        "rMAPS2 utilise une fenêtre glissante (50 pb) avec test de Wilcoxon sur la densité de motifs ; " +
+        "notre implémentation simplifiée utilise un test z de deux proportions sur la présence de " +
+        "motifs par région avec correction de Bonferroni.",
     },
     enrichr: {
       title: "Méthode — Enrichissement de voies Enrichr",

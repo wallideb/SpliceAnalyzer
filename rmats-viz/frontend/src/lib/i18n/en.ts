@@ -497,14 +497,17 @@ export const en = {
     hnrnpMotifs: {
       title: "Method — hnRNP motif enrichment analysis",
       body:
-        "This analysis scans five genomic regions around each skipped exon (upstream exon, " +
-        "upstream intron, skipped exon body, downstream intron, downstream exon) for 17 known " +
-        "hnRNP RNA-binding protein consensus motifs. Motifs include hnRNP A1/A2 (TAGG, AGG), " +
-        "hnRNP F/H (GGG, GGGG), hnRNP K (CCCC), hnRNP C (poly-T), hnRNP L (CA repeats), " +
-        "hnRNP M (GT repeats), and PTB (TCTT, TCTCT). Intronic regions exclude the 6-nt 5'SS " +
-        "and 20-nt 3'SS consensus zones (per rMAPS2 convention). A two-proportion z-test " +
-        "compares motif presence in significant vs background events, with Bonferroni correction. " +
-        "Reference: Hwang et al., rMAPS2, NAR 2020; 48:W300-W306.",
+        "Inspired by rMAPS2 (Hwang et al., NAR 2020; 48:W300-W306), this analysis scans five " +
+        "genomic regions around each skipped exon (upstream exon, upstream intron, skipped exon " +
+        "body, downstream intron, downstream exon) for 17 known hnRNP RNA-binding protein " +
+        "consensus motifs. Motifs include hnRNP A1/A2 (TAGG, AGG), hnRNP F/H (GGG, GGGG), " +
+        "hnRNP K (CCCC), hnRNP C (poly-T), hnRNP L (CA repeats), hnRNP M (GT repeats), and " +
+        "PTB (TCTT, TCTCT). Motif sequences are sourced from CISBP-RNA (Ray et al., Nature 2013) " +
+        "and published studies (Martinez-Contreras et al., 2006). Intronic regions exclude the " +
+        "6-nt 5'SS and 20-nt 3'SS consensus zones, following the rMAPS2 convention that these " +
+        "regions are strongly constrained by splice-site signals. rMAPS2 uses a sliding window " +
+        "(50 bp) with Wilcoxon rank-sum test on motif density; our simplified implementation " +
+        "uses a two-proportion z-test on motif presence per region with Bonferroni correction.",
     },
     enrichr: {
       title: "Method — Enrichr pathway enrichment",

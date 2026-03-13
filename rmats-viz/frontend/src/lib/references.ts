@@ -218,7 +218,7 @@ export const REFERENCES: Record<string, Reference> = {
     id: "rmaps2",
     short: "Hwang et al., 2020",
     full:
-      "Hwang JY, Jung S, Bhutada S, Park JW. " +
+      "Hwang JY, Jung S, Kook TL, Rouchka EC, Bok J, Park JW. " +
       "rMAPS2: an update of the RNA map analysis and plotting server " +
       "for alternative splicing regulation. " +
       "Nucleic Acids Res. 2020;48(W1):W300–W306.",

@@ -99,38 +99,54 @@ async def delete_analysis(analysis_id: uuid.UUID, db: AsyncSession = Depends(get
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    # For large analyses the DB-level ON DELETE CASCADE can be slow because
-    # PostgreSQL must scan and delete from every child table in a single
-    # transaction.  Set a generous statement timeout (5 min) so the delete
-    # does not hang indefinitely, and pre-delete the heaviest child tables
-    # in separate batches before removing the parent row.
+    # Pre-delete heavy child tables in batches to avoid statement timeouts on
+    # large analyses (100 k+ events).  Each batch commits immediately so no
+    # single DELETE statement runs for more than a few seconds.
     from sqlalchemy import text
-    await db.execute(text("SET LOCAL statement_timeout = '300s'"))
 
-    # Pre-delete heavy child tables to keep the final CASCADE lightweight.
-    # deep_analysis_events → deep_analyses → (via analysis_id)
-    await db.execute(text(
-        "DELETE FROM deep_analysis_events WHERE deep_analysis_id IN "
-        "(SELECT id FROM deep_analyses WHERE analysis_id = :aid)"
-    ), {"aid": analysis_id})
-    await db.execute(text(
-        "DELETE FROM deep_analyses WHERE analysis_id = :aid"
-    ), {"aid": analysis_id})
-    # event_splice_feature → splicing_events
-    await db.execute(text(
-        "DELETE FROM event_splice_feature WHERE event_id IN "
-        "(SELECT id FROM splicing_events WHERE analysis_id = :aid)"
-    ), {"aid": analysis_id})
-    # event_cluster (direct FK)
-    await db.execute(text(
-        "DELETE FROM event_cluster WHERE analysis_id = :aid"
-    ), {"aid": analysis_id})
-    # splicing_events (direct FK)
-    await db.execute(text(
-        "DELETE FROM splicing_events WHERE analysis_id = :aid"
-    ), {"aid": analysis_id})
+    _BATCH = 10_000
 
-    # Now the parent row delete is lightweight (only sample_groups left)
+    # deep_analysis_events — batched via ctid to avoid a slow correlated subquery
+    while True:
+        r = await db.execute(text(
+            "DELETE FROM deep_analysis_events WHERE ctid IN ("
+            "  SELECT dae.ctid FROM deep_analysis_events dae"
+            "  JOIN deep_analyses da ON dae.deep_analysis_id = da.id"
+            "  WHERE da.analysis_id = :aid LIMIT :b"
+            ")"
+        ), {"aid": analysis_id, "b": _BATCH})
+        await db.commit()
+        if r.rowcount == 0:
+            break
+
+    await db.execute(text("DELETE FROM deep_analyses WHERE analysis_id = :aid"), {"aid": analysis_id})
+    await db.commit()
+
+    # event_splice_feature
+    while True:
+        r = await db.execute(text(
+            "DELETE FROM event_splice_feature WHERE event_id IN "
+            "(SELECT id FROM splicing_events WHERE analysis_id = :aid LIMIT :b)"
+        ), {"aid": analysis_id, "b": _BATCH})
+        await db.commit()
+        if r.rowcount == 0:
+            break
+
+    # event_cluster
+    await db.execute(text("DELETE FROM event_cluster WHERE analysis_id = :aid"), {"aid": analysis_id})
+    await db.commit()
+
+    # splicing_events — batched
+    while True:
+        r = await db.execute(text(
+            "DELETE FROM splicing_events WHERE id IN "
+            "(SELECT id FROM splicing_events WHERE analysis_id = :aid LIMIT :b)"
+        ), {"aid": analysis_id, "b": _BATCH})
+        await db.commit()
+        if r.rowcount == 0:
+            break
+
+    # Parent row (only sample_groups left via cascade)
     await db.execute(delete(Analysis).where(Analysis.id == analysis_id))
     await db.commit()
     logger.info("DELETE /analyses/%s — done", analysis_id)

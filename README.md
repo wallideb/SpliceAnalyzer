@@ -1,9 +1,7 @@
-# SpliceAnalyzer (rMATS-Viz)
+# SpliceAnalyzer
 
 <p align="center">
-  <img src="assets/svg/DNA.svg" alt="DNA icon" width="48"/>
-  &nbsp;&nbsp;&nbsp;
-  <img src="assets/svg/CONNECT.svg" alt="Connect icon" width="48"/>
+  <img src="rmats-viz/frontend/public/logo.svg" alt="SpliceAnalyzer logo" width="120"/>
 </p>
 
 <p align="center">
@@ -49,14 +47,13 @@
 - [Scientific References](#scientific-references)
 - [Technology Stack](#technology-stack)
 - [Troubleshooting](#troubleshooting)
-- [Assets](#assets)
 - [Contributing](#contributing)
 
 ---
 
 ## Overview
 
-**SpliceAnalyzer** (rMATS-Viz) provides a browser-based interface on top of [rMATS](https://rnaseq-mats.sourceforge.io/) junction-count output files (e.g., `SE.MATS.JC.txt`). It enables researchers to upload rMATS results, explore alternative splicing events interactively, characterize splice-site signals at single-event resolution, and export curated findings for publication or clinical review.
+**SpliceAnalyzer** provides a browser-based interface on top of [rMATS](https://rnaseq-mats.sourceforge.io/) junction-count output files (e.g., `SE.MATS.JC.txt`). It enables researchers to upload rMATS results, explore alternative splicing events interactively, characterize splice-site signals at single-event resolution, and export curated findings for publication or clinical review.
 
 The application supports all five rMATS event types:
 
@@ -74,49 +71,50 @@ The application supports all five rMATS event types:
 
 ### Core Functionality
 
-- **Drag-and-drop file upload** — Upload rMATS `.txt` junction-count files with automatic sample-group mapping and event-type inference from filename
-- **Analysis management** — Create, list, navigate, and delete named analyses
-- **Event browser** — Sortable, filterable, paginated table of all splicing events with support for filtering by event type, gene symbol, FDR threshold, P-value, and minimum |ΔΨ|
-- **Top-10 ranking** — Events automatically ranked by statistical significance (FDR) and inclusion-level difference (|ΔΨ|)
-- **Gene basket** — Collect genes of interest across analyses for batch annotation and export
-- **Dark mode** — Toggle-able theme with persistent preference via `localStorage`
-- **Internationalisation** — Full English / French language switcher; all UI strings are externalized
+- **Drag-and-drop file upload** &mdash; Upload rMATS `.txt` junction-count files with automatic sample-group mapping and event-type inference from filename
+- **Coverage filtering** &mdash; Events with mean per-replicate junction coverage (IJC + SJC) below 10X in either sample group are automatically filtered out on import
+- **Analysis management** &mdash; Create, list, navigate, and delete named analyses
+- **Event browser** &mdash; Sortable, filterable, paginated table of all splicing events with support for filtering by event type, gene symbol, FDR threshold, P-value, and minimum |&Delta;&Psi;|
+- **Top-10 ranking** &mdash; Events automatically ranked by statistical significance (FDR) and inclusion-level difference (|&Delta;&Psi;|)
+- **Gene basket** &mdash; Collect genes of interest across analyses for batch annotation and export
+- **Dark mode** &mdash; Toggle-able theme with persistent preference via `localStorage`
+- **Internationalisation** &mdash; Full English / French language switcher; all UI strings are externalized
 
 ### Splice Site Analysis (SE events)
 
-- **Donor (5'SS) and acceptor (3'SS) sequences** — 9 nt and 23 nt windows around splice junctions with GT-AG canonical check
-- **Polypyrimidine tract (PPT)** — Score (C+T fraction) and longest consecutive pyrimidine run in the ~47 nt upstream of the 3'SS
-- **Branch-point detection** — Rule-based YNYURAY motif search with positional scoring (0-7 scale) and distance to 3'SS
-- **Exon and intron sizing** — Skipped exon length plus upstream and downstream intron sizes
-- **Event clustering** — Union-Find algorithm deduplicates near-identical SE events sharing exon boundaries within a 50 bp threshold
-- **Aggregate pattern analysis** — Position Weight Matrices (PWM), IUPAC consensus sequences, and statistical summaries across all SE events
-- **Sequence source flexibility** — Primary extraction from local GRCh38 FASTA via `samtools faidx`, with automatic Ensembl REST API fallback when FASTA is unavailable
+- **Donor (5'SS) and acceptor (3'SS) sequences** &mdash; 9 nt and 23 nt windows around splice junctions with GT-AG canonical check
+- **Polypyrimidine tract (PPT)** &mdash; Score (C+T fraction) and longest consecutive pyrimidine run in the ~47 nt upstream of the 3'SS
+- **Branch-point detection** &mdash; Rule-based YNYURAY motif search with positional scoring (0&ndash;7 scale) and distance to 3'SS
+- **Exon and intron sizing** &mdash; Skipped exon length plus upstream and downstream intron sizes
+- **Event clustering** &mdash; Union-Find algorithm deduplicates near-identical SE events sharing exon boundaries within a 50 bp threshold
+- **Aggregate pattern analysis** &mdash; Position Weight Matrices (PWM), IUPAC consensus sequences, and statistical summaries across all SE events
+- **Sequence source flexibility** &mdash; Primary extraction from local GRCh38 FASTA via `samtools faidx`, with automatic Ensembl REST API fallback when FASTA is unavailable
 
 ### MANE Frame Annotation
 
-- Maps each skipped exon to its **MANE Select** transcript via the Ensembl REST API
+- Maps each skipped exon to its **MANE Select** transcript via local GFF3 file or Ensembl REST API
 - Classifies the frame impact: `in_frame` (exon length divisible by 3), `frameshift`, `non_coding` (UTR), or `partial`
-- Caches successful lookups in a local SQLite database to minimize redundant API calls
+- Caches successful lookups in a local SQLite database (WAL mode for concurrent access) to minimize redundant API calls
 
 ### Gene Annotations & Interactions
 
-- **Ensembl gene search** — Autocomplete by HUGO gene symbol (minimum 2 characters)
-- **PanelApp disease panels** — Queries PanelApp Australia (with PanelApp UK fallback) for diagnostic gene panel membership and confidence ratings (green/amber/red)
-- **Gene Ontology** — Retrieves GO terms (Biological Process, Molecular Function, Cellular Component) via mygene.info
-- **UniProt** — Fetches reviewed protein function summaries
-- **STRING-DB interactions** — Protein-protein interaction combined scores between gene pairs, with Europe PMC literature PMIDs
+- **Ensembl gene search** &mdash; Autocomplete by HUGO gene symbol (minimum 2 characters)
+- **PanelApp disease panels** &mdash; Queries PanelApp Australia (with PanelApp UK fallback) for diagnostic gene panel membership and confidence ratings (green/amber/red)
+- **Gene Ontology** &mdash; Retrieves GO terms (Biological Process, Molecular Function, Cellular Component) via mygene.info
+- **UniProt** &mdash; Fetches reviewed protein function summaries
+- **STRING-DB interactions** &mdash; Protein-protein interaction combined scores between gene pairs, with Europe PMC literature PMIDs
 
 ### Permutation Testing
 
-- Per-event permutation test for ΔΨ significance by randomly permuting sample labels
+- Per-event permutation test for &Delta;&Psi; significance by randomly permuting sample labels
 - Multi-parameter permutation tests for auxiliary metrics: PPT score, exon size, frame fraction, and canonical splice-site fraction
 - Empirical p-values with Phipson & Smyth continuity correction: `p = (k+1)/(N+1)`
 - Pure Python implementation (no NumPy dependency)
 
 ### Export
 
-- **PDF report** — Multi-page document including analysis summary, top SE events ranked by FDR and |ΔΨ|, methodology appendix, bibliographic references, and statistical methods
-- **Parameterized Excel export** — Interactive modal for selecting annotation column groups (`core`, `panelapp`, `go`, `stringdb`) before download; optional groups are fetched in parallel at export time
+- **PDF report** &mdash; Multi-page document including analysis summary, top SE events ranked by FDR and |&Delta;&Psi;|, methodology appendix, bibliographic references, and statistical methods
+- **Parameterized Excel export** &mdash; Interactive modal for selecting annotation column groups (`core`, `panelapp`, `go`, `stringdb`) before download; optional groups are fetched in parallel at export time
 
 ### Scientific Provenance
 
@@ -170,24 +168,25 @@ SpliceAnalyzer/
 ├── README.md                           # This file
 ├── docker-compose.yml                  # Orchestration: PostgreSQL + Backend + Frontend
 ├── .env.example                        # Environment variable template
-├── SE.MATS.JC.PUROMOINS.sig.txt       # Sample rMATS data (SE junction counts)
 ├── assets/
 │   └── svg/
-│       ├── DNA.svg                     # DNA helix icon
-│       └── CONNECT.svg                 # Network connection diagram
+│       ├── DNA.svg                     # DNA helix icon (source artwork)
+│       └── CONNECT.svg                 # Network connection diagram (source artwork)
 └── rmats-viz/
     ├── backend/
     │   ├── Dockerfile                  # Python 3.12-slim + samtools
     │   ├── requirements.txt            # Python dependencies
     │   ├── alembic.ini                 # Database migration config
-    │   ├── alembic/versions/           # Schema migration scripts (0001–0005)
+    │   ├── alembic/versions/           # Schema migration scripts
+    │   ├── tests/
+    │   │   └── test_parser_coverage.py # Parser and coverage filter tests
     │   └── app/
     │       ├── main.py                 # FastAPI app entry point + CORS + health checks
     │       ├── config.py               # Pydantic settings (env vars)
     │       ├── database.py             # SQLAlchemy async engine + session factory
     │       ├── models/
     │       │   ├── analysis.py         # Analysis, SampleGroup
-    │       │   ├── event.py            # SplicingEvent (12 indexes)
+    │       │   ├── event.py            # SplicingEvent
     │       │   └── splice.py           # EventCluster, EventSpliceFeature
     │       ├── routers/
     │       │   ├── analyses.py         # CRUD + file upload
@@ -197,18 +196,14 @@ SpliceAnalyzer/
     │       │   ├── splice.py           # Splice feature compute + patterns
     │       │   └── export.py           # Excel + PDF generation
     │       ├── schemas/                # Pydantic request/response models
-    │       │   ├── analysis.py
-    │       │   ├── event.py
-    │       │   ├── annotation.py
-    │       │   ├── gene.py
-    │       │   └── splice.py
     │       ├── services/               # Business logic layer
-    │       │   ├── parser.py           # rMATS TSV parsing (handles French locale decimals)
+    │       │   ├── parser.py           # rMATS TSV parsing + coverage filter
     │       │   ├── event_selector.py   # Top-10 ranking by FDR / ΔΨ
     │       │   ├── event_cluster.py    # Union-Find SE event deduplication
-    │       │   ├── sequence.py         # samtools faidx wrapper + UCSC↔RefSeq conversion
-    │       │   ├── splice_features.py  # GT-AG, PPT score, branch-point computation
-    │       │   ├── mane.py             # MANE Select transcript + frame classification
+    │       │   ├── sequence.py         # samtools faidx wrapper + UCSC↔RefSeq
+    │       │   ├── splice_features.py  # GT-AG, PPT score, branch-point
+    │       │   ├── mane.py             # MANE Select transcript + frame class
+    │       │   ├── mane_local.py       # Local GFF3-based MANE annotation
     │       │   ├── ensembl.py          # Ensembl REST API client
     │       │   ├── gene_ontology.py    # mygene.info → GO terms
     │       │   ├── uniprot.py          # UniProt → protein function
@@ -219,35 +214,20 @@ SpliceAnalyzer/
     │           └── composite_key.py    # Column mapping + deduplication rules
     ├── frontend/
     │   ├── Dockerfile                  # Node 20 Alpine
-    │   ├── package.json                # Dependencies (Next.js, TanStack, Tailwind)
+    │   ├── package.json
     │   ├── tailwind.config.ts
     │   ├── next.config.mjs             # API proxy rewrite → backend:8000
+    │   ├── public/
+    │   │   └── logo.svg                # Application logo
     │   └── src/
     │       ├── app/                    # Next.js App Router pages
-    │       │   ├── layout.tsx
-    │       │   └── analyses/
-    │       │       ├── new/            # Upload page
-    │       │       ├── [id]/           # Analysis detail (events, top10)
-    │       │       └── [id]/deep-analysis/  # Advanced splice features
-    │       ├── components/
-    │       │   ├── top10/              # SpliceView, ExonDiagram, SpliceSiteTrack, PPTTrack, etc.
-    │       │   ├── events/             # Event table + filtering controls
-    │       │   ├── genes/              # Gene search + autocomplete
-    │       │   ├── basket/             # Gene collection for batch export
-    │       │   ├── layout/             # AppHeader, SidebarNav
-    │       │   ├── upload/             # Drag-and-drop file uploader
-    │       │   └── ExcelExportModal.tsx # Column group selection modal
-    │       ├── contexts/
-    │       │   └── LanguageContext.tsx  # i18n provider + useT() hook
-    │       ├── lib/
-    │       │   ├── api/                # API client functions
-    │       │   ├── i18n/               # en.ts, fr.ts locale dictionaries
-    │       │   └── references.ts       # Scientific citation registry
+    │       ├── components/             # React UI components
+    │       ├── contexts/               # React contexts (Language, Basket)
+    │       ├── lib/                    # API clients, i18n, references
     │       └── types/                  # TypeScript interfaces
     └── data/                           # Docker volume mount → /data
-        ├── GRCh38.fa                   # GRCh38 FASTA (user-provided)
-        ├── GRCh38.fa.fai               # samtools index (generated)
-        └── mane_cache.db               # MANE lookup cache (auto-created)
+        ├── setup_grch38_fasta.sh       # GRCh38 genome download + index script
+        └── setup_mane_gff3.sh          # MANE GFF3 annotation download script
 ```
 
 ---
@@ -258,7 +238,7 @@ SpliceAnalyzer/
 
 - [Docker](https://docs.docker.com/get-docker/) (v20.10+) and [Docker Compose](https://docs.docker.com/compose/) (v2.0+)
 - ~4 GB free disk space (images + dependencies)
-- For full splice analysis: GRCh38 reference genome FASTA (~3 GB for full genome, or ~60 MB for chr19-only development)
+- For full splice analysis: GRCh38 reference genome FASTA (~3 GB compressed)
 
 ### Installation
 
@@ -278,8 +258,9 @@ docker compose up --build
 
 This will:
 1. Pull and start **PostgreSQL 16** with a health check
-2. Build the **FastAPI backend** — installs Python dependencies + samtools, runs Alembic migrations, then starts Uvicorn on port 8000
-3. Build the **Next.js frontend** — installs npm packages, starts the dev server on port 3000
+2. Build the **FastAPI backend** &mdash; installs Python dependencies + samtools, runs Alembic migrations, downloads the MANE GFF3 annotation file, then starts Uvicorn on port 8000
+3. Build the **Next.js frontend** &mdash; installs npm packages, starts the dev server on port 3000
+4. The backend will attempt to **download the full GRCh38 FASTA** in the background (~800 MB compressed). The server starts immediately; sequence features become available once the download completes.
 
 **3. Open the application**
 
@@ -290,46 +271,30 @@ This will:
 | Health check | http://localhost:8000/api/v1/health |
 | FASTA diagnostics | http://localhost:8000/api/v1/debug/fasta |
 
-**4. (Optional) Provide the GRCh38 FASTA** for splice-site sequence analysis. See [GRCh38 FASTA Setup](#grch38-fasta-setup) below.
-
-> **Note:** The application runs without the FASTA — size-based features, MANE frame annotation, and all non-sequence features will still work. Sequence-dependent features (donor/acceptor sequences, PPT, branch-point) require the FASTA.
+> **Note:** The application runs without the FASTA &mdash; size-based features, MANE frame annotation, and all non-sequence features will still work. Sequence-dependent features (donor/acceptor sequences, PPT, branch-point) require the FASTA.
 
 ### GRCh38 FASTA Setup
 
-The splice-site analysis and MANE frame annotation require a locally indexed GRCh38 FASTA mounted at `/data/GRCh38.fa` inside the backend container (mapped from `rmats-viz/data/` on the host).
+The splice-site analysis requires a locally indexed GRCh38 FASTA mounted at `/data/GRCh38.fa` inside the backend container (mapped from `rmats-viz/data/` on the host).
 
-#### Development (chr19 only, ~60 MB)
-
-If your test data contains only chr19 events (like the included sample file):
+The backend downloads the full genome automatically on first startup. To set it up manually instead:
 
 ```bash
 cd rmats-viz/data
 
-# Download chromosome 19
-wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/chromosomes/chr19.fa.gz
-gunzip chr19.fa.gz
-mv chr19.fa GRCh38.fa
+# Option A: Use the provided setup script
+bash setup_grch38_fasta.sh
 
-# Index inside the running container (no local samtools needed)
+# Option B: Manual download from NCBI (~800 MB compressed, ~3 GB decompressed)
+wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz
+gunzip GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz
+mv GCA_000001405.15_GRCh38_no_alt_analysis_set.fna GRCh38.fa
+
+# Index (inside the running container if no local samtools)
 docker compose exec backend samtools faidx /data/GRCh38.fa
 ```
 
-#### Production (full genome, ~3 GB compressed)
-
-```bash
-cd rmats-viz/data
-
-# Option A: NCBI RefSeq headers (NC_000001.11 …) — supported natively
-wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/...
-
-# Option B: UCSC chr-style headers (chr1 … chrY) — auto-converted by the backend
-# Download from UCSC and rename to GRCh38.fa
-
-# Index
-docker compose exec backend samtools faidx /data/GRCh38.fa
-```
-
-Both header naming conventions are supported: the backend auto-detects the style from the `.fai` index and converts rMATS UCSC names to RefSeq accessions when needed.
+Both UCSC (`chr1`, `chr2`, ...) and RefSeq (`NC_000001.11`, ...) header naming conventions are supported: the backend auto-detects the style from the `.fai` index and converts rMATS UCSC names to RefSeq accessions when needed.
 
 #### Verify FASTA setup
 
@@ -355,9 +320,10 @@ Copy `.env.example` to `.env` and adjust as needed:
 | `GRCH38_FASTA` | `/data/GRCh38.fa` | Path to indexed GRCh38 FASTA inside the container |
 | `SAMTOOLS_BIN` | `samtools` | samtools binary name or full path |
 | `MANE_CACHE_DB` | `/data/mane_cache.db` | SQLite cache for Ensembl MANE lookups |
+| `MANE_GFF3` | `/data/MANE.GRCh38.ensembl_genomic.gff.gz` | Local MANE GFF3 annotation file |
 | `SPLICE_WINDOW` | `50` | Intronic window (nt) around each splice site |
 
-> **MANE cache behavior:** Successful Ensembl lookups are cached in `mane_cache.db` to avoid repeated API calls. Failed lookups (network errors, no MANE transcript found) are **not** cached and will be retried on the next compute run.
+> **MANE cache behavior:** Successful Ensembl lookups are cached in `mane_cache.db` (SQLite with WAL journal mode) to avoid repeated API calls. Failed lookups (network errors, no MANE transcript found) are **not** cached and will be retried on the next compute run.
 
 ---
 
@@ -369,47 +335,47 @@ Copy `.env.example` to `.env` and adjust as needed:
 2. Drag and drop one or more rMATS junction-count files (e.g., `SE.MATS.JC.txt`, `A5SS.MATS.JC.txt`)
 3. The event type is automatically inferred from the filename
 4. Define sample group names for your conditions
-5. Click **Create** — the parser ingests the TSV, handles duplicate IDs and French-locale decimals, and stores events in PostgreSQL
+5. Click **Create** &mdash; the parser ingests the TSV, filters low-coverage events (&lt;10X), deduplicates, and stores events in PostgreSQL
 
 ### Browsing Events
 
 The event browser (`/analyses/{id}`) provides a fully interactive table with:
 
-- **Column sorting** — Click any header to sort ascending/descending
-- **Filters** — Event type selector, gene symbol search, FDR max, P-value max, minimum |ΔΨ|
-- **Pagination** — Configurable page size
-- **Direction-of-effect badges** — Visual indicators for exon skipping vs. inclusion
+- **Column sorting** &mdash; Click any header to sort ascending/descending
+- **Filters** &mdash; Event type selector, gene symbol search, FDR max, P-value max, minimum |&Delta;&Psi;|
+- **Pagination** &mdash; Configurable page size
+- **Direction-of-effect badges** &mdash; Visual indicators for exon skipping vs. inclusion
 
 ### Top-10 View
 
-The Top-10 view (`/analyses/{id}/top10`) displays the most significant events ranked by FDR and |ΔΨ|. Each event card includes:
+The Top-10 view (`/analyses/{id}/top10`) displays the most significant events ranked by FDR and |&Delta;&Psi;|. Each event card includes:
 
-- **SpliceView** — Schematic of the splicing event with inclusion/exclusion levels
-- **ExonDiagram** — Interactive exon-intron diagram with donor/acceptor/PPT/branch-point annotations
-- **SpliceSiteTrack** — All 4 SE splice sites (upstream, skipped 5', skipped 3', downstream)
-- **Sequence source badge** — Indicates whether sequences come from local FASTA or Ensembl REST fallback
-- **PermutationPanel** — Interactive permutation test results with multi-parameter tabs
-- **ScienceNote** — Collapsible citation widgets linking to primary literature
-- **AnnotatedCard** — Gene annotations (PanelApp, GO, UniProt, STRING-DB) in tabbed panels
+- **SpliceView** &mdash; Schematic of the splicing event with inclusion/exclusion levels
+- **ExonDiagram** &mdash; Interactive exon-intron diagram with donor/acceptor/PPT/branch-point annotations
+- **SpliceSiteTrack** &mdash; All 4 SE splice sites (upstream, skipped 5', skipped 3', downstream)
+- **Sequence source badge** &mdash; Indicates whether sequences come from local FASTA or Ensembl REST fallback
+- **PermutationPanel** &mdash; Interactive permutation test results with multi-parameter tabs
+- **ScienceNote** &mdash; Collapsible citation widgets linking to primary literature
+- **AnnotatedCard** &mdash; Gene annotations (PanelApp, GO, UniProt, STRING-DB) in tabbed panels
 
 ### Deep Splice Analysis
 
 The deep analysis page (`/analyses/{id}/deep-analysis`) provides aggregate statistics across all SE events:
 
-- **Consensus logo panels** — PWM-derived sequence logos for donor and acceptor sites
-- **Motif pattern analysis** — IUPAC consensus with significance thresholds
-- **PPT distribution** — Score and pyrimidine run length across events
-- **Frame classification** — Proportions of in-frame, frameshift, and non-coding exon skipping events
-- **GT-AG canonical compliance** — Fraction of events with canonical splice sites
+- **Consensus logo panels** &mdash; PWM-derived sequence logos for donor and acceptor sites
+- **Motif pattern analysis** &mdash; IUPAC consensus with significance thresholds
+- **PPT distribution** &mdash; Score and pyrimidine run length across events
+- **Frame classification** &mdash; Proportions of in-frame, frameshift, and non-coding exon skipping events
+- **GT-AG canonical compliance** &mdash; Fraction of events with canonical splice sites
 
 ### Gene Annotations
 
 Search for any gene by HUGO symbol using the Ensembl-backed autocomplete. The annotation panel fetches and displays:
 
-- **PanelApp** — Disease panels and confidence level (green = diagnostic grade)
-- **Gene Ontology** — Top 3 terms per category (BP, MF, CC)
-- **UniProt** — Reviewed protein function summary
-- **STRING-DB** — Interaction scores with other genes in the analysis, plus supporting literature PMIDs
+- **PanelApp** &mdash; Disease panels and confidence level (green = diagnostic grade)
+- **Gene Ontology** &mdash; Top 3 terms per category (BP, MF, CC)
+- **UniProt** &mdash; Reviewed protein function summary
+- **STRING-DB** &mdash; Interaction scores with other genes in the analysis, plus supporting literature PMIDs
 
 ### Exporting Results
 
@@ -420,7 +386,7 @@ Search for any gene by HUGO symbol using the Ensembl-backed autocomplete. The an
 
 | Group | Columns | Source |
 |-------|---------|--------|
-| `core` *(always)* | Gene, Event type, Strand, Exon/Intron sizes, FDR, ΔΨ, Read counts, Frame class | Local DB |
+| `core` *(always)* | Gene, Event type, Strand, Exon/Intron sizes, FDR, &Delta;&Psi;, Read counts, Frame class | Local DB |
 | `panelapp` | PanelApp Confidence, PanelApp Panels (top 3) | PanelApp REST API |
 | `go` | GO:BP, GO:MF, GO:CC (top 3 terms each) | mygene.info |
 | `stringdb` | STRING Max Score (highest combined score vs. all mutated genes) | STRING-DB v12 |
@@ -433,7 +399,7 @@ Search for any gene by HUGO symbol using the Ensembl-backed autocomplete. The an
 Click the **Export PDF** button to generate a multi-page report containing:
 
 - Analysis summary table
-- Top SE events ranked by FDR and |ΔΨ|
+- Top SE events ranked by FDR and |&Delta;&Psi;|
 - Appendix A: Pipeline methodology
 - Appendix B: Bibliographic references
 - Appendix C: Statistical methods applied
@@ -484,7 +450,7 @@ The backend exposes a versioned REST API under `/api/v1`. Full interactive docum
 | `gene_symbol` | string | Filter by gene symbol (exact match) |
 | `fdr_max` | float | Maximum FDR threshold |
 | `p_value_max` | float | Maximum P-value threshold |
-| `delta_psi_min` | float | Minimum |ΔΨ| threshold |
+| `delta_psi_min` | float | Minimum |&Delta;&Psi;| threshold |
 | `sort_by` | string | Column to sort by |
 | `sort_dir` | string | `asc` or `desc` |
 | `page` | int | Page number (1-indexed) |
@@ -498,7 +464,7 @@ The backend exposes a versioned REST API under `/api/v1`. Full interactive docum
 | `GET` | `/api/v1/splice/feature/{event_id}` | Per-event features (computed on-the-fly if not cached) |
 | `GET` | `/api/v1/splice/patterns/{analysis_id}` | Aggregate pattern analysis (PWM, consensus, frame stats) |
 
-> The compute endpoint is **idempotent** — re-running overwrites existing feature rows and refreshes clusters. It requires the GRCh38 FASTA for sequence features; if unavailable, size-only features are computed.
+> The compute endpoint is **idempotent** &mdash; re-running overwrites existing feature rows and refreshes clusters. It requires the GRCh38 FASTA for sequence features; if unavailable, size-only features are computed.
 
 ### Gene Annotations API
 
@@ -551,22 +517,22 @@ The following features are computed for each SE (Skipped Exon) event:
 
 | Feature | Description |
 |---------|-------------|
-| `ppt_score` | Fraction of C+T nucleotides in PPT window (0.0–1.0) |
+| `ppt_score` | Fraction of C+T nucleotides in PPT window (0.0&ndash;1.0) |
 | `ppt_longest_run` | Length of the longest consecutive C/T run |
 
 ### Branch-Point Detection
 
 | Feature | Description |
 |---------|-------------|
-| `bp_motif_found` | Whether a YNYURAY motif was found (score ≥ 4) |
+| `bp_motif_found` | Whether a YNYURAY motif was found (score &ge; 4) |
 | `bp_distance` | Distance (nt) from best motif center to 3'SS |
-| `bp_score` | Positional match score (0–7): each position earns 1 point if it matches the consensus |
+| `bp_score` | Positional match score (0&ndash;7): each position earns 1 point if it matches the consensus |
 
 ### MANE Frame Annotation
 
 | Feature | Description |
 |---------|-------------|
-| `mane_transcript_id` | MANE Select transcript ID (from Ensembl REST) |
+| `mane_transcript_id` | MANE Select transcript ID (from local GFF3 or Ensembl REST) |
 | `exon_rank` | Exon position in the MANE transcript (1-based) |
 | `frame_region` | Genomic context: `CDS`, `UTR5`, `UTR3`, `partial`, or `unknown` |
 | `frame_class` | Frame impact: `in_frame`, `frameshift`, `non_coding`, or `unknown` |
@@ -600,7 +566,7 @@ Each analytical panel embeds collapsible `ScienceNote` widgets that cite the pri
 
 | Formula | Expression | Reference |
 |---------|------------|-----------|
-| Information content | IC = 2 − H(**p**) bits, where H(**p**) = −Σ pᵢ log₂(pᵢ) | Schneider & Stephens (1990), Shannon (1948) |
+| Information content | IC = 2 &minus; H(**p**) bits, where H(**p**) = &minus;&Sigma; p&#8348; log&#8322;(p&#8348;) | Schneider & Stephens (1990), Shannon (1948) |
 | PPT score | Fraction of C+T in ~47 nt upstream of 3'SS | Coolidge et al. (1997) |
 | Branch-point motif | YNYURAY (Y = C/T, N = any, R = A/G) | Padgett et al. (1986) |
 | Permutation p-value | p = (k+1)/(N+1) with continuity correction | Phipson & Smyth (2010) |
@@ -632,7 +598,7 @@ Each analytical panel embeds collapsible `ScienceNote` widgets that cite the pri
 |------------|---------|---------|
 | Next.js | 14.2.3 | React framework (App Router) |
 | React | 18.x | UI library |
-| TypeScript | — | Type safety |
+| TypeScript | &mdash; | Type safety |
 | Tailwind CSS | 3.4.x | Utility-first CSS framework |
 | TanStack Query | 5.x | Data fetching, caching, and synchronization |
 | TanStack Table | 8.x | Headless table with sorting and filtering |
@@ -671,14 +637,14 @@ curl http://localhost:8000/api/v1/debug/fasta
 ```
 - Ensure `rmats-viz/data/GRCh38.fa` exists on the host
 - Ensure the FASTA is indexed: `docker compose exec backend samtools faidx /data/GRCh38.fa`
-- The application will still function without the FASTA — sequence-dependent features will be skipped
+- The application will still function without the FASTA &mdash; sequence-dependent features will be skipped
 
 **Frontend can't reach the backend**
 - The Next.js config proxies `/api` requests to `http://backend:8000` inside the Docker network
 - If running outside Docker, update `next.config.mjs` to point to your backend URL
 
 **French-locale decimal parsing errors**
-- The parser automatically handles comma-as-decimal-separator (e.g., `"0,117"` → `0.117`)
+- The parser automatically handles comma-as-decimal-separator (e.g., `"0,117"` &rarr; `0.117`)
 - No user action required
 
 ### Resetting the Database
@@ -690,16 +656,6 @@ docker compose up --build       # recreates everything from scratch
 
 ---
 
-## Assets
-
-| File | Description |
-|------|-------------|
-| `assets/svg/DNA.svg` | DNA helix icon (36x36, Twemoji-style) |
-| `assets/svg/CONNECT.svg` | Network connection diagram (512x512) |
-| `rmats-viz/frontend/public/logo.svg` | Application logo |
-
----
-
 ## Contributing
 
 1. Fork the repository
@@ -707,7 +663,7 @@ docker compose up --build       # recreates everything from scratch
 3. Make your changes
 4. Ensure the application builds and runs: `docker compose up --build`
 5. Commit with clear, descriptive messages
-6. Open a Pull Request against the `dev` branch
+6. Open a Pull Request
 
 ### Development Tips
 
@@ -715,3 +671,4 @@ docker compose up --build       # recreates everything from scratch
 - **Frontend hot-reload:** The frontend source mount (`./rmats-viz/frontend/src:/app/src`) enables Next.js Fast Refresh
 - **API documentation:** Use Swagger UI at `http://localhost:8000/docs` to test endpoints interactively
 - **Database migrations:** Create new migrations with `docker compose exec backend alembic revision --autogenerate -m "description"`
+- **Tests:** Run parser tests with `cd rmats-viz/backend && python -m pytest tests/ -v`

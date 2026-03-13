@@ -7,7 +7,7 @@
 # If the FASTA already exists but the .fai index is missing, only indexing runs.
 #
 # Usage:
-#   bash setup_chr19_fasta.sh
+#   bash setup_grch38_fasta.sh
 # =============================================================================
 set -euo pipefail
 

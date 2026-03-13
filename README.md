@@ -636,7 +636,7 @@ Unique HGNC gene symbols from significant events are submitted to the **Enrichr 
 
 The **combined score** = |z-score| × log(p-value), where z-score measures deviation from a random gene-list background (Enrichr's internal model) and p-value is from Fisher's exact test. FDR adjustment uses Benjamini-Hochberg correction applied internally by Enrichr.
 
-Enrichr calls are run synchronously inside `asyncio.to_thread` to avoid blocking the event loop.
+All Enrichr HTTP calls are issued inside `asyncio.to_thread` to avoid blocking the event loop. The five library GETs are dispatched in parallel (one thread per library via `ThreadPoolExecutor`), so total network time is ~1× latency rather than 5×.
 
 ### 12. Pattern Comparison (Sig vs Non-Sig)
 
@@ -672,17 +672,35 @@ Connect timeout: 4 s; read timeout: 8 s (generous for slow-but-live endpoints).
 
 ## Performance
 
-Expected wall-clock times for a 100 k event deep analysis on a modern server (2–4 cores):
+### Splice Feature Computation (`POST /api/v1/splice/compute/{analysis_id}`)
+
+Background task that runs once per analysis. Events are processed in chunks of 2 000 with a single batched samtools call per chunk, and all DB writes use bulk `INSERT … ON CONFLICT DO UPDATE` (one round-trip per 2 000-event chunk).
 
 | Stage | Description | Expected Time |
 |-------|-------------|:-------------:|
-| FASTA extraction | 100 k × 5 = 500 k regions, chunked into 100 × 5 k samtools calls | 60–120 s |
-| hnRNP scan | 2 groups × 100 k events × 5 regions × 17 motifs ≈ 17 M inner iterations | 30–60 s |
-| Enrichr submission | POST + 5 × GET (network bound) | 15–30 s |
-| DB queries + rest | Pattern stats, frame data, permutation tests | 10–20 s |
-| **Total** | | **~2–4 min** |
+| Import + parse | DataFrame → dedup → bulk INSERT (500-row batches) | 2–5 s |
+| Sequence extraction | 100 k × 5 = 500 k regions, ~100 samtools calls (5 k regions each) | 10–30 s |
+| MANE annotation + feature compute | Local GFF3 lookup + per-event arithmetic (parallel, semaphore 20) | 5–15 s |
+| DB writes | Bulk upsert, 1 round-trip per 2 000-event chunk | 1–3 s |
+| Event clustering | Union-Find across all SE events | <1 s |
+| **Total (local FASTA + warm MANE cache)** | | **~20–55 s** |
 
-Both FASTA extraction and the motif scan run inside `asyncio.to_thread`, so the event loop remains responsive. The deep-analysis creation endpoint returns a result ID immediately; all compute is done synchronously per-request when the analysis tabs are first loaded.
+> If the local MANE GFF3 is missing, each event falls back to the Ensembl REST API (3 calls per event). Ensure `MANE_GFF3` is configured at startup to avoid this.
+
+### Deep Splice Analysis (page load)
+
+Expected wall-clock times when a deep-analysis tab is first opened for a 100 k event analysis:
+
+| Stage | Description | Expected Time |
+|-------|-------------|:-------------:|
+| Deep analysis creation | Bulk-insert junction rows (5 000-row batches) | <1 s |
+| FASTA extraction | 100 k × 5 = 500 k regions, chunked into ~100 × 5 k samtools calls | 60–120 s |
+| hnRNP scan | 2 groups × 100 k events × 5 regions × 17 motifs ≈ 17 M inner iterations | 30–60 s |
+| Enrichr submission | POST + 5 × GET in parallel (network bound) | 5–10 s |
+| DB queries + rest | Pattern stats, frame data, permutation tests | 10–20 s |
+| **Total** | | **~2–3 min** |
+
+Both FASTA extraction and the motif scan run inside `asyncio.to_thread`, so the event loop remains responsive during computation.
 
 ---
 

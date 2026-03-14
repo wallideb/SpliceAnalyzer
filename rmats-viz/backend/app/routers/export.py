@@ -604,8 +604,26 @@ from reportlab.platypus import (
 )
 from reportlab.graphics.shapes import Drawing, Rect, String, Line, Group
 from reportlab.graphics.charts.barcharts import VerticalBarChart
+from reportlab.pdfbase import pdfmetrics as _pdfmetrics
 _W, _ = _A4
 _MARGIN = 2 * _cm
+
+# SeqLogo rendering constants — precomputed once at import time so the
+# per-column / per-base inner loop never recreates them.
+_LOGO_BASE_COLORS: dict[str, str] = {
+    "A": "#22c55e", "C": "#3b82f6", "G": "#f97316", "T": "#ef4444",
+}
+_LOGO_BASE_COLOR_OBJS: dict[str, object] = {
+    b: _colors.HexColor(h) for b, h in _LOGO_BASE_COLORS.items()
+}
+_LOGO_REF_FS: float = 100.0
+_LOGO_CAP_H:  float = _LOGO_REF_FS * 0.718  # Helvetica-Bold cap height ≈ 71.8 %
+_LOGO_PAD:    int   = 1                       # horizontal padding per side (pts)
+# Precomputed per-base natural glyph widths at _LOGO_REF_FS / Helvetica-Bold.
+_LOGO_BASE_NAT_W: dict[str, float] = {
+    b: _pdfmetrics.stringWidth(b, "Helvetica-Bold", _LOGO_REF_FS)
+    for b in "ACGT"
+}
 
 
 def _build_styles() -> dict:
@@ -637,6 +655,17 @@ def _build_styles() -> dict:
             "Code", parent=base["Code"],
             fontSize=8, leading=11, textColor=_colors.HexColor("#0f172a"),
         ),
+        # Table cell styles — used by _make_tbl() for proper word-wrapping
+        "tbl_h": ParagraphStyle(
+            "TblH", parent=base["Normal"],
+            fontSize=8, leading=10, spaceAfter=0, spaceBefore=0,
+            fontName="Helvetica-Bold", textColor=_colors.white,
+        ),
+        "tbl_c": ParagraphStyle(
+            "TblC", parent=base["Normal"],
+            fontSize=7.5, leading=10, spaceAfter=0, spaceBefore=0,
+            fontName="Helvetica", textColor=_colors.HexColor("#0f172a"),
+        ),
     }
     return styles
 
@@ -656,6 +685,27 @@ def _tbl_style(header_bg: str = "#1e3a5f") -> TableStyle:
         ("RIGHTPADDING", (0, 0), (-1, -1), 5),
         ("VALIGN",      (0, 0), (-1, -1), "MIDDLE"),
     ])
+
+
+def _make_tbl(rows, col_widths, S, style_fn=None):
+    """Build a Table with all string cells wrapped in Paragraphs for word-wrapping.
+
+    Row 0 is treated as the header (white bold style); other rows use the data
+    cell style.  Non-string cells (e.g. existing Paragraphs, Drawings) are
+    passed through unchanged.
+    """
+    wrapped = []
+    for ri, row in enumerate(rows):
+        wr = []
+        for cell in row:
+            if isinstance(cell, str):
+                wr.append(Paragraph(cell, S["tbl_h"] if ri == 0 else S["tbl_c"]))
+            else:
+                wr.append(cell)
+        wrapped.append(wr)
+    tbl = Table(wrapped, colWidths=col_widths)
+    tbl.setStyle((style_fn or _tbl_style)())
+    return tbl
 
 
 # ---------------------------------------------------------------------------
@@ -940,13 +990,14 @@ def _fig_splice_site_consensus(
             pwm.append(freqs)
 
     seq_len = len(pwm)
-    BASE_COLORS = {"A": "#22c55e", "C": "#3b82f6", "G": "#f97316", "T": "#ef4444"}
 
     COL_W  = min(22, int((max_width - 16) / seq_len))
     LOGO_H = 80
     MARGIN_L, MARGIN_B, MARGIN_T = 8, 24, 8
     W = min(max_width, MARGIN_L + seq_len * COL_W + 8)
     H = MARGIN_T + LOGO_H + MARGIN_B
+    # Per-call derived constants (COL_W is now fixed for this logo instance)
+    avail_w = COL_W - 2 * _LOGO_PAD
 
     d = Drawing(W, H)
     d.add(Rect(0, 0, W, H, fillColor=_colors.HexColor("#fafafa"),
@@ -967,7 +1018,10 @@ def _fig_splice_site_consensus(
                         fillColor=_colors.HexColor("#fef08a"), fillOpacity=0.35,
                         strokeColor=None))
 
-        # Frequency mode: every column fills LOGO_H; letter height ∝ frequency
+        # Frequency mode: every column fills LOGO_H; letter height ∝ frequency.
+        # Each letter is stretched to fill its allocated width × height slot,
+        # matching the web app's SVG preserveAspectRatio="none" approach.
+        # Module-level constants (_LOGO_*) are used to avoid per-iteration recomputation.
         sorted_bases = sorted(freqs.items(), key=lambda kv: kv[1])
         cur_y = MARGIN_B
         for base, freq in sorted_bases:
@@ -977,18 +1031,17 @@ def _fig_splice_site_consensus(
             if h < 0.5:
                 cur_y += h
                 continue
-            # Font size: fits letter glyph in its allocated band (ascent ≈ 75 % of fontSize)
-            fs = min(h / 0.75, COL_W * 1.2)
-            fs = max(fs, 4)
-            d.add(String(
-                x + COL_W / 2,
-                cur_y + (h - fs * 0.75) / 2,
-                base,
-                fontSize=fs,
-                fontName="Courier-Bold",
-                fillColor=_colors.HexColor(BASE_COLORS[base]),
-                textAnchor="middle",
-            ))
+            sx = avail_w / max(_LOGO_BASE_NAT_W[base], 0.1)
+            sy = h / _LOGO_CAP_H
+            g = Group(
+                String(0, 0, base,
+                       fontSize=_LOGO_REF_FS,
+                       fontName="Helvetica-Bold",
+                       fillColor=_LOGO_BASE_COLOR_OBJS[base],
+                       textAnchor="start"),
+                transform=(sx, 0, 0, sy, x + _LOGO_PAD, cur_y),
+            )
+            d.add(g)
             cur_y += h
 
         # Position label
@@ -1180,20 +1233,19 @@ def _build_pdf(
                   f"A5SS: {type_cnts.get('A5SS', 0)} · "
                   f"MXE: {type_cnts.get('MXE', 0)}", "body"),
             ]
-            type_tbl = Table(
+            type_tbl = _make_tbl(
                 [["Type", "Event Count", "% of Total"]] +
                 [
                     [etype,
-                     type_cnts.get(etype, 0),
+                     str(type_cnts.get(etype, 0)),
                      f"{type_cnts.get(etype, 0) / max(len(subset_events), 1) * 100:.1f}%"]
                     for etype in ["SE", "RI", "A3SS", "A5SS", "MXE"]
                 ] +
                 [[Paragraph("<b>Total</b>", S["body"]),
                   Paragraph(f"<b>{len(subset_events)}</b>", S["body"]),
                   Paragraph("<b>100%</b>", S["body"])]],
-                colWidths=[4 * _cm, 4 * _cm, 4 * _cm],
+                [4 * _cm, 4 * _cm, 4 * _cm], S,
             )
-            type_tbl.setStyle(_tbl_style())
             story += [sp(), type_tbl, sp()]
 
         if subset_features:
@@ -1212,9 +1264,9 @@ def _build_pdf(
             exsz_vals = [f.exon_size for f in subset_features.values() if f.exon_size is not None]
 
             story.append(p("SE Splice Feature Statistics:", "h3"))
-            stat_tbl = Table([
+            stat_tbl = _make_tbl([
                 ["Metric", "Value"],
-                ["SE events with features", n_f],
+                ["SE events with features", str(n_f)],
                 ["Canonical GT (5'SS)", f"{n_gt} / {n_f} ({n_gt / n_f * 100:.1f}%)" if n_f else "—"],
                 ["Canonical AG (3'SS)", f"{n_ag} / {n_f} ({n_ag / n_f * 100:.1f}%)" if n_f else "—"],
                 ["Upstream GT (5'SS)", f"{n_up_gt} / {n_up_seq} ({n_up_gt / n_up_seq * 100:.1f}%)" if n_up_seq else "—"],
@@ -1227,8 +1279,7 @@ def _build_pdf(
                  f"{_statistics.mean(exsz_vals):.0f} / {_statistics.median(exsz_vals):.0f} nt" if exsz_vals else "—"],
                 ["Mean PPT score",
                  f"{_statistics.mean(ppt_vals) * 100:.1f}% pyrimidine content" if ppt_vals else "—"],
-            ], colWidths=[9 * _cm, 7 * _cm])
-            stat_tbl.setStyle(_tbl_style())
+            ], [9 * _cm, 7 * _cm], S)
             story += [stat_tbl, sp()]
 
             if include_figures:
@@ -1438,8 +1489,7 @@ def _build_pdf(
         _row("Upstream GT (5'SS)", _pct(sig.get("pct_upstream_gt")), _pct(nonsig.get("pct_upstream_gt")), "upstream_canonical_gt")
         _row("Downstream AG (3'SS)", _pct(sig.get("pct_downstream_ag")), _pct(nonsig.get("pct_downstream_ag")), "downstream_canonical_ag")
 
-        cmp_tbl = Table(cmp_rows, colWidths=[3.2*_cm, 3.5*_cm, 3.5*_cm, 2.8*_cm, 2.2*_cm, 1*_cm])
-        cmp_tbl.setStyle(_tbl_style())
+        cmp_tbl = _make_tbl(cmp_rows, [3.2*_cm, 3.5*_cm, 3.5*_cm, 2.8*_cm, 2.2*_cm, 1*_cm], S)
         story += [KeepTogether([
             p(f"{cmp_sec}.1 Feature Comparison", "h3"),
             cmp_tbl,
@@ -1644,8 +1694,7 @@ def _build_pdf(
                 f"{pt['pct_p05']:.1f}%" if pt.get("pct_p05") is not None else "—",
                 f"{pt['pct_p01']:.1f}%" if pt.get("pct_p01") is not None else "—",
             ])
-        perm_tbl = Table(perm_rows, colWidths=[3.5 * _cm, 3.5 * _cm, 4 * _cm, 4 * _cm])
-        perm_tbl.setStyle(_tbl_style())
+        perm_tbl = _make_tbl(perm_rows, [3.5 * _cm, 3.5 * _cm, 4 * _cm, 4 * _cm], S)
         story += [perm_tbl, sp()]
 
         story.append(p(
@@ -1710,8 +1759,7 @@ def _build_pdf(
                     z_str,
                     p_str,
                 ])
-            hnrnp_tbl = Table(hnrnp_rows, colWidths=[3.0*_cm, 1.8*_cm, 3.5*_cm, 1.8*_cm, 1.8*_cm, 1.5*_cm, 2.0*_cm])
-            hnrnp_tbl.setStyle(_tbl_style())
+            hnrnp_tbl = _make_tbl(hnrnp_rows, [3.0*_cm, 1.8*_cm, 3.5*_cm, 1.8*_cm, 1.8*_cm, 1.5*_cm, 2.0*_cm], S)
             story += [hnrnp_tbl, sp(0.2)]
             story.append(p(
                 f"Showing {min(len(sig_motifs_sorted), 20)} of {len(sig_motifs)} significant motif-region "
@@ -1772,8 +1820,7 @@ def _build_pdf(
                     p_str,
                     f"{term.get('combined_score', 0.0):.1f}",
                 ])
-            enr_tbl = Table(enr_rows, colWidths=[1.0*_cm, 7.5*_cm, 1.8*_cm, 2.2*_cm, 2.7*_cm])
-            enr_tbl.setStyle(_tbl_style())
+            enr_tbl = _make_tbl(enr_rows, [1.0*_cm, 7.5*_cm, 1.8*_cm, 2.2*_cm, 2.7*_cm], S)
             story += [enr_tbl, sp(0.2)]
         story.append(p(
             "FDR-adjusted p-values use the Benjamini-Hochberg method (Enrichr internal correction). "
@@ -1810,8 +1857,7 @@ def _build_pdf(
                 gt_ag,
                 feat.frame_class or "—" if feat else "—",
             ])
-        top_tbl = Table(top_rows, colWidths=[2.8*_cm, 1.8*_cm, 1*_cm, 1.8*_cm, 2.2*_cm, 1.8*_cm, 1.8*_cm, 2*_cm])
-        top_tbl.setStyle(_tbl_style())
+        top_tbl = _make_tbl(top_rows, [2.8*_cm, 1.8*_cm, 1*_cm, 1.8*_cm, 2.2*_cm, 1.8*_cm, 1.8*_cm, 2*_cm], S)
         story += [top_tbl, sp()]
     else:
         story.append(p("No SE events available.", "body"))
@@ -2029,10 +2075,11 @@ def _build_pdf(
             p("<b>C.6 hnRNP Motif Enrichment — Two-Proportion z-Test</b>", "h3"),
             p("For each motif m in region r, let x<sub>1</sub> / n<sub>1</sub> be the hit rate "
               "in the significant group and x<sub>2</sub> / n<sub>2</sub> in the background. "
-              "The pooled proportion is p̂ = (x<sub>1</sub> + x<sub>2</sub>) / "
-              "(n<sub>1</sub> + n<sub>2</sub>). The test statistic is:", "body"),
-            p("&nbsp;&nbsp;&nbsp;z = (p̂<sub>1</sub> - p̂<sub>2</sub>) / "
-              "sqrt[ p̂(1 - p̂)(1/n<sub>1</sub> + 1/n<sub>2</sub>) ]", "code"),
+              "The pooled proportion is p^ = (x<sub>1</sub> + x<sub>2</sub>) / "
+              "(n<sub>1</sub> + n<sub>2</sub>), where ^ denotes the pooled estimate. "
+              "The test statistic is:", "body"),
+            p("&nbsp;&nbsp;&nbsp;z = (p^<sub>1</sub> - p^<sub>2</sub>) / "
+              "sqrt[ p^(1 - p^)(1/n<sub>1</sub> + 1/n<sub>2</sub>) ]", "code"),
             p("Two-tailed p-values are computed from the standard normal CDF. "
               "Bonferroni correction multiplies each p-value by the number of tests "
               "(85 = 5 regions × 17 motifs). Groups with fewer than 5 events are skipped.", "body"),

@@ -42,8 +42,17 @@ export async function getAnalysis(id: string): Promise<Analysis> {
 }
 
 export async function deleteAnalysis(id: string): Promise<void> {
-  const resp = await fetch(`${BASE}/analyses/${id}`, { method: "DELETE" });
-  if (!resp.ok) throw new Error(`Delete failed: ${resp.status}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10 * 60 * 1000); // 10 min
+  try {
+    const resp = await fetch(`${BASE}/analyses/${id}`, {
+      method: "DELETE",
+      signal: controller.signal,
+    });
+    if (!resp.ok) throw new Error(`Delete failed: ${resp.status}`);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function downloadAnalysisExcel(

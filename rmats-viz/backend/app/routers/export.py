@@ -608,6 +608,23 @@ from reportlab.pdfbase import pdfmetrics as _pdfmetrics
 _W, _ = _A4
 _MARGIN = 2 * _cm
 
+# SeqLogo rendering constants — precomputed once at import time so the
+# per-column / per-base inner loop never recreates them.
+_LOGO_BASE_COLORS: dict[str, str] = {
+    "A": "#22c55e", "C": "#3b82f6", "G": "#f97316", "T": "#ef4444",
+}
+_LOGO_BASE_COLOR_OBJS: dict[str, object] = {
+    b: _colors.HexColor(h) for b, h in _LOGO_BASE_COLORS.items()
+}
+_LOGO_REF_FS: float = 100.0
+_LOGO_CAP_H:  float = _LOGO_REF_FS * 0.718  # Helvetica-Bold cap height ≈ 71.8 %
+_LOGO_PAD:    int   = 1                       # horizontal padding per side (pts)
+# Precomputed per-base natural glyph widths at _LOGO_REF_FS / Helvetica-Bold.
+_LOGO_BASE_NAT_W: dict[str, float] = {
+    b: _pdfmetrics.stringWidth(b, "Helvetica-Bold", _LOGO_REF_FS)
+    for b in "ACGT"
+}
+
 
 def _build_styles() -> dict:
     base = _getStyles()
@@ -973,13 +990,14 @@ def _fig_splice_site_consensus(
             pwm.append(freqs)
 
     seq_len = len(pwm)
-    BASE_COLORS = {"A": "#22c55e", "C": "#3b82f6", "G": "#f97316", "T": "#ef4444"}
 
     COL_W  = min(22, int((max_width - 16) / seq_len))
     LOGO_H = 80
     MARGIN_L, MARGIN_B, MARGIN_T = 8, 24, 8
     W = min(max_width, MARGIN_L + seq_len * COL_W + 8)
     H = MARGIN_T + LOGO_H + MARGIN_B
+    # Per-call derived constants (COL_W is now fixed for this logo instance)
+    avail_w = COL_W - 2 * _LOGO_PAD
 
     d = Drawing(W, H)
     d.add(Rect(0, 0, W, H, fillColor=_colors.HexColor("#fafafa"),
@@ -1003,10 +1021,7 @@ def _fig_splice_site_consensus(
         # Frequency mode: every column fills LOGO_H; letter height ∝ frequency.
         # Each letter is stretched to fill its allocated width × height slot,
         # matching the web app's SVG preserveAspectRatio="none" approach.
-        # Reference font size used only for computing natural glyph dimensions.
-        _REF_FS = 100.0
-        _CAP_H  = _REF_FS * 0.718   # Helvetica-Bold cap height ≈ 71.8 % of fontSize
-        _PAD    = 1                  # 1-pt horizontal padding each side (like web app)
+        # Module-level constants (_LOGO_*) are used to avoid per-iteration recomputation.
         sorted_bases = sorted(freqs.items(), key=lambda kv: kv[1])
         cur_y = MARGIN_B
         for base, freq in sorted_bases:
@@ -1016,17 +1031,15 @@ def _fig_splice_site_consensus(
             if h < 0.5:
                 cur_y += h
                 continue
-            nat_w = _pdfmetrics.stringWidth(base, "Helvetica-Bold", _REF_FS)
-            avail_w = COL_W - 2 * _PAD
-            sx = avail_w / max(nat_w, 0.1)
-            sy = h / _CAP_H
+            sx = avail_w / max(_LOGO_BASE_NAT_W[base], 0.1)
+            sy = h / _LOGO_CAP_H
             g = Group(
                 String(0, 0, base,
-                       fontSize=_REF_FS,
+                       fontSize=_LOGO_REF_FS,
                        fontName="Helvetica-Bold",
-                       fillColor=_colors.HexColor(BASE_COLORS[base]),
+                       fillColor=_LOGO_BASE_COLOR_OBJS[base],
                        textAnchor="start"),
-                transform=(sx, 0, 0, sy, x + _PAD, cur_y),
+                transform=(sx, 0, 0, sy, x + _LOGO_PAD, cur_y),
             )
             d.add(g)
             cur_y += h

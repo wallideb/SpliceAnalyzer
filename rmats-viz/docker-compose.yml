@@ -51,6 +51,7 @@ services:
       API_URL: http://backend:8000
     volumes:
       - ./frontend/src:/app/src
+      - ./frontend/next.config.mjs:/app/next.config.mjs:ro
     ports:
       - "3000:3000"
 

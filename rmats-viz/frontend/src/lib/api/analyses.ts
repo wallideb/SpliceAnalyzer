@@ -41,11 +41,21 @@ export async function getAnalysis(id: string): Promise<Analysis> {
   return fetchJSON(`${BASE}/analyses/${id}`);
 }
 
+// For DELETE we bypass the Next.js rewrite proxy and call the backend directly.
+// The backend port 8000 is always exposed on localhost in the Docker Compose
+// setup (ports: "8000:8000"), and CORS allows requests from localhost:3000.
+// This eliminates any proxy-layer interference that has prevented delete from
+// reaching the backend.
+const _DIRECT = process.env.NEXT_PUBLIC_BACKEND_URL;
+
 export async function deleteAnalysis(id: string): Promise<void> {
+  const url = _DIRECT
+    ? `${_DIRECT}/api/v1/analyses/${id}`
+    : `${BASE}/analyses/${id}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10 * 60 * 1000); // 10 min
   try {
-    const resp = await fetch(`${BASE}/analyses/${id}`, {
+    const resp = await fetch(url, {
       method: "DELETE",
       signal: controller.signal,
     });

@@ -5,7 +5,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,65 +17,25 @@ from app.services.parser import parse_and_store
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analyses", tags=["analyses"])
 
-_BATCH = 10_000
-
 
 async def _do_delete(analysis_id: uuid.UUID) -> None:
-    """Perform batched cascade deletion in a dedicated session.
+    """Delete an analysis in a background session using PostgreSQL CASCADE.
 
-    Runs as a background task so the HTTP 204 is returned to the browser
-    immediately, avoiding connection timeouts on large analyses.
+    All child tables (splicing_events, event_cluster, deep_analyses,
+    deep_analysis_events, event_splice_feature, sample_groups) carry
+    ondelete='CASCADE' or ondelete='SET NULL' FK constraints, so a single
+    DELETE on the parent row is sufficient and atomic.  Running this in a
+    background task means the HTTP 204 is already delivered to the browser
+    before any heavy work begins — no connection-timeout risk.
     """
     logger.info("DELETE /analyses/%s — background deletion starting", analysis_id)
-    async with AsyncSessionLocal() as db:
-        try:
-            # deep_analysis_events — batched via ctid
-            while True:
-                r = await db.execute(text(
-                    "DELETE FROM deep_analysis_events WHERE ctid IN ("
-                    "  SELECT dae.ctid FROM deep_analysis_events dae"
-                    "  JOIN deep_analyses da ON dae.deep_analysis_id = da.id"
-                    "  WHERE da.analysis_id = :aid LIMIT :b"
-                    ")"
-                ), {"aid": analysis_id, "b": _BATCH})
-                await db.commit()
-                if r.rowcount == 0:
-                    break
-
-            await db.execute(text("DELETE FROM deep_analyses WHERE analysis_id = :aid"), {"aid": analysis_id})
-            await db.commit()
-
-            # event_splice_feature
-            while True:
-                r = await db.execute(text(
-                    "DELETE FROM event_splice_feature WHERE event_id IN "
-                    "(SELECT id FROM splicing_events WHERE analysis_id = :aid LIMIT :b)"
-                ), {"aid": analysis_id, "b": _BATCH})
-                await db.commit()
-                if r.rowcount == 0:
-                    break
-
-            # event_cluster
-            await db.execute(text("DELETE FROM event_cluster WHERE analysis_id = :aid"), {"aid": analysis_id})
-            await db.commit()
-
-            # splicing_events — batched
-            while True:
-                r = await db.execute(text(
-                    "DELETE FROM splicing_events WHERE id IN "
-                    "(SELECT id FROM splicing_events WHERE analysis_id = :aid LIMIT :b)"
-                ), {"aid": analysis_id, "b": _BATCH})
-                await db.commit()
-                if r.rowcount == 0:
-                    break
-
-            # Parent row (sample_groups cascade via DB FK)
+    try:
+        async with AsyncSessionLocal() as db:
             await db.execute(delete(Analysis).where(Analysis.id == analysis_id))
             await db.commit()
-            logger.info("DELETE /analyses/%s — done", analysis_id)
-
-        except Exception:
-            logger.exception("DELETE /analyses/%s — background deletion failed", analysis_id)
+        logger.info("DELETE /analyses/%s — done", analysis_id)
+    except Exception:
+        logger.exception("DELETE /analyses/%s — background deletion failed", analysis_id)
 
 
 @router.post("", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
@@ -155,15 +115,24 @@ async def delete_analysis(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Accept a delete request, verify existence, and return 204 immediately.
+    """Verify existence, mark the analysis as 'deleting', return 204 immediately.
 
-    The actual cascade deletion runs as a background task so large analyses
-    (100k+ events) do not hold the HTTP connection open long enough to trigger
-    browser or proxy timeouts.
+    The actual deletion runs as a background task (single CASCADE DELETE) so
+    the browser never waits on the heavy work.  Marking status='deleting'
+    prevents a second concurrent delete request from queuing a duplicate task.
     """
-    result = await db.execute(select(Analysis.id).where(Analysis.id == analysis_id))
-    if not result.scalar_one_or_none():
+    result = await db.execute(select(Analysis.id, Analysis.status).where(Analysis.id == analysis_id))
+    row = result.one_or_none()
+    if row is None:
         raise HTTPException(status_code=404, detail="Analysis not found")
+    if row.status == "deleting":
+        # Already in progress — return 204 without queuing a second task.
+        return
+
+    await db.execute(
+        update(Analysis).where(Analysis.id == analysis_id).values(status="deleting")
+    )
+    await db.commit()
 
     logger.info("DELETE /analyses/%s — accepted, queuing background deletion", analysis_id)
     background_tasks.add_task(_do_delete, analysis_id)

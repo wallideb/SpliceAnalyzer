@@ -11,6 +11,9 @@ from sqlalchemy.orm import selectinload
 
 from app.database import AsyncSessionLocal, get_db
 from app.models.analysis import Analysis, SampleGroup
+from app.models.deep_analysis import DeepAnalysis, DeepAnalysisEvent
+from app.models.event import SplicingEvent
+from app.models.splice import EventCluster, EventSpliceFeature
 from app.schemas.analysis import AnalysisListItem, AnalysisResponse, UploadResponse
 from app.services.parser import parse_and_store
 
@@ -19,23 +22,78 @@ router = APIRouter(prefix="/analyses", tags=["analyses"])
 
 
 async def _do_delete(analysis_id: uuid.UUID) -> None:
-    """Delete an analysis in a background session using PostgreSQL CASCADE.
+    """Delete an analysis by explicitly removing each child table in dependency order.
 
-    All child tables (splicing_events, event_cluster, deep_analyses,
-    deep_analysis_events, event_splice_feature, sample_groups) carry
-    ondelete='CASCADE' or ondelete='SET NULL' FK constraints, so a single
-    DELETE on the parent row is sufficient and atomic.  Running this in a
-    background task means the HTTP 204 is already delivered to the browser
-    before any heavy work begins — no connection-timeout risk.
+    We do NOT rely on PostgreSQL's implicit CASCADE chain (triggered by a single
+    DELETE on the parent row) because that mechanism scans FK-target columns
+    row-by-row — any missing index on those columns causes O(n×m) full-table
+    scans that hang for minutes on large datasets.
+
+    Instead every statement here deletes by analysis_id (always indexed) or by
+    a single subquery that resolves to analysis_id in one hop.  Each step is
+    logged so the exact point of failure is immediately visible.
 
     On any failure (including asyncio.CancelledError from a container restart)
-    we reset the status to 'error' so the user can retry rather than getting
-    permanently stuck in 'deleting'.
+    the status is reset to 'error' so the user can retry.
     """
     logger.info("DELETE /analyses/%s — background deletion starting", analysis_id)
     try:
         async with AsyncSessionLocal() as db:
-            await db.execute(delete(Analysis).where(Analysis.id == analysis_id))
+            # 1. Clear rep_event_id in event_cluster (SET NULL FK → splicing_events).
+            #    Must happen before we delete splicing_events in step 6.
+            r = await db.execute(
+                update(EventCluster)
+                .where(EventCluster.analysis_id == analysis_id)
+                .values(rep_event_id=None)
+            )
+            logger.info("DELETE /analyses/%s — cleared %d rep_event_id refs", analysis_id, r.rowcount)
+
+            # 2. Delete deep_analysis_events (FK → deep_analyses AND splicing_events).
+            #    Resolved via deep_analyses.analysis_id (one-hop subquery).
+            da_subq = select(DeepAnalysis.id).where(DeepAnalysis.analysis_id == analysis_id)
+            r = await db.execute(
+                delete(DeepAnalysisEvent).where(DeepAnalysisEvent.deep_analysis_id.in_(da_subq))
+            )
+            logger.info("DELETE /analyses/%s — deleted %d deep_analysis_events", analysis_id, r.rowcount)
+
+            # 3. Delete event_splice_feature (FK → splicing_events).
+            #    Resolved via splicing_events.analysis_id (one-hop subquery).
+            ev_subq = select(SplicingEvent.id).where(SplicingEvent.analysis_id == analysis_id)
+            r = await db.execute(
+                delete(EventSpliceFeature).where(EventSpliceFeature.event_id.in_(ev_subq))
+            )
+            logger.info("DELETE /analyses/%s — deleted %d event_splice_features", analysis_id, r.rowcount)
+
+            # 4. Delete event_cluster (direct analysis_id FK).
+            r = await db.execute(
+                delete(EventCluster).where(EventCluster.analysis_id == analysis_id)
+            )
+            logger.info("DELETE /analyses/%s — deleted %d event_clusters", analysis_id, r.rowcount)
+
+            # 5. Delete deep_analyses (direct analysis_id FK; deep_analysis_events already gone).
+            r = await db.execute(
+                delete(DeepAnalysis).where(DeepAnalysis.analysis_id == analysis_id)
+            )
+            logger.info("DELETE /analyses/%s — deleted %d deep_analyses", analysis_id, r.rowcount)
+
+            # 6. Delete splicing_events (direct analysis_id FK; all dependents already gone).
+            r = await db.execute(
+                delete(SplicingEvent).where(SplicingEvent.analysis_id == analysis_id)
+            )
+            logger.info("DELETE /analyses/%s — deleted %d splicing_events", analysis_id, r.rowcount)
+
+            # 7. Delete sample_groups (direct analysis_id FK).
+            r = await db.execute(
+                delete(SampleGroup).where(SampleGroup.analysis_id == analysis_id)
+            )
+            logger.info("DELETE /analyses/%s — deleted %d sample_groups", analysis_id, r.rowcount)
+
+            # 8. Delete the analysis itself (all dependents gone; CASCADE finds nothing).
+            r = await db.execute(
+                delete(Analysis).where(Analysis.id == analysis_id)
+            )
+            logger.info("DELETE /analyses/%s — deleted analysis row (found=%d)", analysis_id, r.rowcount)
+
             await db.commit()
         logger.info("DELETE /analyses/%s — done", analysis_id)
     except BaseException:

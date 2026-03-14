@@ -367,7 +367,7 @@ def _compute_metric_permutations(
     results.append(_run_metric_permutation(
         vals_g1, vals_g2, n_iterations, rng,
         metric_name="ppt_score",
-        label="Score PPT",
+        label="PPT Score",
         lo=-1.0, hi=1.0,
     ))
 
@@ -386,12 +386,12 @@ def _compute_metric_permutations(
         results.append(_run_metric_permutation(
             norm_g1, norm_g2, n_iterations, rng,
             metric_name="exon_size",
-            label="Taille de l'exon",
+            label="Exon size",
             lo=-1.0, hi=1.0,
         ))
     else:
         results.append(MetricPermResult(
-            metric_name="exon_size", label="Taille de l'exon",
+            metric_name="exon_size", label="Exon size",
             n_valid=0, n_g1=len(g1_feats), n_g2=len(g2_feats),
         ))
 

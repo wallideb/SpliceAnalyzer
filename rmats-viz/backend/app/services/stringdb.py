@@ -42,13 +42,13 @@ _TIMEOUT = 10.0
 
 # Channel metadata: key, human label, hex colour (STRING visual convention)
 CHANNEL_META: list[dict] = [
-    {"key": "nscore", "label": "Voisinage génomique",     "color": "#2CA02C"},  # green
-    {"key": "fscore", "label": "Fusion de gènes",         "color": "#D62728"},  # red
-    {"key": "pscore", "label": "Co-occurrence phylo.",    "color": "#1F77B4"},  # blue
-    {"key": "ascore", "label": "Co-expression",           "color": "#333333"},  # dark
-    {"key": "escore", "label": "Expérimental",            "color": "#E377C2"},  # pink
-    {"key": "dscore", "label": "Base de données curée",   "color": "#17BECF"},  # cyan
-    {"key": "tscore", "label": "Littérature (text mining)","color": "#FFC000"}, # amber
+    {"key": "nscore", "label": "Genomic neighbourhood",  "color": "#2CA02C"},  # green
+    {"key": "fscore", "label": "Gene fusion",            "color": "#D62728"},  # red
+    {"key": "pscore", "label": "Phylogenetic co-occurrence", "color": "#1F77B4"},  # blue
+    {"key": "ascore", "label": "Co-expression",          "color": "#333333"},  # dark
+    {"key": "escore", "label": "Experimental",           "color": "#E377C2"},  # pink
+    {"key": "dscore", "label": "Curated database",       "color": "#17BECF"},  # cyan
+    {"key": "tscore", "label": "Text mining",            "color": "#FFC000"}, # amber
 ]
 
 

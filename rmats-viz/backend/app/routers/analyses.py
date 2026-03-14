@@ -21,8 +21,8 @@ router = APIRouter(prefix="/analyses", tags=["analyses"])
 @router.post("", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
 async def create_analysis(
     name: str = Form(...),
-    group1_label: str = Form("Patients PCBP1"),
-    group2_label: str = Form("Contrôles"),
+    group1_label: str = Form("Patients"),
+    group2_label: str = Form("Controls"),
     group1_samples: str = Form("[]"),
     group2_samples: str = Form("[]"),
     mutated_genes: str = Form("[]"),

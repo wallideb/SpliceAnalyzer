@@ -261,6 +261,8 @@ _COMPUTE_CHUNK = 2_000  # events processed per MANE/feature chunk
 # asyncpg hard-limits query parameters to 32 767.  Each EventSpliceFeature row
 # has 25 columns, so the safe DB-write batch size is floor(32767 / 25) = 1310.
 _DB_WRITE_BATCH = 1_000  # keep a round number well under the limit
+# EventCluster has 10 columns → floor(32767 / 10) = 3276; use 1000 to be safe.
+_CLUSTER_WRITE_BATCH = 1_000
 
 
 async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
@@ -415,7 +417,9 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                     )
                     for cl in clusters
                 ]
-                await db.execute(pg_insert(EventCluster).values(cluster_rows))
+                for ci in range(0, len(cluster_rows), _CLUSTER_WRITE_BATCH):
+                    sub_cl = cluster_rows[ci : ci + _CLUSTER_WRITE_BATCH]
+                    await db.execute(pg_insert(EventCluster).values(sub_cl))
             await db.commit()
             logger.info("Background compute done: %d/%d SE events for %s", n_computed, n_total, analysis_id)
     except Exception as exc:

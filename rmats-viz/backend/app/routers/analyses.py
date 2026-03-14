@@ -27,6 +27,10 @@ async def _do_delete(analysis_id: uuid.UUID) -> None:
     DELETE on the parent row is sufficient and atomic.  Running this in a
     background task means the HTTP 204 is already delivered to the browser
     before any heavy work begins — no connection-timeout risk.
+
+    On any failure (including asyncio.CancelledError from a container restart)
+    we reset the status to 'error' so the user can retry rather than getting
+    permanently stuck in 'deleting'.
     """
     logger.info("DELETE /analyses/%s — background deletion starting", analysis_id)
     try:
@@ -34,8 +38,20 @@ async def _do_delete(analysis_id: uuid.UUID) -> None:
             await db.execute(delete(Analysis).where(Analysis.id == analysis_id))
             await db.commit()
         logger.info("DELETE /analyses/%s — done", analysis_id)
-    except Exception:
+    except BaseException:
         logger.exception("DELETE /analyses/%s — background deletion failed", analysis_id)
+        # Reset status so the user can retry (don't leave it stuck as 'deleting').
+        try:
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    update(Analysis)
+                    .where(Analysis.id == analysis_id)
+                    .values(status="error", error_message="Deletion failed — please retry")
+                )
+                await db.commit()
+        except Exception:
+            logger.exception("DELETE /analyses/%s — failed to reset status after error", analysis_id)
+        raise
 
 
 @router.post("", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)

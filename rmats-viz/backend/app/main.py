@@ -13,8 +13,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.config import settings
-from app.database import engine
+from app.database import AsyncSessionLocal, engine
+from app.models.analysis import Analysis
 from app.routers import analyses, annotations, deep_analyses, events, export, genes, splice
+from sqlalchemy import update
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,23 @@ def _setup_fasta() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # On startup, reset any analyses stuck in 'deleting' (e.g. from a previous
+    # container restart that cancelled in-flight background tasks).
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                update(Analysis)
+                .where(Analysis.status == "deleting")
+                .values(status="error", error_message="Deletion interrupted by restart — please retry")
+                .returning(Analysis.id)
+            )
+            orphaned = result.scalars().all()
+            await db.commit()
+            if orphaned:
+                logger.warning("Reset %d orphaned 'deleting' analyses to 'error': %s", len(orphaned), orphaned)
+    except Exception:
+        logger.exception("Failed to reset orphaned 'deleting' analyses on startup")
+
     # Fire-and-forget: download FASTA in the background so the server starts
     # accepting requests immediately.  fasta_available() checks the filesystem
     # on every call, so endpoints automatically pick up the file once ready.

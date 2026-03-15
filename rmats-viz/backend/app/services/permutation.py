@@ -4,11 +4,6 @@ Permutation test for rMATS events
 For each SE event, tests whether the observed ΔΨ is significant relative
 to a null distribution built by randomly permuting sample labels.
 
-Also supports permutation tests for auxiliary scalar metrics (PPT score,
-exon size, frame fraction, canonical site fraction) by splitting events into
-two groups by ΔΨ sign (positive vs negative) and testing whether these groups
-differ in splice-signal properties.
-
 Algorithm (ΔΨ per event)
 -------------------------
 1. Collect per-sample PSI values from inc_level_1 and inc_level_2.

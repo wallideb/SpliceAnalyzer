@@ -114,7 +114,7 @@ A second-pass module that partitions events into **significant** and **non-signi
 - **Pattern comparison** &mdash; Side-by-side group statistics: GT-AG canonical rates, PPT score distributions, exon/intron size distributions, frame-class breakdown, comparison sequence logos; Welch's t-test and two-proportion z-test for each metric
 - **hnRNP motif enrichment** &mdash; rMAPS2-inspired analysis scanning five genomic regions around each SE event for 17 consensus hnRNP binding motifs; two-proportion z-test per motif–region pair with Bonferroni correction
 - **Pathway enrichment (Enrichr)** &mdash; Significant-event gene symbols submitted to the Enrichr REST API against five curated gene-set libraries; top terms per library by adjusted p-value
-- **Permutation testing** &mdash; Per-event |&Delta;&Psi;| significance and multi-parameter tests for auxiliary splice metrics
+- **Permutation testing** &mdash; Per-event |&Delta;&Psi;| significance testing against a null distribution of permuted sample labels
 
 ### MANE Frame Annotation
 
@@ -375,7 +375,7 @@ The event cards view displays significant events ranked by FDR and |&Delta;&Psi;
 - **ExonDiagram** &mdash; Interactive exon-intron diagram with donor/acceptor/PPT/branch-point annotations
 - **SpliceSiteTrack** &mdash; All 4 SE splice sites (upstream, skipped 5', skipped 3', downstream)
 - **Sequence source badge** &mdash; Indicates whether sequences come from local FASTA or Ensembl REST fallback
-- **PermutationPanel** &mdash; Interactive permutation test results with multi-parameter tabs
+- **PermutationPanel** &mdash; Interactive permutation test results (per-event |&Delta;&Psi;| empirical p-values at multiple iteration counts)
 - **ScienceNote** &mdash; Collapsible citation widgets linking to primary literature
 - **AnnotatedCard** &mdash; Gene annotations (PanelApp, GO, UniProt, STRING-DB) in tabbed panels
 
@@ -545,8 +545,6 @@ A permutation test assesses the significance of |&Delta;&Psi;| for each SE event
 1. Sample labels are randomly permuted (keeping group sizes fixed)
 2. A null distribution of |&Delta;&Psi;| is built from `N` permutations (50, 100, 250, or 500 iterations)
 3. The empirical two-tailed p-value uses the **Phipson & Smyth (2010)** continuity correction: `p = (k + 1) / (N + 1)`, where `k` is the number of permuted |&Delta;&Psi;| values ≥ the observed value
-
-Multi-parameter tests run the same permutation procedure for PPT score, exon size, frame class fraction, and GT-AG canonical fraction across the full event set, comparing significant vs. non-significant groups.
 
 When FDR and |&Delta;&Psi;| filters are applied in the deep analysis view, the **Sig. p&lt;0.05** and **Sig. p&lt;0.01** percentages are recomputed exclusively over the filtered event subset, ensuring the values shown in the UI and PDF report are always consistent with each other.
 

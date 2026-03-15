@@ -33,7 +33,7 @@ router = APIRouter(prefix="/export", tags=["export"])
 
 # Limit concurrent outbound HTTP requests to external APIs (PanelApp, GO, STRING-DB)
 # to avoid socket/connection-pool exhaustion on large exports (200+ genes).
-_EXT_API_SEMAPHORE = asyncio.Semaphore(10)
+_EXT_API_SEMAPHORE = asyncio.Semaphore(20)
 
 
 async def _throttled(coro):
@@ -119,263 +119,6 @@ async def _load_events_and_features(
     return events, features
 
 
-@router.get("/{analysis_id}/excel")
-async def export_analysis_excel(
-    analysis_id: uuid.UUID,
-    include: str = Query(
-        "core",
-        description=(
-            "Comma-separated list of column groups to include. "
-            "Allowed values: core, panelapp, go, stringdb. "
-            "Example: ?include=core,panelapp,go"
-        ),
-    ),
-    db: AsyncSession = Depends(get_db),
-) -> StreamingResponse:
-    """Export all splicing events for *analysis_id* as an Excel .xlsx file.
-
-    Column groups
-    -------------
-    core      – gene, coordinates, rMATS statistics, splice features, MANE (always included)
-    panelapp  – top PanelApp disease panel confidence and panel names per gene
-    go        – top GO terms (BP / MF / CC) per gene via mygene.info
-    stringdb  – highest STRING-DB combined score vs each analysis candidate gene
-    """
-
-    # ── Parse include groups ──────────────────────────────────────────────────
-    requested: set[str] = {g.strip().lower() for g in include.split(",")}
-    valid: set[str] = set(ALL_GROUPS)
-    unknown = requested - valid
-    if unknown:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unknown column group(s): {', '.join(sorted(unknown))}. "
-                   f"Allowed: {', '.join(ALL_GROUPS)}",
-        )
-    # core is always included
-    groups: set[str] = requested | {"core"}
-
-    # ── 1. Verify analysis exists (with sample groups for labels) ────────────
-    analysis, group1_label, group2_label = await _get_analysis_with_groups(db, analysis_id)
-
-    # ── 2-3. Fetch all events + SE splice features ────────────────────────────
-    events, features = await _load_events_and_features(db, analysis_id)
-
-    # ── 4. Fetch external annotations (per unique gene symbol) ───────────────
-    unique_symbols: list[str] = list({
-        e.gene_symbol for e in events if e.gene_symbol
-    })
-
-    # PanelApp columns
-    panelapp_data: dict[str, dict] = {}
-    if "panelapp" in groups and unique_symbols:
-        pa_results = await asyncio.gather(
-            *[_throttled(get_panels_for_gene(sym)) for sym in unique_symbols],
-            return_exceptions=True,
-        )
-        for sym, res in zip(unique_symbols, pa_results):
-            if isinstance(res, list) and res:
-                # Pick top confidence level: green > amber > red
-                conf_order = {"green": 0, "amber": 1, "red": 2}
-                top = min(res, key=lambda p: conf_order.get(p.get("confidence_label", ""), 3))
-                panel_names = ", ".join(p.get("panel_name", "") for p in res[:3])
-                panelapp_data[sym] = {
-                    "confidence": top.get("confidence_label", ""),
-                    "panels": panel_names,
-                }
-            else:
-                panelapp_data[sym] = {"confidence": "", "panels": ""}
-
-    # GO columns
-    go_data: dict[str, dict] = {}
-    if "go" in groups and unique_symbols:
-        go_results = await asyncio.gather(
-            *[_throttled(get_go_terms(sym, None)) for sym in unique_symbols],
-            return_exceptions=True,
-        )
-        for sym, res in zip(unique_symbols, go_results):
-            if isinstance(res, list):
-                by_cat: dict[str, list[str]] = {"BP": [], "MF": [], "CC": []}
-                for term in res:
-                    cat = term.get("category", "")
-                    if cat in by_cat:
-                        by_cat[cat].append(term.get("term", ""))
-                go_data[sym] = {
-                    "BP": "; ".join(by_cat["BP"][:3]),
-                    "MF": "; ".join(by_cat["MF"][:3]),
-                    "CC": "; ".join(by_cat["CC"][:3]),
-                }
-            else:
-                go_data[sym] = {"BP": "", "MF": "", "CC": ""}
-
-    # STRING-DB columns — highest combined score vs any analysis mutated gene
-    stringdb_data: dict[str, float | None] = {}
-    if "stringdb" in groups and unique_symbols:
-        mutated_genes: list[str] = [
-            g.get("symbol", "") for g in (analysis.mutated_genes or [])
-            if g.get("symbol")
-        ]
-        if mutated_genes:
-            # Build all (event_gene, mutated_gene) pairs, skip self-pairs
-            pairs = [
-                (sym, mut)
-                for sym in unique_symbols
-                for mut in mutated_genes
-                if sym.upper() != mut.upper()
-            ]
-            if pairs:
-                interaction_results = await asyncio.gather(
-                    *[_throttled(get_interaction(sym, mut)) for sym, mut in pairs],
-                    return_exceptions=True,
-                )
-                # For each event gene, keep the highest combined_score across mutated genes
-                for (sym, _mut), res in zip(pairs, interaction_results):
-                    if isinstance(res, dict) and res.get("has_interaction"):
-                        score = res.get("combined_score", 0.0) or 0.0
-                        current = stringdb_data.get(sym)
-                        if current is None or score > current:
-                            stringdb_data[sym] = score
-                    elif sym not in stringdb_data:
-                        stringdb_data[sym] = None
-
-    # ── 5. Build the workbook ─────────────────────────────────────────────────
-    wb = openpyxl.Workbook()
-
-    # ── Sheet 1 : Events ─────────────────────────────────────────────────────
-    ws_events = wb.active
-    ws_events.title = "Events"
-
-    headers = [
-        "Gene", "Gene ID", "Type", "Chromosome", "Strand",
-        "Exon Start", "Exon End", "Exon Size",
-        "p-value", "FDR", "ΔΨ", "|ΔΨ|",
-        f"PSI {group1_label}", f"PSI {group2_label}",
-        # SE splice features
-        "Donor Site", "Canonical GT",
-        "Acceptor Site", "Canonical AG",
-        "PPT Score", "Max Y Run",
-        "BP Found", "BP Distance",
-        # Frame / MANE annotations
-        "Frame", "Region", "CDS Length",
-        "MANE Transcript", "Exon Rank",
-    ]
-    if "panelapp" in groups:
-        headers += ["PanelApp Confidence", "PanelApp Panels"]
-    if "go" in groups:
-        headers += ["GO:BP", "GO:MF", "GO:CC"]
-    if "stringdb" in groups:
-        headers += ["STRING Max Score"]
-
-    ws_events.append(headers)
-
-    for event in events:
-        feat = features.get(event.id) if event.event_type == "SE" else None
-        sym = event.gene_symbol or ""
-
-        row = [
-            event.gene_symbol,
-            event.gene_id,
-            event.event_type,
-            event.chr,
-            event.strand,
-            event.exon_start,
-            event.exon_end,
-            feat.exon_size if feat else None,
-            event.p_value,
-            event.fdr,
-            event.inc_level_difference,
-            event.abs_inc_level_diff,
-            event.inc_level_1,
-            event.inc_level_2,
-            # Splice features (SE only)
-            feat.donor_seq if feat else None,
-            feat.donor_is_gt if feat else None,
-            feat.acceptor_seq if feat else None,
-            feat.acceptor_is_ag if feat else None,
-            feat.ppt_score if feat else None,
-            feat.ppt_longest_run if feat else None,
-            feat.bp_motif_found if feat else None,
-            feat.bp_distance if feat else None,
-            # Frame / MANE
-            feat.frame_class if feat else None,
-            feat.frame_region if feat else None,
-            feat.cds_exon_length if feat else None,
-            feat.mane_transcript_id if feat else None,
-            feat.exon_rank if feat else None,
-        ]
-        if "panelapp" in groups:
-            pa = panelapp_data.get(sym, {"confidence": "", "panels": ""})
-            row += [pa["confidence"], pa["panels"]]
-        if "go" in groups:
-            go = go_data.get(sym, {"BP": "", "MF": "", "CC": ""})
-            row += [go["BP"], go["MF"], go["CC"]]
-        if "stringdb" in groups:
-            score = stringdb_data.get(sym)
-            row += [round(score, 3) if score is not None else None]
-
-        ws_events.append(row)
-
-    _style_header_row(ws_events)
-    _apply_row_banding(ws_events)
-    _auto_size_columns(ws_events)
-    ws_events.freeze_panes = "A2"
-    ws_events.auto_filter.ref = ws_events.dimensions
-
-    # ── Sheet 2 : Summary ────────────────────────────────────────────────────
-    ws_summary = wb.create_sheet("Summary")
-    ws_summary.append(["Column groups included", ", ".join(sorted(groups))])
-    ws_summary.append([])
-
-    # Count events by type
-    type_counts: dict[str, int] = {}
-    for event in events:
-        type_counts[event.event_type] = type_counts.get(event.event_type, 0) + 1
-
-    ws_summary.append(["Type", "Event Count"])
-    for etype in ["SE", "RI", "A3SS", "A5SS", "MXE"]:
-        ws_summary.append([etype, type_counts.get(etype, 0)])
-    ws_summary.append(["Total", len(events)])
-
-    # SE-specific statistics
-    ws_summary.append([])  # blank separator
-    ws_summary.append(["SE Statistics", ""])
-
-    n_se = type_counts.get("SE", 0)
-    if n_se > 0 and features:
-        n_gt = sum(1 for f in features.values() if f.donor_is_gt is True)
-        n_ag = sum(1 for f in features.values() if f.acceptor_is_ag is True)
-        n_inframe = sum(
-            1 for f in features.values() if f.frame_class == "in_frame"
-        )
-        n_frameshift = sum(
-            1 for f in features.values() if f.frame_class == "frameshift"
-        )
-        n_feat = len(features)
-        ws_summary.append(["SE events with annotated features", n_feat])
-        ws_summary.append(["% canonical GT", f"{n_gt / n_feat * 100:.1f}%" if n_feat else "N/A"])
-        ws_summary.append(["% canonical AG", f"{n_ag / n_feat * 100:.1f}%" if n_feat else "N/A"])
-        ws_summary.append(["% in-frame", f"{n_inframe / n_feat * 100:.1f}%" if n_feat else "N/A"])
-        ws_summary.append(["% frameshift", f"{n_frameshift / n_feat * 100:.1f}%" if n_feat else "N/A"])
-    else:
-        ws_summary.append(["No annotated SE features", ""])
-
-    _style_header_row(ws_summary)
-    _apply_row_banding(ws_summary)
-    _auto_size_columns(ws_summary)
-
-    # ── 5. Stream the response ────────────────────────────────────────────────
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": f'attachment; filename="rmats_{analysis_id}.xlsx"'
-        },
-    )
-
 @router.get("/{analysis_id}/deep-analysis/{deep_analysis_id}/excel")
 async def export_deep_analysis_excel(
     analysis_id: uuid.UUID,
@@ -441,10 +184,24 @@ async def export_deep_analysis_excel(
     stringdb_data: dict[str, float | None] = {}
 
     if "panelapp" in groups and unique_symbols:
-        pa_results = await asyncio.gather(
-            *[_throttled(get_panels_for_gene(sym)) for sym in unique_symbols],
-            return_exceptions=True,
-        )
+        # Use asyncio.wait with a global cap so a slow PanelApp doesn't stall
+        # the entire export. Tasks that don't finish within 25 s are cancelled
+        # and contribute empty results (same as a normal "no panel found").
+        _pa_tasks = [asyncio.ensure_future(_throttled(get_panels_for_gene(sym))) for sym in unique_symbols]
+        _done, _pending = await asyncio.wait(_pa_tasks, timeout=25.0)
+        for t in _pending:
+            t.cancel()
+        pa_results: list = []
+        for task in _pa_tasks:
+            if task in _done:
+                try:
+                    pa_results.append(task.result())
+                except Exception:
+                    pa_results.append([])
+            else:
+                pa_results.append([])
+        if _pending:
+            logger.warning("PanelApp: %d gene(s) timed out (global 25 s cap), returning empty results", len(_pending))
         for sym, res in zip(unique_symbols, pa_results):
             if isinstance(res, list) and res:
                 conf_order = {"green": 0, "amber": 1, "red": 2}

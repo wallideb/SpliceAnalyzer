@@ -8,6 +8,8 @@
  *   GET    /api/v1/analyses          – List all analyses
  *   GET    /api/v1/analyses/{id}     – Get analysis details
  *   DELETE /api/v1/analyses/{id}     – Delete an analysis
+ *
+ * Note: Excel export is only available for deep analyses (not the general analysis).
  */
 
 import type { Analysis, AnalysisListItem, UploadResponse } from "@/types/analysis";
@@ -65,22 +67,6 @@ export async function deleteAnalysis(id: string): Promise<void> {
   } finally {
     clearTimeout(timeout);
   }
-}
-
-export async function downloadAnalysisExcel(
-  analysisId: string,
-  include: string[] = ["core"],
-): Promise<void> {
-  const includeParam = include.join(",");
-  const url = `${BASE}/export/${analysisId}/excel?include=${encodeURIComponent(includeParam)}`;
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error("Export failed");
-  const blob = await resp.blob();
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `rmats_${analysisId}.xlsx`;
-  a.click();
-  URL.revokeObjectURL(a.href);
 }
 
 export async function downloadDeepAnalysisExcel(

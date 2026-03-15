@@ -1,14 +1,13 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getAnalysis, listEvents, downloadAnalysisExcel, getManhattanData } from "@/lib/api";
+import { getAnalysis, listEvents, getManhattanData } from "@/lib/api";
 import { EventsTable } from "@/components/events/EventsTable";
 import { ManhattanPlot } from "@/components/events/ManhattanPlot";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
 import { ScienceNote } from "@/components/ScienceNote";
-import { ExcelExportModal, type ExcelColumnGroup } from "@/components/ExcelExportModal";
 import { useT, useLanguage } from "@/contexts/LanguageContext";
 import type { EventsQuery } from "@/lib/api";
 import type { GeneEntry } from "@/types/gene";
@@ -44,8 +43,6 @@ export default function AnalysisDetailPage() {
   const [pvalSlider, setPvalSlider] = useState(0);
   const [dpsiSlider, setDpsiSlider] = useState(0);
 
-  const [isExporting, setIsExporting] = useState(false);
-  const [showExcelModal, setShowExcelModal] = useState(false);
   const [showIncLevel, setShowIncLevel] = useState(false);
 
   const sortBy = sortKey.slice(0, sortKey.lastIndexOf("|")) as EventsQuery["sort_by"];
@@ -98,19 +95,6 @@ export default function AnalysisDetailPage() {
   const mutatedGenes: GeneEntry[] = (analysis?.mutated_genes ?? []).filter(
     (g): g is GeneEntry => typeof g === "object" && "ensembl_id" in g,
   );
-
-  const handleExport = useCallback(async (groups: ExcelColumnGroup[] = ["core"]) => {
-    setIsExporting(true);
-    setShowExcelModal(false);
-    try {
-      await downloadAnalysisExcel(id, groups);
-    } catch {
-      alert(t("analysisDetail.excelError"));
-    } finally {
-      setIsExporting(false);
-    }
-  }, [id, t]);
-
 
   // Show loading overlay until analysis metadata + first page of events are ready
   if (!analysis || !eventsPage) {
@@ -202,14 +186,6 @@ export default function AnalysisDetailPage() {
 
         {/* Actions */}
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
-          <button
-            onClick={() => setShowExcelModal(true)}
-            disabled={isExporting}
-            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50 transition-colors"
-          >
-            {isExporting ? <SpinnerIcon /> : <DownloadIcon />}
-            {isExporting ? "Export…" : t("analysisDetail.excel")}
-          </button>
           <Link
             href={`/analyses/${id}/deep-analysis`}
             className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors shadow-sm"
@@ -411,33 +387,7 @@ export default function AnalysisDetailPage() {
 
       </div>{/* end main content */}
 
-      {/* ══ EXCEL EXPORT MODAL ══════════════════════════════════════════════ */}
-      <ExcelExportModal
-        isOpen={showExcelModal}
-        onClose={() => setShowExcelModal(false)}
-        onDownload={handleExport}
-        isDownloading={isExporting}
-      />
-
     </div>
-  );
-}
-
-// ── Export icon components ─────────────────────────────────────────────────────
-function DownloadIcon() {
-  return (
-    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-    </svg>
-  );
-}
-
-function SpinnerIcon() {
-  return (
-    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-    </svg>
   );
 }
 

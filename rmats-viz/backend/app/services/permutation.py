@@ -302,11 +302,11 @@ def run_permutation(
 
     n_tested = len(event_results)
     pct_p05 = (
-        round(sum(1 for r in event_results if (r.empirical_p_value or 1) < 0.05) / n_tested * 100, 1)
+        round(sum(1 for r in event_results if r.empirical_p_value is not None and r.empirical_p_value < 0.05) / n_tested * 100, 1)
         if n_tested else None
     )
     pct_p01 = (
-        round(sum(1 for r in event_results if (r.empirical_p_value or 1) < 0.01) / n_tested * 100, 1)
+        round(sum(1 for r in event_results if r.empirical_p_value is not None and r.empirical_p_value < 0.01) / n_tested * 100, 1)
         if n_tested else None
     )
 

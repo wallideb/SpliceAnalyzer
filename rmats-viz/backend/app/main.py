@@ -10,13 +10,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
+from sqlalchemy import text, update
 
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
 from app.models.analysis import Analysis
 from app.routers import analyses, annotations, deep_analyses, events, export, genes, splice
-from sqlalchemy import update
 
 logger = logging.getLogger(__name__)
 

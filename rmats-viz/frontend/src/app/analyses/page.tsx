@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAnalyses, deleteAnalysis } from "@/lib/api";
+import type { AnalysisListItem } from "@/types/analysis";
 import { useT, useLanguage } from "@/contexts/LanguageContext";
 import Link from "next/link";
 
@@ -9,7 +10,7 @@ export default function AnalysesPage() {
   const t = useT();
   const { lang } = useLanguage();
   const queryClient = useQueryClient();
-  const { data: analyses, isLoading, error, refetch } = useQuery({
+  const { data: analyses, isLoading, error } = useQuery({
     queryKey: ["analyses"],
     queryFn: listAnalyses,
   });
@@ -21,16 +22,13 @@ export default function AnalysesPage() {
     setDeleting(id);
     try {
       await deleteAnalysis(id);
-      // Optimistic update: remove from the list immediately so the UI
-      // responds instantly.  The backend deletion runs as a background
-      // task and may still be in progress; a background refetch syncs
-      // the server state once it completes.
+      // Optimistic update: remove from the list immediately.  The backend
+      // deletion runs in a background task; the next time the query
+      // revalidates the row will already be gone.
       queryClient.setQueryData(
         ["analyses"],
-        (old: import("@/types/analysis").AnalysisListItem[] | undefined) =>
-          old?.filter((a) => a.id !== id) ?? [],
+        (old: AnalysisListItem[] | undefined) => old?.filter((a) => a.id !== id) ?? [],
       );
-      refetch();
     } catch (err) {
       console.error("Delete failed:", err);
       alert(`Delete failed: ${err instanceof Error ? err.message : String(err)}`);

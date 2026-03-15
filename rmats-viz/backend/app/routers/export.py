@@ -1813,6 +1813,8 @@ def _build_pdf(
             for term in top_terms:
                 adj_p = term.get("adjusted_p_value", 1.0)
                 p_str = f"{adj_p:.2e}" if adj_p < 0.001 else f"{adj_p:.4f}"
+                if adj_p < 0.05:
+                    p_str = f"<b>&#9733; {p_str}</b>"
                 enr_rows.append([
                     str(term.get("rank", "—")),
                     str(term.get("term", "—")),
@@ -1824,7 +1826,7 @@ def _build_pdf(
             story += [enr_tbl, sp(0.2)]
         story.append(p(
             "FDR-adjusted p-values use the Benjamini-Hochberg method (Enrichr internal correction). "
-            "Top 5 terms per library shown.",
+            "Top 5 terms per library shown. <b>&#9733;</b> Adj. p-value &lt; 0.05.",
             "small",
         ))
         story.append(sp())

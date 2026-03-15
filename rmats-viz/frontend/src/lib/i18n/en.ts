@@ -488,9 +488,7 @@ export const en = {
         "statistic, and N is the total number of permutations. The +1 continuity " +
         "correction ensures that p is never exactly 0 (Phipson &amp; Smyth, 2010). " +
         "Under H₀, group labels are exchangeable (bilateral test). " +
-        "For the ΔΨ tab, the observed statistic is the absolute mean ΔΨ across events. " +
-        "For auxiliary metrics (PPT, exon size, frame, GT-AG), events are split into " +
-        "G1 (ΔΨ &lt; 0) and G2 (ΔΨ &gt; 0), and the statistic is mean(G2) − mean(G1). " +
+        "The observed statistic is the absolute mean ΔΨ across events. " +
         "rMATS FDR values use the Benjamini-Hochberg correction " +
         "(Benjamini &amp; Hochberg, 1995).",
     },

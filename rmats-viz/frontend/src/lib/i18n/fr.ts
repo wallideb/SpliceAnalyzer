@@ -492,9 +492,7 @@ export const fr: Translations = {
         "et N est le nombre total de permutations. La correction de continuité +1 garantit " +
         "que p n'est jamais exactement 0 (Phipson &amp; Smyth, 2010). " +
         "Sous H₀, les étiquettes de groupe sont interchangeables (test bilatéral). " +
-        "Pour l'onglet ΔΨ, la statistique observée est la moyenne absolue des ΔΨ sur les événements. " +
-        "Pour les métriques auxiliaires (PPT, taille exon, phase, GT-AG), les événements sont " +
-        "divisés en G1 (ΔΨ &lt; 0) et G2 (ΔΨ &gt; 0), et la statistique est mean(G2) − mean(G1). " +
+        "La statistique observée est la moyenne absolue des ΔΨ sur les événements. " +
         "Les valeurs FDR de rMATS utilisent la correction de Benjamini-Hochberg " +
         "(Benjamini &amp; Hochberg, 1995).",
     },

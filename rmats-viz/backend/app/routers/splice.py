@@ -994,20 +994,39 @@ async def run_permutation_test(
 
     # Count significant events and build observed histogram from significant
     # events only (so it's visually distinct from the null distribution).
+    # pct_p05 / pct_p01 must be computed over the *same* pool that n_events_tested
+    # describes — i.e. only events that pass the FDR + ΔΨ filter when one is given.
     n_total = perm_result.n_events_tested
     obs_hist_bins = perm_result.observed_hist_bins
     obs_hist_counts = perm_result.observed_hist_counts
+    pct_p05 = perm_result.pct_p05
+    pct_p01 = perm_result.pct_p01
 
     if fdr_threshold is not None and delta_psi_min is not None:
-        sig_deltas: list[float] = []
-        n_sig = 0
-        for ev in se_events:
+        sig_event_ids = {
+            str(ev.id) for ev in se_events
             if (ev.fdr is not None and ev.fdr <= fdr_threshold
                     and ev.inc_level_difference is not None
-                    and abs(ev.inc_level_difference) >= delta_psi_min):
-                n_sig += 1
-                sig_deltas.append(ev.inc_level_difference)
+                    and abs(ev.inc_level_difference) >= delta_psi_min)
+        }
+        n_sig = len(sig_event_ids)
+
+        # Recalculate pct_p05/pct_p01 restricted to the filtered event set so
+        # the percentages match n_events_tested shown in the UI and PDF table.
+        sig_perm = [r for r in perm_result.events if r.event_id in sig_event_ids]
+        if sig_perm:
+            pct_p05 = round(
+                sum(1 for r in sig_perm if (r.empirical_p_value or 1) < 0.05) / len(sig_perm) * 100, 1
+            )
+            pct_p01 = round(
+                sum(1 for r in sig_perm if (r.empirical_p_value or 1) < 0.01) / len(sig_perm) * 100, 1
+            )
+        else:
+            pct_p05 = None
+            pct_p01 = None
+
         # Rebuild observed histogram from significant events only
+        sig_deltas = [r.observed_delta_psi for r in sig_perm if r.observed_delta_psi is not None]
         if sig_deltas:
             obs_hist_bins, obs_hist_counts = _make_histogram(sig_deltas, n_bins=40)
         else:
@@ -1037,8 +1056,8 @@ async def run_permutation_test(
         global_null_hist_counts = perm_result.global_null_hist_counts,
         observed_hist_bins      = obs_hist_bins,
         observed_hist_counts    = obs_hist_counts,
-        pct_p05                 = perm_result.pct_p05,
-        pct_p01                 = perm_result.pct_p01,
+        pct_p05                 = pct_p05,
+        pct_p01                 = pct_p01,
         metric_results          = [
             MetricPermResult(
                 metric_name       = r.metric_name,

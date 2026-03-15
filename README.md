@@ -132,8 +132,8 @@ A second-pass module that partitions events into **significant** and **non-signi
 
 ### Export
 
-- **PDF report** &mdash; Multi-page publication-ready document including: analysis summary, significant SE events with splice feature tables, deep analysis sections (hnRNP motif enrichment, pathway enrichment, pattern comparison), frequency-mode sequence logos, methodology appendix, bibliographic references, and statistical methods. Optionally includes deep analysis results when a deep analysis object is linked
-- **Parameterized Excel export** &mdash; Interactive modal for selecting annotation column groups (`core`, `panelapp`, `go`, `stringdb`) before download; optional groups are fetched in parallel at export time
+- **PDF report** &mdash; Multi-page publication-ready document including: analysis summary, significant SE events with splice feature tables, deep analysis sections (hnRNP motif enrichment, pathway enrichment with significant p-values bolded and starred, pattern comparison), frequency-mode sequence logos, methodology appendix, bibliographic references, and statistical methods. Optionally includes deep analysis results when a deep analysis object is linked
+- **Excel export (deep analysis only)** &mdash; Interactive modal for selecting annotation column groups (`core`, `panelapp`, `go`, `stringdb`) before download; optional groups are fetched in parallel at export time
 
 ### Scientific Provenance
 
@@ -419,9 +419,11 @@ Search for any gene by HUGO symbol using the Ensembl-backed autocomplete. The an
 
 ### Exporting Results
 
-#### Excel Export
+#### Excel Export (Deep Analysis only)
 
-1. Click the **Export Excel** button on the analysis detail page
+Excel export is available exclusively from the **Deep Analysis** page. It exports only the significant events tagged in the deep analysis, enriched with optional external annotations.
+
+1. Open a deep analysis and click the **Export Excel** button
 2. A modal lets you select which column groups to include:
 
 | Group | Columns | Source |
@@ -431,8 +433,9 @@ Search for any gene by HUGO symbol using the Ensembl-backed autocomplete. The an
 | `go` | GO:BP, GO:MF, GO:CC (top 3 terms each) | mygene.info |
 | `stringdb` | STRING Max Score (highest combined score vs. all mutated genes) | STRING-DB v12 |
 
-3. Optional groups are fetched in parallel with `asyncio.gather` at export time
+3. Optional groups are fetched concurrently (semaphore-limited to 20 parallel requests); PanelApp lookups are capped at 25 s total to handle slow endpoints gracefully
 4. The resulting `.xlsx` file includes styled headers, row banding, and auto-sized columns
+5. Boolean feature columns (`donor_is_gt`, `acceptor_is_ag`, `bp_motif_found`) are stored as native Excel booleans — their display (`TRUE`/`FALSE` or locale equivalents) depends on your Excel locale setting
 
 #### PDF Export
 
@@ -445,7 +448,7 @@ Click the **Export PDF** button to generate a multi-page, publication-ready repo
 | Comparison Logos | Frequency-mode donor and acceptor logos: significant vs. non-significant (when deep analysis present) |
 | Frame Breakdown | Pie charts of in-frame / frameshift / non-coding proportions per group |
 | hnRNP Enrichment | Top 20 significant motif–region associations (when deep analysis present) |
-| Pathway Enrichment | Top 5 terms per library (when deep analysis present) |
+| Pathway Enrichment | Top 5 terms per library; adjusted p-values &lt; 0.05 are **bolded and starred (★)** for quick identification (when deep analysis present) |
 | Appendix A | Full pipeline methodology |
 | Appendix B | Bibliographic references |
 | Appendix C | Statistical methods |
@@ -544,6 +547,8 @@ A permutation test assesses the significance of |&Delta;&Psi;| for each SE event
 3. The empirical two-tailed p-value uses the **Phipson & Smyth (2010)** continuity correction: `p = (k + 1) / (N + 1)`, where `k` is the number of permuted |&Delta;&Psi;| values ≥ the observed value
 
 Multi-parameter tests run the same permutation procedure for PPT score, exon size, frame class fraction, and GT-AG canonical fraction across the full event set, comparing significant vs. non-significant groups.
+
+When FDR and |&Delta;&Psi;| filters are applied in the deep analysis view, the **Sig. p&lt;0.05** and **Sig. p&lt;0.01** percentages are recomputed exclusively over the filtered event subset, ensuring the values shown in the UI and PDF report are always consistent with each other.
 
 ### 9. Sequence Logos
 
@@ -666,7 +671,7 @@ PanelApp Australia is occasionally unreachable. A module-level circuit breaker p
 - Read/pool timeouts do **not** trigger the circuit breaker (endpoint is live but slow)
 - The breaker resets automatically after the backoff period
 
-Connect timeout: 4 s; read timeout: 8 s (generous for slow-but-live endpoints).
+Connect timeout: 4 s; read timeout: 4 s. For large exports (many unique genes), all PanelApp lookups are additionally capped at **25 s total** via `asyncio.wait`; genes that do not resolve within the cap return empty panel data rather than blocking the export.
 
 ---
 
@@ -736,7 +741,7 @@ The backend exposes a versioned REST API under `/api/v1`. Full interactive docum
 | `POST` | `/api/v1/analyses` | Create a new analysis (multipart file upload) |
 | `GET` | `/api/v1/analyses` | List all analyses (ordered by `created_at` DESC) |
 | `GET` | `/api/v1/analyses/{id}` | Get analysis details + sample groups |
-| `DELETE` | `/api/v1/analyses/{id}` | Delete analysis and all associated data (cascaded, pre-deletes heavy child tables) |
+| `DELETE` | `/api/v1/analyses/{id}` | Delete analysis and all associated data asynchronously (returns 204 immediately; deletion runs in a background task with explicit ordered deletes; status set to `deleting` during cleanup, reset to `error` on failure) |
 | `GET` | `/api/v1/analyses/{id}/events` | Paginated, filterable event list |
 | `GET` | `/api/v1/analyses/{id}/events/top10` | Ranked significant events by FDR |
 
@@ -801,7 +806,7 @@ The backend exposes a versioned REST API under `/api/v1`. Full interactive docum
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/v1/export/{id}/pdf` | Download PDF report (pass `deep_analysis_id` query param to include deep analysis sections) |
-| `GET` | `/api/v1/export/{id}/excel?include=core,panelapp,go,stringdb` | Download Excel; `include` is comma-separated |
+| `GET` | `/api/v1/export/{id}/deep/{deep_id}/excel?include=core,panelapp,go,stringdb` | Download Excel for a deep analysis (significant events only); `include` is comma-separated |
 
 ### Diagnostics
 
@@ -983,6 +988,16 @@ curl http://localhost:8000/api/v1/debug/fasta
 - Ensure `samtools` is available and the FASTA is properly indexed (`.fai` file present)
 - Extraction is chunked at 5 000 regions/call; a 100 k event analysis runs ~100 chunks sequentially
 - Both stages run in worker threads; the app remains responsive during computation
+
+**Analysis stuck in `deleting` state after a container restart**
+- The backend resets any `deleting` analyses to `error` on startup, so you can retry deletion
+- If a deletion fails, the status is reset to `error` with a message; click Delete again to retry
+- Deletion runs as a background task: the UI removes the row optimistically and the backend cleans up child tables in dependency order before removing the analysis row
+
+**PanelApp columns empty in Excel export**
+- PanelApp AU/UK may be temporarily unreachable; the circuit breaker places the failing source in a 5-minute backoff
+- For large exports, lookups are capped at 25 s total — genes not resolved within the cap get empty panel data
+- Re-run the export after a few minutes to retry
 
 **Enrichr returns empty results for a library**
 - The Enrichr API is occasionally rate-limited or the library name may have changed

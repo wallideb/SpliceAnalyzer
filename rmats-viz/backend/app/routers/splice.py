@@ -1016,10 +1016,10 @@ async def run_permutation_test(
         sig_perm = [r for r in perm_result.events if r.event_id in sig_event_ids]
         if sig_perm:
             pct_p05 = round(
-                sum(1 for r in sig_perm if (r.empirical_p_value or 1) < 0.05) / len(sig_perm) * 100, 1
+                sum(1 for r in sig_perm if r.empirical_p_value is not None and r.empirical_p_value < 0.05) / len(sig_perm) * 100, 1
             )
             pct_p01 = round(
-                sum(1 for r in sig_perm if (r.empirical_p_value or 1) < 0.01) / len(sig_perm) * 100, 1
+                sum(1 for r in sig_perm if r.empirical_p_value is not None and r.empirical_p_value < 0.01) / len(sig_perm) * 100, 1
             )
         else:
             pct_p05 = None

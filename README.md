@@ -112,7 +112,7 @@ The application supports all five rMATS event types:
 A second-pass module that partitions events into **significant** and **non-significant** groups using user-defined FDR and |&Delta;&Psi;| thresholds, then runs the following analyses across groups:
 
 - **Pattern comparison** &mdash; Side-by-side group statistics: GT-AG canonical rates, PPT score distributions, exon/intron size distributions, frame-class breakdown, comparison sequence logos; Welch's t-test and two-proportion z-test for each metric
-- **hnRNP motif enrichment** &mdash; rMAPS2-inspired analysis scanning five genomic regions around each SE event for 17 consensus hnRNP binding motifs; two-proportion z-test per motif–region pair with Bonferroni correction
+- **hnRNP motif enrichment** &mdash; rMAPS2-inspired analysis scanning five genomic regions around each SE event for 19 consensus hnRNP binding motifs; two-proportion z-test per motif–region pair with Bonferroni correction (n = 95)
 - **Pathway enrichment (Enrichr)** &mdash; Significant-event gene symbols submitted to the Enrichr REST API against five curated gene-set libraries; top terms per library by adjusted p-value
 - **Permutation testing** &mdash; Per-event |&Delta;&Psi;| significance testing against a null distribution of permuted sample labels
 
@@ -398,7 +398,7 @@ The deep analysis page (`/analyses/{id}/deep-analysis`) enables a two-group part
 #### hnRNP Motif Panel
 
 - Filterable table of motif–region associations ranked by adjusted p-value
-- Toggle: significant only vs. all 85 (motif × region) combinations
+- Toggle: significant only vs. all 95 (motif × region) combinations
 - Protein and region drop-downs for focused exploration
 - Heatmap: protein family × genomic region, colour-coded by enrichment direction (red = enriched in significant, blue = depleted)
 
@@ -507,7 +507,7 @@ Two metrics are computed on the 47 nt PPT window:
 - **PPT score** — fraction of C or T nucleotides in the window: `(count_C + count_T) / len(window)`
 - **Longest pyrimidine run** — length of the longest uninterrupted C/T stretch
 
-Both metrics are used in permutation tests to assess whether the significant event group has stronger splicing signals than the background.
+Both metrics are reported as splice-site quality indicators and are included in the pattern comparison statistics between significant and non-significant event groups.
 
 ### 6. Branch-Point Detection
 
@@ -580,11 +580,13 @@ Minus-strand events are reverse-complemented before scanning.
 
 #### Motif catalogue
 
-17 consensus motifs for 7 hnRNP protein families (RNA U → DNA T for genomic scanning):
+19 consensus motifs for 8 hnRNP protein families (RNA U → DNA T for genomic scanning):
 
 | Protein | Motifs | Basis |
 |---------|--------|-------|
 | hnRNP A1/A2 | TAGG, TAGGG, TAGGGA, AGG | CISBP-RNA; Martinez-Contreras et al. (2006) |
+| hnRNP E1 (PCBP1) | CCWWHCC `[CC[AT][AT][ACT]CC]` | rMAPS2 Suppl. Table S2, Homo sapiens (ENSG00000169564); Chkheidze et al. (1999); Makeyev & Liebhaber (2002) |
+| hnRNP E1 (PCBP2) | CCYYCCH `[CC[CT][CT]CC[ACT]]` | rMAPS2 Suppl. Table S2, Homo sapiens (ENSG00000197111) |
 | hnRNP F/H | GGGG, GGG | G-quadruplex / G-run binding |
 | hnRNP K | CCCC, TCCC | Poly-C binding |
 | hnRNP C | TTTTT, TTTT | Poly-U/T binding |
@@ -594,11 +596,11 @@ Minus-strand events are reverse-complemented before scanning.
 
 #### Statistical test
 
-For each of the 85 (motif, region) pairs:
+For each of the 95 (motif, region) pairs:
 
 1. Compute **hit rate** = fraction of events with ≥ 1 motif occurrence
 2. Compare significant vs. background groups using a **two-proportion z-test** (pooled proportion estimator)
-3. Apply **Bonferroni correction** across all 85 tests: `p_adj = min(p × 85, 1.0)`
+3. Apply **Bonferroni correction** across all 95 tests: `p_adj = min(p × 95, 1.0)`
 4. Report associations with `p_adj < 0.05` as significant
 
 Mean motif density (fraction of nucleotides covered by overlapping motif hits) is also reported per group.
@@ -609,7 +611,7 @@ Mean motif density (fraction of nucleotides covered by overlapping motif hits) i
 |--------|--------|----------------|
 | Test statistic | Wilcoxon rank-sum on per-window density | Two-proportion z-test on binary hit rate |
 | Resolution | Nucleotide-level sliding window | Five discrete genomic sub-regions |
-| Correction | Per-comparison | Bonferroni across all 85 pairs |
+| Correction | Per-comparison | Bonferroni across all 95 pairs |
 | Groups | Up-regulated, down-regulated, background | Significant, non-significant |
 
 #### Performance
@@ -698,7 +700,7 @@ Expected wall-clock times when a deep-analysis tab is first opened for a 100 k e
 |-------|-------------|:-------------:|
 | Deep analysis creation | Bulk-insert junction rows (5 000-row batches) | <1 s |
 | FASTA extraction | 100 k × 5 = 500 k regions, chunked into ~100 × 5 k samtools calls | 60–120 s |
-| hnRNP scan | 2 groups × 100 k events × 5 regions × 17 motifs ≈ 17 M inner iterations | 30–60 s |
+| hnRNP scan | 2 groups × 100 k events × 5 regions × 19 motifs ≈ 19 M inner iterations | 30–60 s |
 | Enrichr submission | POST + 5 × GET in parallel (network bound) | 5–10 s |
 | DB queries + rest | Pattern stats, frame data, permutation tests | 10–20 s |
 | **Total** | | **~2–3 min** |
@@ -804,7 +806,7 @@ The backend exposes a versioned REST API under `/api/v1`. Full interactive docum
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/v1/export/{id}/pdf` | Download PDF report (pass `deep_analysis_id` query param to include deep analysis sections) |
-| `GET` | `/api/v1/export/{id}/deep/{deep_id}/excel?include=core,panelapp,go,stringdb` | Download Excel for a deep analysis (significant events only); `include` is comma-separated |
+| `GET` | `/api/v1/export/{analysis_id}/deep-analysis/{deep_analysis_id}/excel?include=core,panelapp,go,stringdb` | Download Excel for a deep analysis (significant events only); `include` is comma-separated |
 
 ### Diagnostics
 
@@ -892,6 +894,8 @@ Each analytical panel embeds collapsible `ScienceNote` widgets that cite the pri
 | `rmaps2` | Hwang JY et al. *Nucleic Acids Res* | 2020 | HnRNPMotifPanel (hnRNP enrichment) |
 | `enrichr` | Chen EY et al. *BMC Bioinformatics* | 2013 | EnrichrPanel (pathway enrichment) |
 | `cisbp_rna` | Ray D et al. *Nature* | 2013 | HnRNPMotifPanel (motif catalogue) |
+| `pcbp1_chkheidze` | Chkheidze AN et al. *Mol Cell Biol* | 1999 | HnRNPMotifPanel (hnRNP E1 motifs) |
+| `pcbp1_makeyev` | Makeyev AV & Liebhaber SA. *RNA* | 2002 | HnRNPMotifPanel (hnRNP E1 motifs) |
 
 ### Key Formulas
 
@@ -902,7 +906,7 @@ Each analytical panel embeds collapsible `ScienceNote` widgets that cite the pri
 | Branch-point motif | YNYURAY (Y = C/T, N = any, R = A/G) | Padgett et al. (1986) |
 | Permutation p-value | `p = (k+1)/(N+1)` with continuity correction | Phipson & Smyth (2010) |
 | FDR correction | Benjamini-Hochberg step-up procedure | Benjamini & Hochberg (1995) |
-| hnRNP hit-rate z-test | Two-proportion z-test with Bonferroni (n=85) | Agresti (2002) |
+| hnRNP hit-rate z-test | Two-proportion z-test with Bonferroni (n=95) | Agresti (2002) |
 | Welch t-test df | Welch-Satterthwaite approximation | Welch (1947) |
 | Enrichr combined score | `CS = \|z\| × log(p)` | Chen et al. (2013) |
 

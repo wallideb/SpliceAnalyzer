@@ -1694,12 +1694,15 @@ def _build_pdf(
               "extracted from GRCh38 (samtools faidx): upstream exon (50 nt), upstream intron "
               "(200 nt), skipped exon (full sequence), downstream intron (200 nt), and downstream "
               "exon (50 nt). Minus-strand events are reverse-complemented before scanning.", "body"),
-            p("Seventeen consensus motifs for ten hnRNP proteins (hnRNP A1/A2, C, D, E1, F/H, "
+            p("Nineteen consensus motifs for ten hnRNP proteins (hnRNP A1/A2, C, D, E1, F/H, "
               "I/PTB, K, L, M, U) are matched using IUPAC-degenerate pattern search derived from "
-              "CISBP-RNA (Ray et al., 2013 [17]) and Martinez-Contreras et al. (2006). "
+              "CISBP-RNA (Ray et al., 2013 [17]), Martinez-Contreras et al. (2006), and for "
+              "hnRNP E1 (PCBP1 CCWWHCC = CC[AT][AT][ACT]CC; PCBP2 CCYYCCH = CC[CT][CT]CC[ACT], "
+              "both from rMAPS2 Supplementary Table S2, Homo sapiens): "
+              "Chkheidze et al. (1999 [18]) and Makeyev &amp; Liebhaber (2002 [19]). "
               "For each motif-region pair, the hit rate (fraction of events with ≥ 1 match) is "
               "compared between the significant and background groups using a two-proportion z-test "
-              "(pooled proportion). Bonferroni correction (n = 5 regions × 17 motifs = 85 tests) "
+              "(pooled proportion). Bonferroni correction (n = 5 regions × 19 motifs = 95 tests) "
               "is applied; associations with p<sub>adj</sub> &lt; 0.05 are reported as significant. "
               "This differs from rMAPS2, which uses a Wilcoxon rank-sum test on sliding-window "
               "densities; our approach tests binary hit rates across genomic sub-regions.", "body"),
@@ -1778,6 +1781,12 @@ def _build_pdf(
         p("[17] Ray D, Kazan H, Cook KB, Weirauch MT, Najafabadi HS, Li X et al. "
           "<i>A compendium of RNA-binding motifs for decoding gene regulation.</i> "
           "Nature. 2013;499(7457):172-177.", "body"),
+        p("[18] Chkheidze AN, Lyakhov DL, Makeyev AV, Morales J, Kong J, Liebhaber SA. "
+          "<i>Assembly of the alpha-complex on the 3' untranslated region of the human "
+          "alpha-globin mRNA.</i> Mol Cell Biol. 1999;19(7):4572-4581.", "body"),
+        p("[19] Makeyev AV, Liebhaber SA. "
+          "<i>The poly(C)-binding proteins: a multiplicity of functions and a search "
+          "for mechanisms.</i> RNA. 2002;8(3):265-278.", "body"),
         sp(),
     ]
 
@@ -1841,7 +1850,7 @@ def _build_pdf(
               "sqrt[ p^(1 - p^)(1/n<sub>1</sub> + 1/n<sub>2</sub>) ]", "code"),
             p("Two-tailed p-values are computed from the standard normal CDF. "
               "Bonferroni correction multiplies each p-value by the number of tests "
-              "(85 = 5 regions × 17 motifs). Groups with fewer than 5 events are skipped.", "body"),
+              "(95 = 5 regions × 19 motifs). Groups with fewer than 5 events are skipped.", "body"),
             p("<b>C.7 Enrichr Combined Score</b>", "h3"),
             p("The Enrichr combined score (Chen et al., 2013 [15]) is defined as:", "body"),
             p("&nbsp;&nbsp;&nbsp;CS = |z| × log(p)", "code"),

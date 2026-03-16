@@ -501,11 +501,15 @@ export const fr: Translations = {
       body:
         "Inspirée de rMAPS2 (Hwang et al., NAR 2020 ; 48:W300-W306), cette analyse recherche " +
         "dans cinq régions génomiques autour de chaque exon sauté (exon amont, intron amont, " +
-        "corps de l'exon sauté, intron aval, exon aval) 17 motifs consensus connus de protéines " +
+        "corps de l'exon sauté, intron aval, exon aval) 19 motifs consensus connus de protéines " +
         "de liaison à l'ARN de la famille hnRNP. Les motifs incluent hnRNP A1/A2 (TAGG, AGG), " +
-        "hnRNP F/H (GGG, GGGG), hnRNP K (CCCC), hnRNP C (poly-T), hnRNP L (répétitions CA), " +
-        "hnRNP M (répétitions GT) et PTB (TCTT, TCTCT). Les séquences de motifs proviennent de " +
-        "CISBP-RNA (Ray et al., Nature 2013) et d'études publiées (Martinez-Contreras et al., 2006). " +
+        "hnRNP E1 — PCBP1 (CCWWHCC = CC[AT][AT][ACT]CC) et PCBP2 (CCYYCCH = CC[CT][CT]CC[ACT], " +
+        "tous deux issus du Tableau S2 supplémentaire de rMAPS2, Homo sapiens), " +
+        "hnRNP F/H (GGG, GGGG), hnRNP K (CCCC), hnRNP C (poly-T), " +
+        "hnRNP L (répétitions CA), hnRNP M (répétitions GT) et PTB (TCTT, TCTCT). " +
+        "Les séquences de motifs proviennent de CISBP-RNA (Ray et al., Nature 2013) et d'études " +
+        "publiées (Martinez-Contreras et al., 2006 ; Chkheidze et al., Mol Cell Biol 1999 ; " +
+        "Makeyev &amp; Liebhaber, RNA 2002). " +
         "Les régions introniques excluent les 6 nt du 5'SS et les 20 nt du 3'SS, suivant la convention " +
         "rMAPS2 (ces régions sont fortement contraintes par les signaux de sites d'épissage). " +
         "rMAPS2 utilise une fenêtre glissante (50 pb) avec test de Wilcoxon sur la densité de motifs ; " +

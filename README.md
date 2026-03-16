@@ -570,13 +570,26 @@ Five regions are extracted per event (per rMAPS2 convention, with exclusion zone
 
 | Region | Extraction rule | Default length |
 |--------|----------------|----------------|
-| Upstream exon | Last 250 nt of the upstream flanking exon | ≤ 250 nt |
+| Upstream exon | Last 250 nt of the upstream flanking exon (intron-proximal end) | ≤ 250 nt |
 | Upstream intron | 250 nt after the 5'SS, excluding first 6 nt (splice signal) | ≤ 244 nt |
 | Skipped exon | Full exon body | variable |
-| Downstream intron | 250 nt before the downstream exon, excluding last 20 nt | ≤ 230 nt |
-| Downstream exon | First 250 nt of the downstream flanking exon | ≤ 250 nt |
+| Downstream intron | 250 nt before the downstream exon, excluding last 20 nt (3'SS zone) | ≤ 230 nt |
+| Downstream exon | First 250 nt of the downstream flanking exon (intron-proximal end) | ≤ 250 nt |
 
 Minus-strand events are reverse-complemented before scanning.
+
+> **Minimum intron length requirement**
+>
+> After applying both splice-signal exclusion zones (6 nt at the 5'SS + 20 nt at the 3'SS = **26 nt total**),
+> an intronic flanking region yields **no extractable sequence** if the corresponding intron is ≤ 26 nt long.
+> Such events are silently excluded from that intronic region only — they still contribute to all exonic
+> region analyses. This behaviour is identical to rMAPS2.
+>
+> **Practical consequence:** the effective sample size *N* reported in each cell of the hnRNP result table
+> can be lower than the total number of SE events. If you observe, for example, that the upstream or
+> downstream intron N is substantially smaller than the total event count, it means a fraction of events
+> have very short flanking introns (or missing flanking exon coordinates) that provide no scannable
+> intronic sequence. This is expected and not a software error.
 
 #### Motif catalogue
 

@@ -1695,7 +1695,15 @@ def _build_pdf(
               "intron (up to 250 nt after excluding the 6-nt 5'SS signal), skipped exon (full "
               "sequence), downstream intron (up to 250 nt after excluding the 6-nt 5'SS signal), "
               "and downstream exon (up to 250 nt). The 20-nt 3'SS consensus zone is also excluded "
-              "from each intronic flank. Minus-strand events are reverse-complemented before scanning.", "body"),
+              "from each intronic flank. Minus-strand events are reverse-complemented before scanning. "
+              "<b>Minimum intron length requirement:</b> after applying both exclusion zones "
+              "(6 nt at the 5'SS + 20 nt at the 3'SS = 26 nt total), an intronic region yields "
+              "no extractable sequence if the flanking intron is ≤ 26 nt. Such events are silently "
+              "excluded from the corresponding intronic region analysis only (they still contribute "
+              "to the exonic region analyses). This behaviour is consistent with rMAPS2. As a "
+              "consequence the effective sample size (N) for intronic regions may be lower than "
+              "the total number of SE events; the N reported in each cell of the result table "
+              "reflects the events that actually contributed sequence for that region.", "body"),
             p("Nineteen consensus motifs for eight protein families (hnRNP A1/A2, E (PCBP1/E1 "
               "and PCBP2/E2), F/H, K, C, L, M, PTB/I) are matched using IUPAC-degenerate pattern "
               "search derived from CISBP-RNA (Ray et al., 2013 [17]), Martinez-Contreras et al. "

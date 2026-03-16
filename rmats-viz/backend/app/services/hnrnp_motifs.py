@@ -77,8 +77,8 @@ HNRNP_MOTIFS: list[tuple[str, str, str]] = [
     # PCBP1 CCWWHCC: CC[AT][AT][ACT]CC  (IUPAC W=A/T, H=A/C/T)  ENSG00000169564
     # PCBP2 CCYYCCH: CC[CT][CT]CC[ACT]  (IUPAC Y=C/T, H=A/C/T)  ENSG00000197111
     # Chkheidze et al. Mol Cell Biol 1999; Makeyev & Liebhaber RNA 2002; CISBP-RNA Ray 2013
-    ("PCBP1",     "hnRNP E1", "CC[AT][AT][ACT]CC"),
-    ("PCBP2",     "hnRNP E1", "CC[CT][CT]CC[ACT]"),
+    ("CCWWHCC",   "hnRNP E1", "CC[AT][AT][ACT]CC"),  # PCBP1
+    ("CCYYCCH",   "hnRNP E1", "CC[CT][CT]CC[ACT]"),  # PCBP2
     # hnRNP F / H (G-runs)
     ("GGGG",      "hnRNP F/H",   "GGGG"),
     ("GGG",       "hnRNP F/H",   "GGG"),

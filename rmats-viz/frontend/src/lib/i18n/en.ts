@@ -498,11 +498,11 @@ export const en = {
         "Inspired by rMAPS2 (Hwang et al., NAR 2020; 48:W300-W306), this analysis scans five " +
         "genomic regions around each skipped exon (upstream exon, upstream intron, skipped exon " +
         "body, downstream intron, downstream exon) for 19 known hnRNP RNA-binding protein " +
-        "consensus motifs. Motifs include hnRNP A1/A2 (TAGG, AGG), " +
-        "hnRNP E1 — PCBP1 (CCWWHCC = CC[AT][AT][ACT]CC) and PCBP2 (CCYYCCH = CC[CT][CT]CC[ACT], " +
+        "consensus motifs across eight protein families. Motifs include hnRNP A1/A2 (TAGG, TAGGG, TAGGGA, AGG), " +
+        "hnRNP E — PCBP1/E1 (CCWWHCC = CC[AT][AT][ACT]CC) and PCBP2/E2 (CCYYCCH = CC[CT][CT]CC[ACT], " +
         "both from rMAPS2 Supplementary Table S2, Homo sapiens), " +
-        "hnRNP F/H (GGG, GGGG), hnRNP K (CCCC), hnRNP C (poly-T), hnRNP L (CA repeats), " +
-        "hnRNP M (GT repeats), and PTB (TCTT, TCTCT). Motif sequences are sourced from CISBP-RNA " +
+        "hnRNP F/H (GGGG, GGG), hnRNP K (CCCC, TCCC), hnRNP C (TTTTT, TTTT), hnRNP L (CACA, ACAC), " +
+        "hnRNP M (TGTG, GTGT), and PTB/hnRNP I (TCTT, TCTCT, CTCT). Motif sequences are sourced from CISBP-RNA " +
         "(Ray et al., Nature 2013) and published studies (Martinez-Contreras et al., 2006; " +
         "Chkheidze et al., Mol Cell Biol 1999; Makeyev &amp; Liebhaber, RNA 2002). Intronic regions exclude the " +
         "6-nt 5'SS and 20-nt 3'SS consensus zones, following the rMAPS2 convention that these " +

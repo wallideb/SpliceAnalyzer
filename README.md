@@ -586,7 +586,7 @@ Minus-strand events are reverse-complemented before scanning.
 |---------|--------|-------|
 | hnRNP A1/A2 | TAGG, TAGGG, TAGGGA, AGG | CISBP-RNA; Martinez-Contreras et al. (2006) |
 | hnRNP E1 (PCBP1) | CCWWHCC `[CC[AT][AT][ACT]CC]` | rMAPS2 Suppl. Table S2, Homo sapiens (ENSG00000169564); Chkheidze et al. (1999); Makeyev & Liebhaber (2002) |
-| hnRNP E1 (PCBP2) | CCYYCCH `[CC[CT][CT]CC[ACT]]` | rMAPS2 Suppl. Table S2, Homo sapiens (ENSG00000197111) |
+| hnRNP E2 (PCBP2) | CCYYCCH `[CC[CT][CT]CC[ACT]]` | rMAPS2 Suppl. Table S2, Homo sapiens (ENSG00000197111) |
 | hnRNP F/H | GGGG, GGG | G-quadruplex / G-run binding |
 | hnRNP K | CCCC, TCCC | Poly-C binding |
 | hnRNP C | TTTTT, TTTT | Poly-U/T binding |

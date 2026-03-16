@@ -1254,7 +1254,7 @@ def _build_pdf(
         ]), sp()]
 
         # Cb. Comparison logos — donor
-        half_w = FIG_MAX_W * 0.48
+        half_w = FIG_MAX_W
         _block: list = [p(f"{cmp_sec}.2 5'SS Donor Logo: Significant vs Non-Significant", "h3")]
         if sig.get("donor_pwm"):
             d_sig = _fig_splice_site_consensus(
@@ -1691,14 +1691,16 @@ def _build_pdf(
             p("<b>8. hnRNP Motif Enrichment Analysis</b>", "h3"),
             p("RNA-binding protein (RBP) motif enrichment is computed in a rMAPS2-inspired "
               "framework (Hwang et al., 2020 [14]). For each SE event five flanking regions are "
-              "extracted from GRCh38 (samtools faidx): upstream exon (50 nt), upstream intron "
-              "(200 nt), skipped exon (full sequence), downstream intron (200 nt), and downstream "
-              "exon (50 nt). Minus-strand events are reverse-complemented before scanning.", "body"),
-            p("Nineteen consensus motifs for ten hnRNP proteins (hnRNP A1/A2, C, D, E1, F/H, "
-              "I/PTB, K, L, M, U) are matched using IUPAC-degenerate pattern search derived from "
-              "CISBP-RNA (Ray et al., 2013 [17]), Martinez-Contreras et al. (2006), and for "
-              "hnRNP E1 (PCBP1 CCWWHCC = CC[AT][AT][ACT]CC; PCBP2 CCYYCCH = CC[CT][CT]CC[ACT], "
-              "both from rMAPS2 Supplementary Table S2, Homo sapiens): "
+              "extracted from GRCh38 (samtools faidx): upstream exon (up to 250 nt), upstream "
+              "intron (up to 250 nt after excluding the 6-nt 5'SS signal), skipped exon (full "
+              "sequence), downstream intron (up to 250 nt after excluding the 6-nt 5'SS signal), "
+              "and downstream exon (up to 250 nt). The 20-nt 3'SS consensus zone is also excluded "
+              "from each intronic flank. Minus-strand events are reverse-complemented before scanning.", "body"),
+            p("Nineteen consensus motifs for eight protein families (hnRNP A1/A2, E (PCBP1/E1 "
+              "and PCBP2/E2), F/H, K, C, L, M, PTB/I) are matched using IUPAC-degenerate pattern "
+              "search derived from CISBP-RNA (Ray et al., 2013 [17]), Martinez-Contreras et al. "
+              "(2006), and for hnRNP E (PCBP1/E1 CCWWHCC = CC[AT][AT][ACT]CC; PCBP2/E2 CCYYCCH = "
+              "CC[CT][CT]CC[ACT], both from rMAPS2 Supplementary Table S2, Homo sapiens): "
               "Chkheidze et al. (1999 [18]) and Makeyev &amp; Liebhaber (2002 [19]). "
               "For each motif-region pair, the hit rate (fraction of events with ≥ 1 match) is "
               "compared between the significant and background groups using a two-proportion z-test "

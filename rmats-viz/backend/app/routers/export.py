@@ -1529,6 +1529,51 @@ def _build_pdf(
                 "No motif-region combinations reached significance after Bonferroni correction.",
                 "body",
             ))
+
+        # ── Non-significant motifs (complete search overview) ────────────────
+        nonsig_motifs = [r for r in hnrnp_data.get("results", []) if not r.get("significant")]
+        if nonsig_motifs:
+            story.append(sp(0.3))
+            story.append(p("All Non-Significant Motif-Region Associations", "h3"))
+            story.append(p(
+                "The following motif-region pairs were tested but did not reach significance "
+                "after Bonferroni correction (p<sub>adj</sub> ≥ 0.05).",
+                "body",
+            ))
+            nonsig_motifs_sorted = sorted(
+                nonsig_motifs,
+                key=lambda r: (r.get("p_adjusted") or 1.0, r.get("region", ""), r.get("motif_name", "")),
+            )
+            _region_labels = {
+                "upstream_exon": "Upstream exon",
+                "upstream_intron": "Upstream intron",
+                "skipped_exon": "Skipped exon",
+                "downstream_intron": "Downstream intron",
+                "downstream_exon": "Downstream exon",
+            }
+            nonsig_hnrnp_rows = [["Protein", "Motif", "Region", "Sig %", "Bg %", "z", "p (adj)"]]
+            for r in nonsig_motifs_sorted:
+                sig_pct = f"{r['sig_hit_count'] / r['sig_total'] * 100:.1f}%" if r.get("sig_total") else "—"
+                bg_pct = f"{r['bg_hit_count'] / r['bg_total'] * 100:.1f}%" if r.get("bg_total") else "—"
+                p_adj = r.get("p_adjusted")
+                p_str = f"{p_adj:.2e}" if p_adj is not None and p_adj < 0.001 else (f"{p_adj:.4f}" if p_adj is not None else "—")
+                z_str = f"{r['z_stat']:.2f}" if r.get("z_stat") is not None else "—"
+                nonsig_hnrnp_rows.append([
+                    r.get("protein", "—"),
+                    r.get("motif_name", "—"),
+                    _region_labels.get(r.get("region", ""), r.get("region", "—")),
+                    sig_pct,
+                    bg_pct,
+                    z_str,
+                    p_str,
+                ])
+            nonsig_hnrnp_tbl = _make_tbl(nonsig_hnrnp_rows, [3.0*_cm, 1.8*_cm, 3.5*_cm, 1.8*_cm, 1.8*_cm, 1.5*_cm, 2.0*_cm], S)
+            story += [nonsig_hnrnp_tbl, sp(0.2)]
+            story.append(p(
+                f"{len(nonsig_motifs)} motif-region associations shown. "
+                "Sig % / Bg % = percentage of events with at least one motif hit.",
+                "small",
+            ))
         story.append(sp())
 
     # ── Section F: Enrichr Pathway Enrichment (deep analysis only) ─────────

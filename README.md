@@ -507,7 +507,7 @@ Two metrics are computed on the 47 nt PPT window:
 - **PPT score** — fraction of C or T nucleotides in the window: `(count_C + count_T) / len(window)`
 - **Longest pyrimidine run** — length of the longest uninterrupted C/T stretch
 
-Both metrics are used in permutation tests to assess whether the significant event group has stronger splicing signals than the background.
+Both metrics are reported as splice-site quality indicators and are included in the pattern comparison statistics between significant and non-significant event groups.
 
 ### 6. Branch-Point Detection
 
@@ -580,11 +580,12 @@ Minus-strand events are reverse-complemented before scanning.
 
 #### Motif catalogue
 
-17 consensus motifs for 7 hnRNP protein families (RNA U → DNA T for genomic scanning):
+19 consensus motifs for 8 hnRNP protein families (RNA U → DNA T for genomic scanning):
 
 | Protein | Motifs | Basis |
 |---------|--------|-------|
 | hnRNP A1/A2 | TAGG, TAGGG, TAGGGA, AGG | CISBP-RNA; Martinez-Contreras et al. (2006) |
+| hnRNP E1 (PCBP1) | CCCCA, ACCC | CISBP-RNA; Chkheidze et al. (1999); Makeyev & Liebhaber (2002) |
 | hnRNP F/H | GGGG, GGG | G-quadruplex / G-run binding |
 | hnRNP K | CCCC, TCCC | Poly-C binding |
 | hnRNP C | TTTTT, TTTT | Poly-U/T binding |
@@ -598,7 +599,7 @@ For each of the 85 (motif, region) pairs:
 
 1. Compute **hit rate** = fraction of events with ≥ 1 motif occurrence
 2. Compare significant vs. background groups using a **two-proportion z-test** (pooled proportion estimator)
-3. Apply **Bonferroni correction** across all 85 tests: `p_adj = min(p × 85, 1.0)`
+3. Apply **Bonferroni correction** across all 95 tests: `p_adj = min(p × 95, 1.0)`
 4. Report associations with `p_adj < 0.05` as significant
 
 Mean motif density (fraction of nucleotides covered by overlapping motif hits) is also reported per group.
@@ -892,6 +893,8 @@ Each analytical panel embeds collapsible `ScienceNote` widgets that cite the pri
 | `rmaps2` | Hwang JY et al. *Nucleic Acids Res* | 2020 | HnRNPMotifPanel (hnRNP enrichment) |
 | `enrichr` | Chen EY et al. *BMC Bioinformatics* | 2013 | EnrichrPanel (pathway enrichment) |
 | `cisbp_rna` | Ray D et al. *Nature* | 2013 | HnRNPMotifPanel (motif catalogue) |
+| `pcbp1_chkheidze` | Chkheidze AN et al. *Mol Cell Biol* | 1999 | HnRNPMotifPanel (hnRNP E1 motifs) |
+| `pcbp1_makeyev` | Makeyev AV & Liebhaber SA. *RNA* | 2002 | HnRNPMotifPanel (hnRNP E1 motifs) |
 
 ### Key Formulas
 
@@ -902,7 +905,7 @@ Each analytical panel embeds collapsible `ScienceNote` widgets that cite the pri
 | Branch-point motif | YNYURAY (Y = C/T, N = any, R = A/G) | Padgett et al. (1986) |
 | Permutation p-value | `p = (k+1)/(N+1)` with continuity correction | Phipson & Smyth (2010) |
 | FDR correction | Benjamini-Hochberg step-up procedure | Benjamini & Hochberg (1995) |
-| hnRNP hit-rate z-test | Two-proportion z-test with Bonferroni (n=85) | Agresti (2002) |
+| hnRNP hit-rate z-test | Two-proportion z-test with Bonferroni (n=95) | Agresti (2002) |
 | Welch t-test df | Welch-Satterthwaite approximation | Welch (1947) |
 | Enrichr combined score | `CS = \|z\| × log(p)` | Chen et al. (2013) |
 

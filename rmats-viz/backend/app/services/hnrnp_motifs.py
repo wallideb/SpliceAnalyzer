@@ -21,6 +21,7 @@ Region extraction (per rMAPS2 convention):
 
 Motifs scanned (consensus sequences from literature & CISBP-RNA):
   - hnRNP A1/A2: UAGG, UAGGG, AGG
+  - hnRNP E1 (PCBP1): CCCCA, ACCC
   - hnRNP F/H:   GGGG, GGG
   - hnRNP K:     CCCC, TCCC
   - hnRNP C:     UUUUU (poly-U 5-mer), UUUU
@@ -48,6 +49,9 @@ References
 - Martinez-Contreras R et al. Intronic binding sites for hnRNP A/B and
   hnRNP F/H proteins stimulate pre-mRNA splicing. PLoS Biol 2006; 4:e21
 - Geuens T et al. The hnRNP family. Hum Genet 2016
+- Chkheidze AN et al. Assembly of the alpha-complex on the 3' UTR of the
+  human alpha-globin mRNA. Mol Cell Biol 1999; 19:4572-4581
+- Makeyev AV & Liebhaber SA. The poly(C)-binding proteins. RNA 2002; 8:265-278
 """
 
 from __future__ import annotations
@@ -68,6 +72,10 @@ HNRNP_MOTIFS: list[tuple[str, str, str]] = [
     ("TAGGG",     "hnRNP A1/A2", "TAGGG"),
     ("TAGGGA",    "hnRNP A1/A2", "TAGGGA"),
     ("AGG",       "hnRNP A1/A2", "AGG"),
+    # hnRNP E1 / PCBP1 (poly-C with flanking nucleotide; distinct from hnRNP K CCCC)
+    # Chkheidze et al. Mol Cell Biol 1999; Makeyev & Liebhaber RNA 2002; CISBP-RNA Ray 2013
+    ("CCCCA",     "hnRNP E1 (PCBP1)", "CCCCA"),
+    ("ACCC",      "hnRNP E1 (PCBP1)", "ACCC"),
     # hnRNP F / H (G-runs)
     ("GGGG",      "hnRNP F/H",   "GGGG"),
     ("GGG",       "hnRNP F/H",   "GGG"),

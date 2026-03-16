@@ -1699,7 +1699,7 @@ def _build_pdf(
               "CISBP-RNA (Ray et al., 2013 [17]) and Martinez-Contreras et al. (2006). "
               "For each motif-region pair, the hit rate (fraction of events with ≥ 1 match) is "
               "compared between the significant and background groups using a two-proportion z-test "
-              "(pooled proportion). Bonferroni correction (n = 5 regions × 17 motifs = 85 tests) "
+              "(pooled proportion). Bonferroni correction (n = 5 regions × 19 motifs = 95 tests) "
               "is applied; associations with p<sub>adj</sub> &lt; 0.05 are reported as significant. "
               "This differs from rMAPS2, which uses a Wilcoxon rank-sum test on sliding-window "
               "densities; our approach tests binary hit rates across genomic sub-regions.", "body"),
@@ -1841,7 +1841,7 @@ def _build_pdf(
               "sqrt[ p^(1 - p^)(1/n<sub>1</sub> + 1/n<sub>2</sub>) ]", "code"),
             p("Two-tailed p-values are computed from the standard normal CDF. "
               "Bonferroni correction multiplies each p-value by the number of tests "
-              "(85 = 5 regions × 17 motifs). Groups with fewer than 5 events are skipped.", "body"),
+              "(95 = 5 regions × 19 motifs). Groups with fewer than 5 events are skipped.", "body"),
             p("<b>C.7 Enrichr Combined Score</b>", "h3"),
             p("The Enrichr combined score (Chen et al., 2013 [15]) is defined as:", "body"),
             p("&nbsp;&nbsp;&nbsp;CS = |z| × log(p)", "code"),

@@ -502,11 +502,12 @@ export const fr: Translations = {
         "Inspirée de rMAPS2 (Hwang et al., NAR 2020 ; 48:W300-W306), cette analyse recherche " +
         "dans cinq régions génomiques autour de chaque exon sauté (exon amont, intron amont, " +
         "corps de l'exon sauté, intron aval, exon aval) 19 motifs consensus connus de protéines " +
-        "de liaison à l'ARN de la famille hnRNP. Les motifs incluent hnRNP A1/A2 (TAGG, AGG), " +
+        "de liaison à l'ARN de la famille hnRNP, réparties en neuf familles protéiques. " +
+        "Les motifs incluent hnRNP A1/A2 (TAGG, TAGGG, TAGGGA, AGG), " +
         "hnRNP E1 — PCBP1 (CCWWHCC = CC[AT][AT][ACT]CC) et PCBP2 (CCYYCCH = CC[CT][CT]CC[ACT], " +
         "tous deux issus du Tableau S2 supplémentaire de rMAPS2, Homo sapiens), " +
-        "hnRNP F/H (GGG, GGGG), hnRNP K (CCCC), hnRNP C (poly-T), " +
-        "hnRNP L (répétitions CA), hnRNP M (répétitions GT) et PTB (TCTT, TCTCT). " +
+        "hnRNP F/H (GGGG, GGG), hnRNP K (CCCC, TCCC), hnRNP C (TTTTT, TTTT), " +
+        "hnRNP L (CACA, ACAC), hnRNP M (TGTG, GTGT) et PTB/hnRNP I (TCTT, TCTCT, CTCT). " +
         "Les séquences de motifs proviennent de CISBP-RNA (Ray et al., Nature 2013) et d'études " +
         "publiées (Martinez-Contreras et al., 2006 ; Chkheidze et al., Mol Cell Biol 1999 ; " +
         "Makeyev &amp; Liebhaber, RNA 2002). " +

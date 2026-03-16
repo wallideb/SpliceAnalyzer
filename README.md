@@ -580,7 +580,7 @@ Minus-strand events are reverse-complemented before scanning.
 
 #### Motif catalogue
 
-19 consensus motifs for 8 hnRNP protein families (RNA U → DNA T for genomic scanning):
+19 consensus motifs for 9 protein families (RNA U → DNA T for genomic scanning):
 
 | Protein | Motifs | Basis |
 |---------|--------|-------|

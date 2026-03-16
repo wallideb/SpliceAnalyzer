@@ -112,7 +112,7 @@ The application supports all five rMATS event types:
 A second-pass module that partitions events into **significant** and **non-significant** groups using user-defined FDR and |&Delta;&Psi;| thresholds, then runs the following analyses across groups:
 
 - **Pattern comparison** &mdash; Side-by-side group statistics: GT-AG canonical rates, PPT score distributions, exon/intron size distributions, frame-class breakdown, comparison sequence logos; Welch's t-test and two-proportion z-test for each metric
-- **hnRNP motif enrichment** &mdash; rMAPS2-inspired analysis scanning five genomic regions around each SE event for 17 consensus hnRNP binding motifs; two-proportion z-test per motif–region pair with Bonferroni correction
+- **hnRNP motif enrichment** &mdash; rMAPS2-inspired analysis scanning five genomic regions around each SE event for 19 consensus hnRNP binding motifs; two-proportion z-test per motif–region pair with Bonferroni correction (n = 95)
 - **Pathway enrichment (Enrichr)** &mdash; Significant-event gene symbols submitted to the Enrichr REST API against five curated gene-set libraries; top terms per library by adjusted p-value
 - **Permutation testing** &mdash; Per-event |&Delta;&Psi;| significance testing against a null distribution of permuted sample labels
 
@@ -398,7 +398,7 @@ The deep analysis page (`/analyses/{id}/deep-analysis`) enables a two-group part
 #### hnRNP Motif Panel
 
 - Filterable table of motif–region associations ranked by adjusted p-value
-- Toggle: significant only vs. all 85 (motif × region) combinations
+- Toggle: significant only vs. all 95 (motif × region) combinations
 - Protein and region drop-downs for focused exploration
 - Heatmap: protein family × genomic region, colour-coded by enrichment direction (red = enriched in significant, blue = depleted)
 
@@ -700,7 +700,7 @@ Expected wall-clock times when a deep-analysis tab is first opened for a 100 k e
 |-------|-------------|:-------------:|
 | Deep analysis creation | Bulk-insert junction rows (5 000-row batches) | <1 s |
 | FASTA extraction | 100 k × 5 = 500 k regions, chunked into ~100 × 5 k samtools calls | 60–120 s |
-| hnRNP scan | 2 groups × 100 k events × 5 regions × 17 motifs ≈ 17 M inner iterations | 30–60 s |
+| hnRNP scan | 2 groups × 100 k events × 5 regions × 19 motifs ≈ 19 M inner iterations | 30–60 s |
 | Enrichr submission | POST + 5 × GET in parallel (network bound) | 5–10 s |
 | DB queries + rest | Pattern stats, frame data, permutation tests | 10–20 s |
 | **Total** | | **~2–3 min** |
@@ -806,7 +806,7 @@ The backend exposes a versioned REST API under `/api/v1`. Full interactive docum
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/v1/export/{id}/pdf` | Download PDF report (pass `deep_analysis_id` query param to include deep analysis sections) |
-| `GET` | `/api/v1/export/{id}/deep/{deep_id}/excel?include=core,panelapp,go,stringdb` | Download Excel for a deep analysis (significant events only); `include` is comma-separated |
+| `GET` | `/api/v1/export/{analysis_id}/deep-analysis/{deep_analysis_id}/excel?include=core,panelapp,go,stringdb` | Download Excel for a deep analysis (significant events only); `include` is comma-separated |
 
 ### Diagnostics
 

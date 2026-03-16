@@ -436,7 +436,7 @@ def _compute_stat_tests(
     t_stat, p_val = _welch_t_test(dpsi_sig, dpsi_ns)
     results.append(StatTestResult(
         feature="mean_delta_psi", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
     ))
 
     # 2. Exon size — Welch's t-test
@@ -445,7 +445,7 @@ def _compute_stat_tests(
     t_stat, p_val = _welch_t_test(sizes_sig, sizes_ns)
     results.append(StatTestResult(
         feature="exon_size", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
     ))
 
     # 3. PPT score — Welch's t-test
@@ -454,7 +454,7 @@ def _compute_stat_tests(
     t_stat, p_val = _welch_t_test(ppt_sig, ppt_ns)
     results.append(StatTestResult(
         feature="ppt_score", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
     ))
 
     # 4. Canonical GT (5'SS) — proportion z-test
@@ -465,7 +465,7 @@ def _compute_stat_tests(
     z_stat, p_val = _proportion_z_test(k1, len(sig_with_seq), k2, len(ns_with_seq))
     results.append(StatTestResult(
         feature="canonical_gt", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
     ))
 
     # 5. Canonical AG (3'SS) — proportion z-test
@@ -476,7 +476,7 @@ def _compute_stat_tests(
     z_stat, p_val = _proportion_z_test(k1, len(sig_acc), k2, len(ns_acc))
     results.append(StatTestResult(
         feature="canonical_ag", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
     ))
 
     # 6. In-frame proportion — proportion z-test
@@ -487,7 +487,7 @@ def _compute_stat_tests(
     z_stat, p_val = _proportion_z_test(k1, len(sig_frame), k2, len(ns_frame))
     results.append(StatTestResult(
         feature="in_frame_pct", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
     ))
 
     # 7. Branch point found — proportion z-test
@@ -496,7 +496,7 @@ def _compute_stat_tests(
     z_stat, p_val = _proportion_z_test(k1, len(sig_with_seq), k2, len(ns_with_seq))
     results.append(StatTestResult(
         feature="bp_found", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
     ))
 
     # 8. Upstream donor GT (flanking exon) — proportion z-test
@@ -507,7 +507,7 @@ def _compute_stat_tests(
     z_stat, p_val = _proportion_z_test(k1, len(sig_up), k2, len(ns_up))
     results.append(StatTestResult(
         feature="upstream_canonical_gt", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
     ))
 
     # 9. Downstream acceptor AG (flanking exon) — proportion z-test
@@ -518,7 +518,7 @@ def _compute_stat_tests(
     z_stat, p_val = _proportion_z_test(k1, len(sig_dn), k2, len(ns_dn))
     results.append(StatTestResult(
         feature="downstream_canonical_ag", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val or 1) < 0.05,
+        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
     ))
 
     return results

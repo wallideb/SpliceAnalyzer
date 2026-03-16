@@ -580,12 +580,13 @@ Minus-strand events are reverse-complemented before scanning.
 
 #### Motif catalogue
 
-18 consensus motifs for 8 hnRNP protein families (RNA U → DNA T for genomic scanning):
+19 consensus motifs for 8 hnRNP protein families (RNA U → DNA T for genomic scanning):
 
 | Protein | Motifs | Basis |
 |---------|--------|-------|
 | hnRNP A1/A2 | TAGG, TAGGG, TAGGGA, AGG | CISBP-RNA; Martinez-Contreras et al. (2006) |
-| hnRNP E1 (PCBP1) | CCWWHCC `[CC[AT][AT][ACT]CC]` | rMAPS2 Suppl. Table S2 (Homo sapiens); Chkheidze et al. (1999); Makeyev & Liebhaber (2002) |
+| hnRNP E1 (PCBP1) | CCWWHCC `[CC[AT][AT][ACT]CC]` | rMAPS2 Suppl. Table S2, Homo sapiens (ENSG00000169564); Chkheidze et al. (1999); Makeyev & Liebhaber (2002) |
+| hnRNP E1 (PCBP2) | CCYYCCH `[CC[CT][CT]CC[ACT]]` | rMAPS2 Suppl. Table S2, Homo sapiens (ENSG00000197111) |
 | hnRNP F/H | GGGG, GGG | G-quadruplex / G-run binding |
 | hnRNP K | CCCC, TCCC | Poly-C binding |
 | hnRNP C | TTTTT, TTTT | Poly-U/T binding |
@@ -595,11 +596,11 @@ Minus-strand events are reverse-complemented before scanning.
 
 #### Statistical test
 
-For each of the 85 (motif, region) pairs:
+For each of the 95 (motif, region) pairs:
 
 1. Compute **hit rate** = fraction of events with ≥ 1 motif occurrence
 2. Compare significant vs. background groups using a **two-proportion z-test** (pooled proportion estimator)
-3. Apply **Bonferroni correction** across all 90 tests: `p_adj = min(p × 90, 1.0)`
+3. Apply **Bonferroni correction** across all 95 tests: `p_adj = min(p × 95, 1.0)`
 4. Report associations with `p_adj < 0.05` as significant
 
 Mean motif density (fraction of nucleotides covered by overlapping motif hits) is also reported per group.
@@ -610,7 +611,7 @@ Mean motif density (fraction of nucleotides covered by overlapping motif hits) i
 |--------|--------|----------------|
 | Test statistic | Wilcoxon rank-sum on per-window density | Two-proportion z-test on binary hit rate |
 | Resolution | Nucleotide-level sliding window | Five discrete genomic sub-regions |
-| Correction | Per-comparison | Bonferroni across all 85 pairs |
+| Correction | Per-comparison | Bonferroni across all 95 pairs |
 | Groups | Up-regulated, down-regulated, background | Significant, non-significant |
 
 #### Performance
@@ -905,7 +906,7 @@ Each analytical panel embeds collapsible `ScienceNote` widgets that cite the pri
 | Branch-point motif | YNYURAY (Y = C/T, N = any, R = A/G) | Padgett et al. (1986) |
 | Permutation p-value | `p = (k+1)/(N+1)` with continuity correction | Phipson & Smyth (2010) |
 | FDR correction | Benjamini-Hochberg step-up procedure | Benjamini & Hochberg (1995) |
-| hnRNP hit-rate z-test | Two-proportion z-test with Bonferroni (n=90) | Agresti (2002) |
+| hnRNP hit-rate z-test | Two-proportion z-test with Bonferroni (n=95) | Agresti (2002) |
 | Welch t-test df | Welch-Satterthwaite approximation | Welch (1947) |
 | Enrichr combined score | `CS = \|z\| × log(p)` | Chen et al. (2013) |
 

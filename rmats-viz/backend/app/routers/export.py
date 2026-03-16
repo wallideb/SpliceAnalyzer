@@ -1694,14 +1694,15 @@ def _build_pdf(
               "extracted from GRCh38 (samtools faidx): upstream exon (50 nt), upstream intron "
               "(200 nt), skipped exon (full sequence), downstream intron (200 nt), and downstream "
               "exon (50 nt). Minus-strand events are reverse-complemented before scanning.", "body"),
-            p("Eighteen consensus motifs for ten hnRNP proteins (hnRNP A1/A2, C, D, E1, F/H, "
+            p("Nineteen consensus motifs for ten hnRNP proteins (hnRNP A1/A2, C, D, E1, F/H, "
               "I/PTB, K, L, M, U) are matched using IUPAC-degenerate pattern search derived from "
               "CISBP-RNA (Ray et al., 2013 [17]), Martinez-Contreras et al. (2006), and for "
-              "hnRNP E1/PCBP1 (CCWWHCC = CC[AT][AT][ACT]CC, from rMAPS2 Supplementary Table S2): "
+              "hnRNP E1 (PCBP1 CCWWHCC = CC[AT][AT][ACT]CC; PCBP2 CCYYCCH = CC[CT][CT]CC[ACT], "
+              "both from rMAPS2 Supplementary Table S2, Homo sapiens): "
               "Chkheidze et al. (1999 [18]) and Makeyev &amp; Liebhaber (2002 [19]). "
               "For each motif-region pair, the hit rate (fraction of events with ≥ 1 match) is "
               "compared between the significant and background groups using a two-proportion z-test "
-              "(pooled proportion). Bonferroni correction (n = 5 regions × 18 motifs = 90 tests) "
+              "(pooled proportion). Bonferroni correction (n = 5 regions × 19 motifs = 95 tests) "
               "is applied; associations with p<sub>adj</sub> &lt; 0.05 are reported as significant. "
               "This differs from rMAPS2, which uses a Wilcoxon rank-sum test on sliding-window "
               "densities; our approach tests binary hit rates across genomic sub-regions.", "body"),
@@ -1849,7 +1850,7 @@ def _build_pdf(
               "sqrt[ p^(1 - p^)(1/n<sub>1</sub> + 1/n<sub>2</sub>) ]", "code"),
             p("Two-tailed p-values are computed from the standard normal CDF. "
               "Bonferroni correction multiplies each p-value by the number of tests "
-              "(90 = 5 regions × 18 motifs). Groups with fewer than 5 events are skipped.", "body"),
+              "(95 = 5 regions × 19 motifs). Groups with fewer than 5 events are skipped.", "body"),
             p("<b>C.7 Enrichr Combined Score</b>", "h3"),
             p("The Enrichr combined score (Chen et al., 2013 [15]) is defined as:", "body"),
             p("&nbsp;&nbsp;&nbsp;CS = |z| × log(p)", "code"),

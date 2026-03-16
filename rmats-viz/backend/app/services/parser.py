@@ -227,7 +227,7 @@ def deduplicate_with_overlap(df: pd.DataFrame, overlap_bp: int = 50) -> pd.DataF
         na_position="last",
     ).reset_index(drop=True)
 
-    group_cols = [c for c in ["event_type", "chr", "strand"] if c in df.columns]
+    group_cols = [c for c in ["event_type", "gene_id", "chr", "strand"] if c in df.columns]
     kept_indices: list[int] = []
 
     for _, group_df in df.groupby(group_cols, sort=False, dropna=False):

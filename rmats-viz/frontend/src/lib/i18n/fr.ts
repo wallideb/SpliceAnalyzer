@@ -501,9 +501,10 @@ export const fr: Translations = {
       body:
         "Inspirée de rMAPS2 (Hwang et al., NAR 2020 ; 48:W300-W306), cette analyse recherche " +
         "dans cinq régions génomiques autour de chaque exon sauté (exon amont, intron amont, " +
-        "corps de l'exon sauté, intron aval, exon aval) 19 motifs consensus connus de protéines " +
+        "corps de l'exon sauté, intron aval, exon aval) 18 motifs consensus connus de protéines " +
         "de liaison à l'ARN de la famille hnRNP. Les motifs incluent hnRNP A1/A2 (TAGG, AGG), " +
-        "hnRNP E1/PCBP1 (CCCCA, ACCC), hnRNP F/H (GGG, GGGG), hnRNP K (CCCC), hnRNP C (poly-T), " +
+        "hnRNP E1/PCBP1 (CCWWHCC = CC[AT][AT][ACT]CC, issu du Tableau S2 supplémentaire de rMAPS2), " +
+        "hnRNP F/H (GGG, GGGG), hnRNP K (CCCC), hnRNP C (poly-T), " +
         "hnRNP L (répétitions CA), hnRNP M (répétitions GT) et PTB (TCTT, TCTCT). " +
         "Les séquences de motifs proviennent de CISBP-RNA (Ray et al., Nature 2013) et d'études " +
         "publiées (Martinez-Contreras et al., 2006 ; Chkheidze et al., Mol Cell Biol 1999 ; " +

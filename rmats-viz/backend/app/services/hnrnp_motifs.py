@@ -21,7 +21,7 @@ Region extraction (per rMAPS2 convention):
 
 Motifs scanned (consensus sequences from literature & CISBP-RNA):
   - hnRNP A1/A2: UAGG, UAGGG, AGG
-  - hnRNP E1 (PCBP1): CCCCA, ACCC
+  - hnRNP E1 (PCBP1): CCWWHCC  [CC[AT][AT][ACT]CC — from rMAPS2 Supplementary Table S2, Homo sapiens]
   - hnRNP F/H:   GGGG, GGG
   - hnRNP K:     CCCC, TCCC
   - hnRNP C:     UUUUU (poly-U 5-mer), UUUU
@@ -72,10 +72,10 @@ HNRNP_MOTIFS: list[tuple[str, str, str]] = [
     ("TAGGG",     "hnRNP A1/A2", "TAGGG"),
     ("TAGGGA",    "hnRNP A1/A2", "TAGGGA"),
     ("AGG",       "hnRNP A1/A2", "AGG"),
-    # hnRNP E1 / PCBP1 (poly-C with flanking nucleotide; distinct from hnRNP K CCCC)
+    # hnRNP E1 / PCBP1 — degenerate 7-mer from rMAPS2 Supplementary Table S2 (Homo sapiens)
+    # CCWWHCC: CC[AT][AT][ACT]CC  (IUPAC W=A/T, H=A/C/T)
     # Chkheidze et al. Mol Cell Biol 1999; Makeyev & Liebhaber RNA 2002; CISBP-RNA Ray 2013
-    ("CCCCA",     "hnRNP E1 (PCBP1)", "CCCCA"),
-    ("ACCC",      "hnRNP E1 (PCBP1)", "ACCC"),
+    ("CCWWHCC",   "hnRNP E1 (PCBP1)", "CC[AT][AT][ACT]CC"),
     # hnRNP F / H (G-runs)
     ("GGGG",      "hnRNP F/H",   "GGGG"),
     ("GGG",       "hnRNP F/H",   "GGG"),
@@ -95,6 +95,31 @@ HNRNP_MOTIFS: list[tuple[str, str, str]] = [
     ("TCTT",      "PTB (hnRNP I)", "TCTT"),
     ("TCTCT",     "PTB (hnRNP I)", "TCTCT"),
     ("CTCT",      "PTB (hnRNP I)", "CTCT"),
+]
+
+def _motif_match_len(pattern: str) -> int:
+    """Return the number of nucleotides consumed by one match of *pattern*.
+
+    Handles IUPAC bracket groups (e.g. ``[AT]`` counts as 1 position).
+    """
+    length, in_bracket = 0, False
+    for ch in pattern:
+        if ch == '[':
+            in_bracket = True
+        elif ch == ']':
+            in_bracket = False
+            length += 1
+        elif not in_bracket:
+            length += 1
+    return length
+
+
+# Pre-compiled regex patterns and their match lengths — computed once at import.
+# Using regex for all patterns allows degenerate IUPAC bracket notation while
+# remaining backwards-compatible with plain literal motifs (valid regex too).
+_COMPILED_MOTIFS: list[tuple[re.Pattern[str], int]] = [
+    (re.compile(pattern), _motif_match_len(pattern))
+    for _, _, pattern in HNRNP_MOTIFS
 ]
 
 REGION_NAMES = [
@@ -200,19 +225,22 @@ def define_se_regions(
 # ──────────────────────────────────────────────────────────────────────────────
 
 def count_motif_occurrences(seq: str, motif: str) -> int:
-    """Count overlapping occurrences of *motif* in *seq* (case-insensitive)."""
+    """Count overlapping occurrences of *motif* in *seq* (case-insensitive).
+
+    *motif* may contain IUPAC bracket notation (e.g. ``CC[AT][AT][ACT]CC``).
+    """
     if not seq or not motif:
         return 0
+    compiled = re.compile(motif.upper())
     seq_u = seq.upper()
-    motif_u = motif.upper()
     count = 0
-    start = 0
+    pos = 0
     while True:
-        pos = seq_u.find(motif_u, start)
-        if pos == -1:
+        m = compiled.search(seq_u, pos)
+        if m is None:
             break
         count += 1
-        start = pos + 1
+        pos = m.start() + 1
     return count
 
 
@@ -221,7 +249,7 @@ def motif_density(seq: str, motif: str) -> float:
     if not seq:
         return 0.0
     n = count_motif_occurrences(seq, motif)
-    return min(1.0, (n * len(motif)) / len(seq))
+    return min(1.0, (n * _motif_match_len(motif.upper())) / len(seq))
 
 
 @dataclass
@@ -264,8 +292,10 @@ def scan_group(
     - Skips redundant ``str.upper()`` calls: sequences produced by
       ``extract_regions_batch`` are already uppercase; motif patterns in
       ``HNRNP_MOTIFS`` are defined uppercase.
-    - Uses the fast ``in`` operator as an early-exit hit check before the
+    - Uses ``compiled.search`` as an early-exit hit check before the
       overlapping-count loop, skipping the count for ~50-80 % of pairs.
+      Pre-compiled regex handles both plain literals and degenerate IUPAC
+      bracket patterns (e.g. CC[AT][AT][ACT]CC) without branching.
     - Accumulates a running density sum instead of building per-region
       lists, eliminating repeated list allocations.
     """
@@ -283,23 +313,22 @@ def scan_group(
             if not seq:
                 continue
             seq_len = len(seq)
-            for mi, (_, _, pattern) in enumerate(HNRNP_MOTIFS):
+            for mi, (compiled, pat_len) in enumerate(_COMPILED_MOTIFS):
                 cell = mi * n_regions + ri
                 n_totals[cell] += 1
                 # Fast early exit: no density computation needed for misses
-                if pattern not in seq:
+                if not compiled.search(seq):
                     continue
                 n_hits[cell] += 1
                 # Count overlapping occurrences for density
                 count = 0
-                start = 0
-                pat_len = len(pattern)
+                pos = 0
                 while True:
-                    pos = seq.find(pattern, start)
-                    if pos == -1:
+                    m = compiled.search(seq, pos)
+                    if m is None:
                         break
                     count += 1
-                    start = pos + 1
+                    pos = m.start() + 1
                 sum_dens[cell] += min(1.0, count * pat_len / seq_len)
 
     results: list[MotifRegionResult] = []

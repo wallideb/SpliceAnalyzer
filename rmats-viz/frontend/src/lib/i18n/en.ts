@@ -497,8 +497,9 @@ export const en = {
       body:
         "Inspired by rMAPS2 (Hwang et al., NAR 2020; 48:W300-W306), this analysis scans five " +
         "genomic regions around each skipped exon (upstream exon, upstream intron, skipped exon " +
-        "body, downstream intron, downstream exon) for 19 known hnRNP RNA-binding protein " +
-        "consensus motifs. Motifs include hnRNP A1/A2 (TAGG, AGG), hnRNP E1/PCBP1 (CCCCA, ACCC), " +
+        "body, downstream intron, downstream exon) for 18 known hnRNP RNA-binding protein " +
+        "consensus motifs. Motifs include hnRNP A1/A2 (TAGG, AGG), " +
+        "hnRNP E1/PCBP1 (CCWWHCC = CC[AT][AT][ACT]CC, from rMAPS2 Supplementary Table S2), " +
         "hnRNP F/H (GGG, GGGG), hnRNP K (CCCC), hnRNP C (poly-T), hnRNP L (CA repeats), " +
         "hnRNP M (GT repeats), and PTB (TCTT, TCTCT). Motif sequences are sourced from CISBP-RNA " +
         "(Ray et al., Nature 2013) and published studies (Martinez-Contreras et al., 2006; " +

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import uuid
 from io import BytesIO
 from typing import Literal
@@ -360,6 +361,7 @@ from reportlab.platypus import (
     PageBreak, HRFlowable, KeepTogether,
 )
 from reportlab.graphics.shapes import Drawing, Rect, String, Line, Group
+from reportlab.graphics import renderSVG as _renderSVG
 from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.pdfbase import pdfmetrics as _pdfmetrics
 _W, _ = _A4
@@ -839,6 +841,7 @@ def _build_pdf(
     permutation_table: list[dict] | None = None,
     hnrnp_data: dict | None = None,
     enrichr_data: dict | None = None,
+    svg_dir: str | None = None,
 ) -> bytes:
     """Build PDF report.
 
@@ -870,6 +873,17 @@ def _build_pdf(
     def _next_fig() -> int:
         _fig_count[0] += 1
         return _fig_count[0]
+
+    def _save_svg(drawing: Drawing | None, name: str) -> None:
+        """Save *drawing* as an SVG file inside *svg_dir* (no-op if either is None)."""
+        if svg_dir is None or drawing is None:
+            return
+        try:
+            os.makedirs(svg_dir, exist_ok=True)
+            path = os.path.join(svg_dir, f"{name}.svg")
+            _renderSVG.drawToFile(drawing, path)
+        except Exception as exc:
+            logger.warning("SVG export failed for %s: %s", name, exc)
 
     buf = BytesIO()
     USABLE_W = _W - 2 * _MARGIN          # ~15.27 cm
@@ -1041,6 +1055,7 @@ def _build_pdf(
 
             if include_figures:
                 dpsi_fig = _fig_dpsi_distribution(subset_events, group1_label)
+                _save_svg(dpsi_fig, f"sec{section_num:02d}_dpsi_distribution")
                 if dpsi_fig:
                     story += [
                         KeepTogether([
@@ -1056,6 +1071,7 @@ def _build_pdf(
                     ]
 
                 hist_fig = _fig_exon_size_histogram(exsz_vals)
+                _save_svg(hist_fig, f"sec{section_num:02d}_exon_size_histogram")
                 if hist_fig:
                     story += [
                         KeepTogether([
@@ -1071,6 +1087,7 @@ def _build_pdf(
                     ]
 
                 frame_fig = _fig_frame_breakdown(n_if, n_fs, n_nc, n_f)
+                _save_svg(frame_fig, f"sec{section_num:02d}_reading_frame")
                 if frame_fig:
                     story += [
                         KeepTogether([
@@ -1086,6 +1103,7 @@ def _build_pdf(
 
                 n_donor = sum(1 for f in subset_features.values() if f.donor_seq and len(f.donor_seq) >= 9)
                 donor_logo = _fig_splice_site_consensus(subset_features, site="donor", n_sequences=n_donor, max_width=FIG_MAX_W)
+                _save_svg(donor_logo, f"sec{section_num:02d}_5ss_donor_logo")
                 if donor_logo:
                     story += [
                         KeepTogether([
@@ -1103,6 +1121,7 @@ def _build_pdf(
 
                 n_acc = sum(1 for f in subset_features.values() if f.acceptor_seq and len(f.acceptor_seq) >= 23)
                 acceptor_logo = _fig_splice_site_consensus(subset_features, site="acceptor", n_sequences=n_acc, max_width=FIG_MAX_W)
+                _save_svg(acceptor_logo, f"sec{section_num:02d}_3ss_acceptor_logo")
                 if acceptor_logo:
                     story += [
                         KeepTogether([
@@ -1131,6 +1150,7 @@ def _build_pdf(
                         {}, site="donor", pwm_data=up_pwm,
                         n_sequences=len(up_seqs), max_width=FIG_MAX_W,
                     )
+                    _save_svg(up_logo, f"sec{section_num:02d}_upstream_5ss_donor_logo")
                     if up_logo:
                         story += [
                             KeepTogether([
@@ -1158,6 +1178,7 @@ def _build_pdf(
                         {}, site="acceptor", pwm_data=dn_pwm,
                         n_sequences=len(dn_seqs), max_width=FIG_MAX_W,
                     )
+                    _save_svg(dn_logo, f"sec{section_num:02d}_downstream_3ss_acceptor_logo")
                     if dn_logo:
                         story += [
                             KeepTogether([
@@ -1261,6 +1282,7 @@ def _build_pdf(
                 {}, site="donor", pwm_data=sig["donor_pwm"],
                 n_sequences=sig["n_se_with_features"], max_width=half_w,
             )
+            _save_svg(d_sig, f"sec{cmp_sec:02d}_comparison_5ss_donor_sig")
             if d_sig:
                 _block += [
                     p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
@@ -1271,6 +1293,7 @@ def _build_pdf(
                 {}, site="donor", pwm_data=nonsig["donor_pwm"],
                 n_sequences=nonsig["n_se_with_features"], max_width=half_w,
             )
+            _save_svg(d_nonsig, f"sec{cmp_sec:02d}_comparison_5ss_donor_nonsig")
             if d_nonsig:
                 _block += [
                     p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
@@ -1299,6 +1322,7 @@ def _build_pdf(
                 {}, site="acceptor", pwm_data=sig["acceptor_pwm"],
                 n_sequences=sig["n_se_with_features"], max_width=half_w,
             )
+            _save_svg(a_sig, f"sec{cmp_sec:02d}_comparison_3ss_acceptor_sig")
             if a_sig:
                 _block += [
                     p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
@@ -1309,6 +1333,7 @@ def _build_pdf(
                 {}, site="acceptor", pwm_data=nonsig["acceptor_pwm"],
                 n_sequences=nonsig["n_se_with_features"], max_width=half_w,
             )
+            _save_svg(a_nonsig, f"sec{cmp_sec:02d}_comparison_3ss_acceptor_nonsig")
             if a_nonsig:
                 _block += [
                     p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
@@ -1338,6 +1363,7 @@ def _build_pdf(
                     {}, site="donor", pwm_data=sig["upstream_donor_pwm"],
                     n_sequences=sig["n_se_with_features"], max_width=half_w,
                 )
+                _save_svg(ud_sig, f"sec{cmp_sec:02d}_comparison_upstream_donor_sig")
                 if ud_sig:
                     _block += [
                         p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
@@ -1348,6 +1374,7 @@ def _build_pdf(
                     {}, site="donor", pwm_data=nonsig["upstream_donor_pwm"],
                     n_sequences=nonsig["n_se_with_features"], max_width=half_w,
                 )
+                _save_svg(ud_nonsig, f"sec{cmp_sec:02d}_comparison_upstream_donor_nonsig")
                 if ud_nonsig:
                     _block += [
                         p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
@@ -1376,6 +1403,7 @@ def _build_pdf(
                     {}, site="acceptor", pwm_data=sig["downstream_acceptor_pwm"],
                     n_sequences=sig["n_se_with_features"], max_width=half_w,
                 )
+                _save_svg(da_sig, f"sec{cmp_sec:02d}_comparison_downstream_acceptor_sig")
                 if da_sig:
                     _block += [
                         p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
@@ -1386,6 +1414,7 @@ def _build_pdf(
                     {}, site="acceptor", pwm_data=nonsig["downstream_acceptor_pwm"],
                     n_sequences=nonsig["n_se_with_features"], max_width=half_w,
                 )
+                _save_svg(da_nonsig, f"sec{cmp_sec:02d}_comparison_downstream_acceptor_nonsig")
                 if da_nonsig:
                     _block += [
                         p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
@@ -1409,9 +1438,11 @@ def _build_pdf(
         # Cf. Frame comparison
         _block = [p(f"{cmp_sec}.6 Reading Frame Comparison", "h3")]
         frame_sig = _fig_frame_breakdown(sig["frame_in_frame"], sig["frame_frameshift"], sig["frame_non_coding"], sig["n_se_with_features"])
+        _save_svg(frame_sig, f"sec{cmp_sec:02d}_comparison_reading_frame_sig")
         if frame_sig:
             _block += [p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"), frame_sig]
         frame_nonsig = _fig_frame_breakdown(nonsig["frame_in_frame"], nonsig["frame_frameshift"], nonsig["frame_non_coding"], nonsig["n_se_with_features"])
+        _save_svg(frame_nonsig, f"sec{cmp_sec:02d}_comparison_reading_frame_nonsig")
         if frame_nonsig:
             _block += [p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"), frame_nonsig]
         t_frame = test_map.get("in_frame_pct")
@@ -2157,11 +2188,14 @@ async def export_deep_analysis_pdf(
         _compute_enrichr(),
     )
 
+    svg_dir = os.path.join("/data", "svg_exports", str(deep_analysis_id))
+
     pdf_bytes = await asyncio.to_thread(
         _build_pdf, analysis, events, features, group1_label, group2_label,
         deep_analysis=deep, comparison=comparison,
         sig_map=sig_map, permutation_table=permutation_table,
         hnrnp_data=hnrnp_data, enrichr_data=enrichr_data,
+        svg_dir=svg_dir,
     )
 
     return StreamingResponse(

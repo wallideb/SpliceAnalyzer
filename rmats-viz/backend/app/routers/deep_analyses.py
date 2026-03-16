@@ -12,9 +12,12 @@ GET    /deep-analyses/{id}/pattern-comparison — dual-group pattern stats
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import statistics
 import uuid
+
+logger = logging.getLogger(__name__)
 from collections import Counter
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -627,6 +630,7 @@ async def get_hnrnp_motifs(
     vs non-significant SE events (rMAPS2-inspired analysis)."""
     from app.services.hnrnp_motifs import (
         SERegions, define_se_regions, compare_groups, scan_group,
+        _FIVE_SS_EXCL, _THREE_SS_EXCL,
     )
     from app.services.sequence import extract_regions_batch, reverse_complement
     from app.config import settings
@@ -658,26 +662,84 @@ async def get_hnrnp_motifs(
     for ev, is_sig in rows:
         (sig_events if is_sig else bg_events).append(ev)
 
-    def _build_regions(events: list[SplicingEvent]) -> list[SERegions]:
+    def _build_regions(events: list[SplicingEvent], label: str = "") -> list[SERegions]:
         """Extract five genomic regions per event and fetch sequences in one batch."""
         if not events:
             return []
         all_bed_regions: list[tuple[str, int, int]] = []
         strands: list[str] = []
+
+        n_missing_coords = 0
+        n_null_up_ee = 0   # + strand: upstream_ee missing
+        n_null_up_es = 0   # - strand: upstream_es missing
+        n_null_dn_es = 0   # + strand: downstream_es missing
+        n_null_dn_ee = 0   # - strand: downstream_ee missing
+        n_short_up_intron = 0
+        n_short_dn_intron = 0
+
         for ev in events:
+            strand = ev.strand or "+"
             if not ev.chr or ev.exon_start is None or ev.exon_end is None:
+                n_missing_coords += 1
                 for _ in range(5):
                     all_bed_regions.append(("", 0, 0))
-                strands.append(ev.strand or "+")
+                strands.append(strand)
                 continue
+
+            # Diagnose why intron regions might be empty for this event
+            if strand == "+":
+                if ev.upstream_ee is None:
+                    n_null_up_ee += 1
+                else:
+                    up_intron = ev.exon_start - ev.upstream_ee
+                    if up_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
+                        n_short_up_intron += 1
+                if ev.downstream_es is None:
+                    n_null_dn_es += 1
+                else:
+                    dn_intron = ev.downstream_es - ev.exon_end
+                    if dn_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
+                        n_short_dn_intron += 1
+            else:
+                if ev.upstream_es is None:
+                    n_null_up_es += 1
+                else:
+                    up_intron = ev.upstream_es - ev.exon_end
+                    if up_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
+                        n_short_up_intron += 1
+                if ev.downstream_ee is None:
+                    n_null_dn_ee += 1
+                else:
+                    dn_intron = ev.exon_start - ev.downstream_ee
+                    if dn_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
+                        n_short_dn_intron += 1
+
             bed = define_se_regions(
-                ev.chr, ev.strand or "+",
+                ev.chr, strand,
                 ev.exon_start, ev.exon_end,
                 ev.upstream_es, ev.upstream_ee,
                 ev.downstream_es, ev.downstream_ee,
             )
             all_bed_regions.extend(bed)
-            strands.append(ev.strand or "+")
+            strands.append(strand)
+
+        n = len(events)
+        tag = f"[{label}] " if label else ""
+        if n_missing_coords:
+            logger.warning("%shnRNP: %d/%d events skipped — missing chr/exon_start/exon_end", tag, n_missing_coords, n)
+        if n_null_up_ee or n_null_up_es:
+            logger.warning("%shnRNP: %d/%d events — null upstream flanking coord (upstream_ee/es) → no upstream intron",
+                           tag, n_null_up_ee + n_null_up_es, n)
+        if n_null_dn_es or n_null_dn_ee:
+            logger.warning("%shnRNP: %d/%d events — null downstream flanking coord (downstream_es/ee) → no downstream intron",
+                           tag, n_null_dn_es + n_null_dn_ee, n)
+        if n_short_up_intron:
+            logger.warning("%shnRNP: %d/%d events — upstream intron ≤ %d nt (exclusion zones consume it) → no upstream intron",
+                           tag, n_short_up_intron, n, _FIVE_SS_EXCL + _THREE_SS_EXCL)
+        if n_short_dn_intron:
+            logger.warning("%shnRNP: %d/%d events — downstream intron ≤ %d nt → no downstream intron",
+                           tag, n_short_dn_intron, n, _FIVE_SS_EXCL + _THREE_SS_EXCL)
+        logger.info("%shnRNP region extraction: %d events total", tag, n)
 
         seqs = extract_regions_batch(all_bed_regions, settings.GRCH38_FASTA)
 
@@ -697,8 +759,8 @@ async def get_hnrnp_motifs(
 
     # Extract regions for both groups concurrently (two independent samtools calls)
     sig_regions, bg_regions = await asyncio.gather(
-        asyncio.to_thread(_build_regions, sig_events),
-        asyncio.to_thread(_build_regions, bg_events),
+        asyncio.to_thread(_build_regions, sig_events, "sig"),
+        asyncio.to_thread(_build_regions, bg_events, "bg"),
     )
 
     # Scan both groups concurrently; compare_groups is fast (pure Python)

@@ -1254,7 +1254,7 @@ def _build_pdf(
         ]), sp()]
 
         # Cb. Comparison logos — donor
-        half_w = FIG_MAX_W * 0.48
+        half_w = FIG_MAX_W
         _block: list = [p(f"{cmp_sec}.2 5'SS Donor Logo: Significant vs Non-Significant", "h3")]
         if sig.get("donor_pwm"):
             d_sig = _fig_splice_site_consensus(

@@ -22,7 +22,7 @@ Region extraction (per rMAPS2 convention):
 Motifs scanned (consensus sequences from literature & CISBP-RNA):
   - hnRNP A1/A2: UAGG, UAGGG, AGG
   - hnRNP E1 (PCBP1): CCWWHCC  [CC[AT][AT][ACT]CC — rMAPS2 Suppl. Table S2, Homo sapiens]
-  - hnRNP E1 (PCBP2): CCYYCCH  [CC[CT][CT]CC[ACT] — rMAPS2 Suppl. Table S2, Homo sapiens]
+  - hnRNP E2 (PCBP2): CCYYCCH  [CC[CT][CT]CC[ACT] — rMAPS2 Suppl. Table S2, Homo sapiens]
   - hnRNP F/H:   GGGG, GGG
   - hnRNP K:     CCCC, TCCC
   - hnRNP C:     UUUUU (poly-U 5-mer), UUUU
@@ -73,12 +73,12 @@ HNRNP_MOTIFS: list[tuple[str, str, str]] = [
     ("TAGGG",     "hnRNP A1/A2", "TAGGG"),
     ("TAGGGA",    "hnRNP A1/A2", "TAGGGA"),
     ("AGG",       "hnRNP A1/A2", "AGG"),
-    # hnRNP E1 — PCBP1 & PCBP2 degenerate 7-mers from rMAPS2 Supplementary Table S2 (Homo sapiens)
+    # hnRNP E — PCBP1 (E1) & PCBP2 (E2) degenerate 7-mers from rMAPS2 Supplementary Table S2 (Homo sapiens)
     # PCBP1 CCWWHCC: CC[AT][AT][ACT]CC  (IUPAC W=A/T, H=A/C/T)  ENSG00000169564
     # PCBP2 CCYYCCH: CC[CT][CT]CC[ACT]  (IUPAC Y=C/T, H=A/C/T)  ENSG00000197111
     # Chkheidze et al. Mol Cell Biol 1999; Makeyev & Liebhaber RNA 2002; CISBP-RNA Ray 2013
     ("CCWWHCC",   "hnRNP E1 (PCBP1)", "CC[AT][AT][ACT]CC"),
-    ("CCYYCCH",   "hnRNP E1 (PCBP2)", "CC[CT][CT]CC[ACT]"),
+    ("CCYYCCH",   "hnRNP E2 (PCBP2)", "CC[CT][CT]CC[ACT]"),
     # hnRNP F / H (G-runs)
     ("GGGG",      "hnRNP F/H",   "GGGG"),
     ("GGG",       "hnRNP F/H",   "GGG"),

@@ -69,7 +69,9 @@
 
 ## Overview
 
-**SpliceAnalyzer** provides a browser-based interface on top of [rMATS](https://rnaseq-mats.sourceforge.io/) junction-count output files (e.g., `SE.MATS.JC.txt`). It enables researchers to upload rMATS results, explore alternative splicing events interactively, characterize splice-site signals at single-event resolution, perform aggregate statistical analyses across event groups, and export curated findings for publication or clinical review.
+**SpliceAnalyzer** provides a browser-based interface on top of [rMATS](https://rnaseq-mats.sourceforge.io/) junction-count output files (e.g., `SE.MATS.JC.txt`). It enables researchers to upload rMATS results, explore alternative splicing events interactively, characterize splice-site signals at single-event resolution, perform aggregate statistical analyses across event groups, and export curated findings in a report format.
+
+> **Disclaimer:** This tool is experimental and intended for research use only. It has not been validated for clinical or diagnostic purposes. Users are solely responsible for the interpretation and use of any results.
 
 The application supports all five rMATS event types:
 
@@ -130,7 +132,7 @@ A second-pass module that partitions events into **significant** and **non-signi
 
 ### Export
 
-- **PDF report** &mdash; Multi-page publication-ready document including: analysis summary, significant SE events with splice feature tables, deep analysis sections (hnRNP motif enrichment, pathway enrichment with significant p-values bolded and starred, pattern comparison), frequency-mode sequence logos, methodology appendix, bibliographic references, and statistical methods. Optionally includes deep analysis results when a deep analysis object is linked
+- **PDF report** &mdash; Multi-page PDF report including: analysis summary, significant SE events with splice feature tables, deep analysis sections (hnRNP motif enrichment, pathway enrichment with significant p-values bolded and starred, pattern comparison), frequency-mode sequence logos, methodology appendix, bibliographic references, and statistical methods. Optionally includes deep analysis results when a deep analysis object is linked
 - **Excel export (deep analysis only)** &mdash; Interactive modal for selecting annotation column groups (`core`, `panelapp`, `go`, `stringdb`) before download; optional groups are fetched in parallel at export time
 
 ### Scientific Provenance
@@ -436,7 +438,7 @@ Excel export is available exclusively from the **Deep Analysis** page. It export
 
 #### PDF Export
 
-Click the **Export PDF** button to generate a multi-page, publication-ready report. The report includes:
+Click the **Export PDF** button to generate a multi-page PDF report. The report includes:
 
 | Section | Content |
 |---------|---------|
@@ -474,7 +476,7 @@ Event deduplication runs in two stages during TSV ingestion (`parser.py`):
 
 **Stage 2 — overlap deduplication (p-value-ranked):** Within each (event type, gene, chromosome, strand) group, events whose skipped-exon start or end falls within 50 bp of an already-retained event are removed. The removal condition is OR (start-near **or** end-near), so two exons that share one boundary but differ by more than 50 bp on the other are still collapsed — this is intentionally conservative. Ranking for this stage uses raw p-value (most significant first; ties by |ΔΨ|).
 
-**Publication note:** Stage 1 sorts on FDR; stage 2 sorts on raw p-value. After multiple-testing correction these statistics can disagree, so the "best" event kept in each stage can differ for the same pair of near-duplicates. Both criteria should be reported in methods.
+**Methods note:** Stage 1 sorts on FDR; stage 2 sorts on raw p-value. After multiple-testing correction these statistics can disagree, so the "best" event kept in each stage can differ for the same pair of near-duplicates. Both criteria should be reported in any methods description.
 
 > **Methods statement:** Events were deduplicated in two sequential stages. First, exact duplicate events sharing the same event-specific genomic key were collapsed by retaining the event with the lowest FDR, breaking ties by the largest absolute ΔΨ. Second, within each (event_type, gene_id, chr, strand) group, near-duplicate events were greedily removed after sorting by ascending p-value and descending absolute ΔΨ; an event was discarded if either its exon start or exon end coordinate lay within 50 bp of any previously retained event. Because this second pass already suppresses overlap-defined duplicates, a subsequent event-clustering step on the retained events was uninformative in practice.
 

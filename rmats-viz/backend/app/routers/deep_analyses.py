@@ -368,13 +368,17 @@ def _t_upper_tail(t: float, df: float) -> float:
 def _regularized_beta(x: float, a: float, b: float, max_iter: int = 200) -> float:
     """Regularized incomplete beta function I_x(a,b) via Lentz's continued fraction.
 
+    Boundary cases are exact by definition: I_0(a,b) = 0 and I_1(a,b) = 1.
+    In the t-tail context, x=1 arises only when t=0; _t_upper_tail then returns
+    0.5 * 1 = 0.5, giving a two-tailed p-value of 1.0, which is correct.
+
     The symmetry relation I_x(a,b) = 1 - I_{1-x}(b,a) is applied when x is large
     (x > (a+1)/(a+b+2)) to keep x in the convergence region of the continued
     fraction and avoid numerical breakdown for x close to 1.
     """
     if x <= 0:
         return 0.0
-    if x >= 1:
+    if x >= 1:          # I_1(a,b) = 1 by definition
         return 1.0
     # Use symmetry for numerical stability when x is large
     if x > (a + 1.0) / (a + b + 2.0):

@@ -344,26 +344,38 @@ def _welch_t_test(vals1: list[float], vals2: list[float]) -> tuple[float | None,
     num = (v1 / n1 + v2 / n2) ** 2
     denom = (v1 / n1) ** 2 / (n1 - 1) + (v2 / n2) ** 2 / (n2 - 1)
     df = num / denom if denom > 0 else 1
-    # Two-tailed p-value using t-distribution approximation
+    # Two-tailed p-value: 2 * P(T ≥ |t|)  (_t_cdf_approx returns upper-tail P(T≥t))
     p = _t_cdf_approx(abs(t_stat), df) * 2
     return round(t_stat, 4), round(min(p, 1.0), 4)
 
 
 def _t_cdf_approx(t: float, df: float) -> float:
-    """Approximate upper-tail p-value for Student t-distribution.
-    Uses the regularized incomplete beta function approximation."""
+    """Return the upper-tail probability P(T ≥ t) for Student's t-distribution.
+
+    Uses the regularized incomplete beta function:
+      P(T ≥ t) = 0.5 * I_{df/(df+t²)}(df/2, 1/2)
+
+    For a two-tailed test: p = _t_cdf_approx(abs(t_stat), df) * 2
+    """
     x = df / (df + t * t)
-    # Regularized incomplete beta function approximation via continued fraction
     a, b = df / 2.0, 0.5
     return 0.5 * _regularized_beta(x, a, b)
 
 
 def _regularized_beta(x: float, a: float, b: float, max_iter: int = 200) -> float:
-    """Regularized incomplete beta function I_x(a,b) via Lentz's continued fraction."""
+    """Regularized incomplete beta function I_x(a,b) via Lentz's continued fraction.
+
+    The symmetry relation I_x(a,b) = 1 - I_{1-x}(b,a) is applied when x is large
+    (x > (a+1)/(a+b+2)) to keep x in the convergence region of the continued
+    fraction and avoid numerical breakdown for x close to 1.
+    """
     if x <= 0:
         return 0.0
     if x >= 1:
         return 1.0
+    # Use symmetry for numerical stability when x is large
+    if x > (a + 1.0) / (a + b + 2.0):
+        return 1.0 - _regularized_beta(1.0 - x, b, a, max_iter)
     # Use the log-beta prefix
     lbeta = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
     front = math.exp(a * math.log(x) + b * math.log(1 - x) - lbeta) / a

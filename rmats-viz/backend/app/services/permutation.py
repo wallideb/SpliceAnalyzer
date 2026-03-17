@@ -23,14 +23,12 @@ Algorithm (ΔΨ per event)
 
 Algorithm (scalar metric, auxiliary)
 --------------------------------------
-Events are split by the sign of their per-event ΔΨ into two groups:
-  G1 (ΔΨ < 0): more inclusion in condition 2.
-  G2 (ΔΨ > 0): more inclusion in condition 1.
-A scalar metric is extracted from the associated splice-feature record of
-each event (where available); the observed statistic is mean(G2) − mean(G1).
-Each permutation randomly reassigns event-to-group labels and recomputes
-the mean difference.  The same Phipson–Smyth p-value formula is used.
-The grouping variable is derived from the data (ΔΨ sign), not an external
+Events are split by the sign of their per-event ΔΨ into two groups (G1: ΔΨ < 0,
+G2: ΔΨ > 0).  A scalar metric is extracted from the associated splice-feature
+record of each event (where available); the observed statistic is
+mean(G2) − mean(G1).  Each permutation randomly reassigns event-to-group labels
+and recomputes the mean difference.  The same Phipson–Smyth p-value formula is
+used.  The grouping variable is derived from the data (ΔΨ sign), not an external
 experimental label; results should be interpreted as exploratory.
 The specific metrics tested are implementation details derived from the
 `features` list passed to `run_permutation` — they are not explicit
@@ -335,8 +333,6 @@ def run_permutation(
     )
 
     # ── Auxiliary metric permutation tests ──────────────────────────────────
-    # Split by ΔΨ = PSI1 − PSI2 sign: G1 (ΔΨ<0) = more included in cond 2,
-    # G2 (ΔΨ>0) = more included in cond 1.
     metric_results: list[MetricPermResult] = []
     if event_deltas:
         metric_results = _compute_metric_permutations(event_deltas, n_iterations, rng)
@@ -361,12 +357,7 @@ def _compute_metric_permutations(
     n_iterations: int,
     rng: random.Random,
 ) -> list[MetricPermResult]:
-    """Build per-metric permutation tests by splitting events on ΔΨ sign.
-
-    ΔΨ = PSI1 − PSI2 (rMATS convention).
-    G1 (ΔΨ < 0): more inclusion in condition 2.
-    G2 (ΔΨ > 0): more inclusion in condition 1.
-    """
+    """Build per-metric permutation tests by splitting events on ΔΨ sign (G1: ΔΨ<0, G2: ΔΨ>0)."""
     g1_feats = [f for d, f in event_deltas if d < 0 and f is not None]
     g2_feats = [f for d, f in event_deltas if d > 0 and f is not None]
 

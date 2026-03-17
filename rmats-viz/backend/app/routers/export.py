@@ -1666,10 +1666,15 @@ def _build_pdf(
 
     # ── Top SE events ──────────────────────────────────────────────────────
     story.append(PageBreak())
-    story.append(p(f"{section_n}. Top SE Events (ranked by FDR, |ΔΨ|)", "h2"))
+    _top_title = "Top Significant SE Events (ranked by FDR, |ΔΨ|)" if is_deep else "Top SE Events (ranked by FDR, |ΔΨ|)"
+    story.append(p(f"{section_n}. {_top_title}", "h2"))
     top_se = sorted(
-        [e for e in events if e.event_type == "SE" and e.fdr is not None],
-        key=lambda e: (e.fdr or 1, -(abs(e.inc_level_difference or 0))),
+        [
+            e for e in events
+            if e.event_type == "SE" and e.fdr is not None
+            and (not is_deep or sig_map is None or sig_map.get(e.id, False))
+        ],
+        key=lambda e: (e.fdr if e.fdr is not None else 1.0, -(abs(e.inc_level_difference or 0))),
     )[:20]
 
     if top_se:

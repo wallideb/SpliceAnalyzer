@@ -343,19 +343,21 @@ def _welch_t_test(vals1: list[float], vals2: list[float]) -> tuple[float | None,
     # Welch-Satterthwaite degrees of freedom
     num = (v1 / n1 + v2 / n2) ** 2
     denom = (v1 / n1) ** 2 / (n1 - 1) + (v2 / n2) ** 2 / (n2 - 1)
-    df = num / denom if denom > 0 else 1
-    # Two-tailed p-value: 2 * P(T ≥ |t|)  (_t_cdf_approx returns upper-tail P(T≥t))
-    p = _t_cdf_approx(abs(t_stat), df) * 2
-    return round(t_stat, 4), round(min(p, 1.0), 4)
+    if denom <= 0:
+        return None, None
+    df = num / denom
+    # Two-tailed p-value: 2 * P(T ≥ |t|)
+    p = min(1.0, 2.0 * _t_upper_tail_approx(abs(t_stat), df))
+    return t_stat, p
 
 
-def _t_cdf_approx(t: float, df: float) -> float:
+def _t_upper_tail_approx(t: float, df: float) -> float:
     """Return the upper-tail probability P(T ≥ t) for Student's t-distribution.
 
     Uses the regularized incomplete beta function:
       P(T ≥ t) = 0.5 * I_{df/(df+t²)}(df/2, 1/2)
 
-    For a two-tailed test: p = _t_cdf_approx(abs(t_stat), df) * 2
+    For a two-tailed test: p = min(1.0, 2.0 * _t_upper_tail_approx(abs(t_stat), df))
     """
     x = df / (df + t * t)
     a, b = df / 2.0, 0.5

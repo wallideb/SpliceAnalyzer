@@ -446,8 +446,10 @@ def compare_groups(
 def _bh_adjust(p_values: list[float]) -> list[float]:
     """Benjamini-Hochberg FDR adjustment.
 
-    Returns q-values in the same order as the input.  The step-down
-    cumulative-minimum enforces monotonicity (q[rank i] <= q[rank i+1]).
+    Returns q-values in the same order as the input.  BH adjusted p-values
+    are computed by sorting ascending on raw p-value, applying the BH scale
+    factor at each rank, then enforcing monotonicity via a cumulative minimum
+    scanned from the largest rank back to the smallest (q[rank i] <= q[rank i+1]).
     """
     n = len(p_values)
     if n == 0:
@@ -456,7 +458,7 @@ def _bh_adjust(p_values: list[float]) -> list[float]:
     adjusted = [0.0] * n
     for rank, idx in enumerate(order, start=1):
         adjusted[idx] = p_values[idx] * n / rank
-    # Enforce monotonicity: step down from largest rank
+    # Enforce monotonicity: cumulative minimum from largest rank back to smallest
     min_q = 1.0
     for idx in reversed(order):
         min_q = min(min_q, adjusted[idx])

@@ -1933,7 +1933,9 @@ def _build_pdf(
               "The test statistic is:", "body"),
             p("&nbsp;&nbsp;&nbsp;z = (p^<sub>1</sub> - p^<sub>2</sub>) / "
               "sqrt[ p^(1 - p^)(1/n<sub>1</sub> + 1/n<sub>2</sub>) ]", "code"),
-            p("Two-tailed p-values are computed from the standard normal CDF. "
+            p("Two-tailed p-values are computed from the normal CDF via the exact identity "
+              "Φ(x) = 0.5 × erfc(−x / √2); note that the two-proportion z-test itself is "
+              "a large-sample normal approximation, not an exact test. "
               "Raw p-values are adjusted across all testable (motif × region) pairs "
               "using the Benjamini-Hochberg FDR procedure (q &lt; 0.05). "
               "Groups with fewer than 5 events are skipped.", "body"),

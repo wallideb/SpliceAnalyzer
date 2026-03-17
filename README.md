@@ -677,7 +677,9 @@ The pattern comparison endpoint computes aggregate splice statistics for both th
 | Downstream acceptor AG rate | Two-proportion z-test | Length ≥ 23 bp guard applied |
 | Frame class fractions | Two-proportion z-test | Separate test per class |
 
-Welch's t-test and the two-tailed p-value are computed in pure Python (no NumPy/SciPy) using the Welch-Satterthwaite degrees-of-freedom formula and the exact regularized incomplete beta function (Lentz's continued-fraction algorithm).
+Welch's t-test and the two-tailed p-value are computed in pure Python (no NumPy/SciPy) using the Welch-Satterthwaite degrees-of-freedom formula and the numerically evaluated regularized incomplete beta function (Lentz's continued-fraction algorithm).
+
+No multiple-testing correction is applied across the pattern-comparison metrics. The panel of tests (Welch t-tests and two-proportion z-tests across ~9 metrics) is therefore exploratory; the family-wise false-positive risk is inflated at the stated per-test α, and results should be interpreted accordingly.
 
 Comparison sequence logos (frequency mode) are generated independently for each group.
 

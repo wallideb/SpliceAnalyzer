@@ -355,7 +355,7 @@ def _welch_t_test(vals1: list[float], vals2: list[float]) -> tuple[float | None,
 def _t_upper_tail(t: float, df: float) -> float:
     """Return the upper-tail probability P(T ≥ t) for Student's t-distribution.
 
-    Uses the exact regularized incomplete beta function:
+    Uses the numerically evaluated regularized incomplete beta function:
       P(T ≥ t) = 0.5 * I_{df/(df+t²)}(df/2, 1/2)
 
     For a two-tailed test: p = min(1.0, 2.0 * _t_upper_tail(abs(t_stat), df))

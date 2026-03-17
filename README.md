@@ -469,15 +469,19 @@ coverage = mean(IJC_i + SJC_i)   for all replicates i in the group
 
 Events where either group has `coverage < 10` or where coverage data is missing/unparseable for either group are discarded. This threshold prevents low-confidence events from inflating significant hit lists and is applied once at ingestion time.
 
-### 2. Event Clustering and Deduplication
+### 2. Ingestion Deduplication
 
-Event deduplication occurs in two stages at ingestion, followed by coordinate-based clustering:
+Event deduplication runs in two stages during TSV ingestion (`parser.py`):
 
 **Stage 1 — exact-coordinate deduplication (FDR-ranked):** Within each event type, rows sharing identical genomic coordinates are collapsed to the one with the lowest FDR (ties broken by highest |ΔΨ|). Rows with missing FDR are ranked last.
 
-**Stage 2 — overlap deduplication (p-value-ranked):** Within each (event type, gene, chromosome, strand) group, events whose skipped-exon boundaries fall within 50 bp of an already-retained event are removed. Ranking uses raw p-value (most significant first; ties by |ΔΨ|). Because stage 1 uses FDR and stage 2 uses p-value, the two stages can in principle select different "winners" for borderline events.
+**Stage 2 — overlap deduplication (p-value-ranked):** Within each (event type, gene, chromosome, strand) group, events whose skipped-exon start or end falls within 50 bp of an already-retained event are removed. The removal condition is OR (start-near **or** end-near), so two exons that share one boundary but differ by more than 50 bp on the other are still collapsed — this is intentionally conservative. Ranking for this stage uses raw p-value (most significant first; ties by |ΔΨ|).
 
-**Stage 3 — Union-Find clustering:** Near-identical SE events (arising from overlapping transcripts or minor coordinate differences) are further grouped using a **Union-Find (Disjoint Set Union)** algorithm. Two events are merged into the same cluster if they share the same chromosome and strand, and all four boundary coordinates differ by at most 50 bp. The representative event per cluster is the one with the lowest FDR.
+**Publication note:** Stage 1 sorts on FDR; stage 2 sorts on raw p-value. After multiple-testing correction these statistics can disagree, so the "best" event kept in each stage can differ for the same pair of near-duplicates. Both criteria should be reported in methods.
+
+### 2b. SE Event Clustering (Union-Find)
+
+A separate background task groups SE events across the database using a **Union-Find (Disjoint Set Union)** algorithm. This runs independently of ingestion deduplication. Two events are merged into the same cluster if they share the same chromosome and strand, and **both** skipped-exon boundaries (start and end) differ by at most 50 bp. The representative event per cluster is the one with the lowest FDR (tie-broken by p-value).
 
 ### 3. Splice Site Sequence Extraction
 

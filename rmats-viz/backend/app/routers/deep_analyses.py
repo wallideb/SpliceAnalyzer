@@ -380,7 +380,7 @@ def _regularized_beta(x: float, a: float, b: float, max_iter: int = 200) -> floa
         return 1.0 - _regularized_beta(1.0 - x, b, a, max_iter)
     # Use the log-beta prefix
     lbeta = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
-    front = math.exp(a * math.log(x) + b * math.log(1 - x) - lbeta) / a
+    front = math.exp(a * math.log(x) + b * math.log1p(-x) - lbeta) / a
 
     # Modified Lentz's algorithm for continued fraction
     f = 1.0
@@ -412,9 +412,9 @@ def _regularized_beta(x: float, a: float, b: float, max_iter: int = 200) -> floa
         d = 1.0 / d
         delta = c * d
         f *= delta
-        if abs(delta - 1.0) < 1e-8:
-            break
-    return front * f
+        if abs(delta - 1.0) < 3e-7:
+            return front * f
+    raise ArithmeticError("Incomplete beta continued fraction did not converge")
 
 
 def _proportion_z_test(k1: int, n1: int, k2: int, n2: int) -> tuple[float | None, float | None]:

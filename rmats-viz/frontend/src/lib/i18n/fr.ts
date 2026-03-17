@@ -328,7 +328,6 @@ export const fr: Translations = {
     fastaNotAvailable: "FASTA non disponible — tailles depuis coords uniquement",
     summarySeEvents: "Événements SE",
     summaryAnalyzed: "Analysés (seq.)",
-    summaryClusters: "Clusters",
     sectionConsensus: "Exon consensus — vue d'ensemble cohorte",
     sectionExonSizes: "Distribution des tailles d'exons sautés (nt)",
     statMean: "Moy.",

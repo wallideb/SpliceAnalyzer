@@ -39,7 +39,6 @@
   - [Exporting Results](#exporting-results)
 - [Methodology](#methodology)
   - [Coverage Filtering](#1-coverage-filtering)
-  - [Event Clustering](#2-event-clustering)
   - [Splice Site Sequence Extraction](#3-splice-site-sequence-extraction)
   - [Splice Site Signals](#4-splice-site-signals)
   - [Polypyrimidine Tract](#5-polypyrimidine-tract-ppt)
@@ -103,7 +102,6 @@ The application supports all five rMATS event types:
 - **Polypyrimidine tract (PPT)** &mdash; Score (C+T fraction) and longest consecutive pyrimidine run in the ~47 nt upstream of the 3'SS
 - **Branch-point detection** &mdash; Rule-based YNYURAY motif search with positional scoring (0&ndash;7 scale) and distance to 3'SS
 - **Exon and intron sizing** &mdash; Skipped exon length plus upstream and downstream intron sizes
-- **Event clustering** &mdash; Union-Find algorithm deduplicates near-identical SE events sharing exon boundaries within a 50 bp threshold
 - **Aggregate pattern analysis** &mdash; Position Weight Matrices (PWM), IUPAC consensus sequences, and statistical summaries across all SE events
 - **Sequence source flexibility** &mdash; Primary extraction from local GRCh38 FASTA via `samtools faidx` (batched, chunked at 5 000 regions per call), with automatic Ensembl REST API fallback when FASTA is unavailable
 
@@ -203,7 +201,7 @@ SpliceAnalyzer/
     │       ├── models/
     │       │   ├── analysis.py          # Analysis, SampleGroup
     │       │   ├── event.py             # SplicingEvent
-    │       │   ├── splice.py            # EventCluster, EventSpliceFeature
+    │       │   ├── splice.py            # EventSpliceFeature
     │       │   └── deep_analysis.py     # DeepAnalysis, DeepAnalysisEvent
     │       ├── routers/
     │       │   ├── analyses.py          # Analysis CRUD + file upload
@@ -217,7 +215,6 @@ SpliceAnalyzer/
     │       └── services/
     │           ├── parser.py            # rMATS TSV parsing + coverage filter
     │           ├── event_selector.py    # Event ranking by FDR / ΔΨ
-    │           ├── event_cluster.py     # Union-Find SE event deduplication
     │           ├── sequence.py          # samtools faidx wrapper (chunked batching)
     │           ├── splice_features.py   # GT-AG, PPT score, branch-point
     │           ├── mane.py              # MANE Select transcript + frame class
@@ -479,10 +476,6 @@ Event deduplication runs in two stages during TSV ingestion (`parser.py`):
 
 **Publication note:** Stage 1 sorts on FDR; stage 2 sorts on raw p-value. After multiple-testing correction these statistics can disagree, so the "best" event kept in each stage can differ for the same pair of near-duplicates. Both criteria should be reported in methods.
 
-### 2b. SE Event Clustering (Union-Find)
-
-A separate background task groups SE events across the database using a **Union-Find (Disjoint Set Union)** algorithm. This runs independently of ingestion deduplication. Two events are merged into the same cluster if they share the same chromosome and strand, and **both** skipped-exon boundaries (start and end) differ by at most 50 bp. The representative event per cluster is the one with the lowest FDR (tie-broken by p-value).
-
 ### 3. Splice Site Sequence Extraction
 
 Genomic sequences are extracted using `samtools faidx` from a locally indexed GRCh38 FASTA. Coordinates follow the rMATS/BED convention (0-based start, exclusive end); these are converted to the 1-based inclusive format expected by samtools.
@@ -710,7 +703,6 @@ Background task that runs once per analysis. Events are processed in chunks of 2
 | Sequence extraction | 100 k × 5 = 500 k regions, ~100 samtools calls (5 k regions each) | 10–30 s |
 | MANE annotation + feature compute | Local GFF3 lookup + per-event arithmetic (parallel, semaphore 20) | 5–15 s |
 | DB writes | Bulk upsert, 1 round-trip per 2 000-event chunk | 1–3 s |
-| Event clustering | Union-Find across all SE events | <1 s |
 | **Total (local FASTA + warm MANE cache)** | | **~20–55 s** |
 
 > If the local MANE GFF3 is missing, each event falls back to the Ensembl REST API (3 calls per event). Ensure `MANE_GFF3` is configured at startup to avoid this.
@@ -809,11 +801,11 @@ The backend exposes a versioned REST API under `/api/v1`. Full interactive docum
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/v1/splice/compute/{analysis_id}` | Compute splice features + clusters for all SE events |
+| `POST` | `/api/v1/splice/compute/{analysis_id}` | Compute splice features for all SE events |
 | `GET` | `/api/v1/splice/feature/{event_id}` | Per-event features (computed on-the-fly if not cached) |
 | `GET` | `/api/v1/splice/patterns/{analysis_id}` | Aggregate pattern analysis (PWM, consensus, frame stats) |
 
-> The compute endpoint is **idempotent** &mdash; re-running overwrites existing feature rows and refreshes clusters. It requires the GRCh38 FASTA for sequence features; if unavailable, size-only features are computed.
+> The compute endpoint is **idempotent** &mdash; re-running overwrites existing feature rows. It requires the GRCh38 FASTA for sequence features; if unavailable, size-only features are computed.
 
 ### Gene Annotations API
 

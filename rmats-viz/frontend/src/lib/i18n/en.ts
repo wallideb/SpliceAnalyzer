@@ -325,7 +325,6 @@ export const en = {
     fastaNotAvailable: "FASTA not available — sizes from coordinates only",
     summarySeEvents: "SE Events",
     summaryAnalyzed: "Analyzed (seq.)",
-    summaryClusters: "Clusters",
     sectionConsensus: "Consensus exon — cohort overview",
     sectionExonSizes: "Skipped exon size distribution (nt)",
     statMean: "Mean",

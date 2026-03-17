@@ -49,7 +49,6 @@ export interface ComputeJobResponse {
   analysis_id: string;
   n_se_events: number;
   n_computed: number;
-  n_clusters: number;
   fasta_available: boolean;
   message: string;
 }
@@ -147,7 +146,6 @@ export interface PatternAnalysisResponse {
   analysis_id: string;
   n_se_events: number;
   n_analyzed: number;
-  clusters: { n_raw_events: number; n_clusters: number };
   fasta_available: boolean;
   // Significance thresholds
   fdr_threshold: number;

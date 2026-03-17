@@ -13,7 +13,7 @@ from app.database import AsyncSessionLocal, get_db
 from app.models.analysis import Analysis, SampleGroup
 from app.models.deep_analysis import DeepAnalysis, DeepAnalysisEvent
 from app.models.event import SplicingEvent
-from app.models.splice import EventCluster, EventSpliceFeature
+from app.models.splice import EventSpliceFeature
 from app.schemas.analysis import AnalysisListItem, AnalysisResponse, UploadResponse
 from app.services.parser import parse_and_store
 
@@ -55,32 +55,25 @@ async def _do_delete(analysis_id: uuid.UUID) -> None:
             )
             logger.info("DELETE /analyses/%s — deleted %d event_splice_features", analysis_id, r.rowcount)
 
-            # 3. Delete event_cluster (direct analysis_id FK).
-            #    rep_event_id (FK → splicing_events) is removed with the row — no prior NULL needed.
-            r = await db.execute(
-                delete(EventCluster).where(EventCluster.analysis_id == analysis_id)
-            )
-            logger.info("DELETE /analyses/%s — deleted %d event_clusters", analysis_id, r.rowcount)
-
-            # 4. Delete deep_analyses (direct analysis_id FK; deep_analysis_events already gone).
+            # 3. Delete deep_analyses (direct analysis_id FK; deep_analysis_events already gone).
             r = await db.execute(
                 delete(DeepAnalysis).where(DeepAnalysis.analysis_id == analysis_id)
             )
             logger.info("DELETE /analyses/%s — deleted %d deep_analyses", analysis_id, r.rowcount)
 
-            # 5. Delete splicing_events (direct analysis_id FK; all dependents already gone).
+            # 4. Delete splicing_events (direct analysis_id FK; all dependents already gone).
             r = await db.execute(
                 delete(SplicingEvent).where(SplicingEvent.analysis_id == analysis_id)
             )
             logger.info("DELETE /analyses/%s — deleted %d splicing_events", analysis_id, r.rowcount)
 
-            # 6. Delete sample_groups (direct analysis_id FK).
+            # 5. Delete sample_groups (direct analysis_id FK).
             r = await db.execute(
                 delete(SampleGroup).where(SampleGroup.analysis_id == analysis_id)
             )
             logger.info("DELETE /analyses/%s — deleted %d sample_groups", analysis_id, r.rowcount)
 
-            # 7. Delete the analysis itself (all dependents gone; CASCADE finds nothing).
+            # 6. Delete the analysis itself (all dependents gone; CASCADE finds nothing).
             r = await db.execute(
                 delete(Analysis).where(Analysis.id == analysis_id)
             )

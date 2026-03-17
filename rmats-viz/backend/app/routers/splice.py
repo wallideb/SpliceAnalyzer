@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import AsyncSessionLocal, get_db
 from app.models.event import SplicingEvent
 from app.models.deep_analysis import DeepAnalysis, DeepAnalysisEvent
-from app.models.splice import EventCluster, EventSpliceFeature
+from app.models.splice import EventSpliceFeature
 from app.schemas.splice import (
     ComputeJobResponse,
     SpliceFeatureResponse,
@@ -43,11 +43,9 @@ from app.schemas.splice import (
     SiteStats,
     PPTStats,
     FrameStats,
-    ClusterInfo,
     MetricPermResult,
     PermutationResponse,
 )
-from app.services.event_cluster import cluster_se_events
 from app.services.mane import annotate_mane, get_transcript_exons
 from app.services.permutation import run_permutation, _make_histogram
 from app.services.sequence import (
@@ -261,8 +259,6 @@ _COMPUTE_CHUNK = 2_000  # events processed per MANE/feature chunk
 # asyncpg hard-limits query parameters to 32 767.  Each EventSpliceFeature row
 # has 25 columns, so the safe DB-write batch size is floor(32767 / 25) = 1310.
 _DB_WRITE_BATCH = 1_000  # keep a round number well under the limit
-# EventCluster has 10 columns → floor(32767 / 10) = 3276; use 1000 to be safe.
-_CLUSTER_WRITE_BATCH = 1_000
 
 
 async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
@@ -397,30 +393,6 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                 if chunk_start % 1000 == 0:
                     logger.info("Compute progress: %d/%d", n_computed, n_total)
 
-            clusters = cluster_se_events(se_events)
-            await db.execute(
-                delete(EventCluster).where(EventCluster.analysis_id == analysis_id)
-            )
-            if clusters:
-                cluster_rows = [
-                    dict(
-                        id=cl.cluster_id,
-                        analysis_id=analysis_id,
-                        gene_symbol=cl.gene_symbol,
-                        chr=cl.chr,
-                        strand=cl.strand,
-                        exon_start=cl.exon_start,
-                        exon_end=cl.exon_end,
-                        n_events=cl.n_events,
-                        source_ids=[str(i) for i in cl.source_ids],
-                        rep_event_id=(uuid.UUID(cl.rep_event_id) if cl.rep_event_id else None),
-                    )
-                    for cl in clusters
-                ]
-                for ci in range(0, len(cluster_rows), _CLUSTER_WRITE_BATCH):
-                    sub_cl = cluster_rows[ci : ci + _CLUSTER_WRITE_BATCH]
-                    await db.execute(pg_insert(EventCluster).values(sub_cl))
-            await db.commit()
             logger.info("Background compute done: %d/%d SE events for %s", n_computed, n_total, analysis_id)
     except Exception as exc:
         logger.error("Background compute task crashed for %s: %s", analysis_id, exc)
@@ -432,7 +404,7 @@ async def compute_splice_features(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger background computation of splice features + clusters.
+    """Trigger background computation of splice features.
 
     Returns 202 Accepted immediately; the actual work runs in the background.
     Poll GET /splice/patterns/{analysis_id} to know when data is available.
@@ -454,7 +426,6 @@ async def compute_splice_features(
         analysis_id=str(analysis_id),
         n_se_events=0,   # unknown at this point — computation is async
         n_computed=0,
-        n_clusters=0,
         fasta_available=fa_ok,
         message="Computation started in background. Poll /splice/progress/{id} for progress.",
     )
@@ -666,13 +637,6 @@ async def get_splice_patterns(
     if not rows:
         raise HTTPException(404, "No SE events (with features) for this analysis")
 
-    # Cluster count (use SQL count instead of loading all cluster objects)
-    from sqlalchemy import func as sqla_func
-    cl_count_res = await db.execute(
-        select(sqla_func.count(EventCluster.id)).where(EventCluster.analysis_id == analysis_id)
-    )
-    n_clusters = cl_count_res.scalar() or 0
-
     # ── Single-pass aggregation over all rows ─────────────────────────────
     # Avoids 7+ separate iterations over 200k rows.
     sizes: list[int] = []
@@ -853,10 +817,6 @@ async def get_splice_patterns(
         analysis_id                 = str(analysis_id),
         n_se_events                 = len(rows),
         n_analyzed                  = n_with_seq,
-        clusters                    = ClusterInfo(
-            n_raw_events = len(rows),
-            n_clusters   = n_clusters,
-        ),
         fasta_available             = bool(n_with_seq),
         fdr_threshold               = fdr_threshold,
         abs_delta_psi_min           = abs_delta_psi_min,

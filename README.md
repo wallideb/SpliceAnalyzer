@@ -33,7 +33,6 @@
 - [Usage Guide](#usage-guide)
   - [Creating an Analysis](#creating-an-analysis)
   - [Browsing Events](#browsing-events)
-  - [Event Cards](#event-cards)
   - [Deep Splice Analysis](#deep-splice-analysis)
   - [Gene Annotations](#gene-annotations)
   - [Exporting Results](#exporting-results)
@@ -93,8 +92,6 @@ The application supports all five rMATS event types:
 - **Coverage filtering** &mdash; Events with mean per-replicate junction coverage (IJC + SJC) below 10X in either sample group are automatically filtered out on import
 - **Analysis management** &mdash; Create, list, navigate, and delete named analyses
 - **Event browser** &mdash; Sortable, filterable, paginated table of all splicing events with support for filtering by event type, gene symbol, FDR threshold, P-value, and minimum |&Delta;&Psi;|
-- **Event ranking** &mdash; Significant events ranked by statistical significance (FDR) and inclusion-level difference (|&Delta;&Psi;|), displayed as annotated cards
-- **Gene basket** &mdash; Collect genes of interest across analyses for batch annotation and export
 - **Dark mode** &mdash; Toggle-able theme with persistent preference via `localStorage`
 - **Internationalisation** &mdash; Full English / French language switcher; all UI strings are externalized
 
@@ -128,7 +125,6 @@ A second-pass module that partitions events into **significant** and **non-signi
 - **PanelApp disease panels** &mdash; Queries PanelApp Australia (with PanelApp UK fallback) for diagnostic gene panel membership and confidence ratings (green/amber/red); circuit breaker prevents cascade timeouts on unreachable instances
 - **Gene Ontology** &mdash; Retrieves GO terms (Biological Process, Molecular Function, Cellular Component) via mygene.info
 - **UniProt** &mdash; Fetches reviewed protein function summaries
-- **STRING-DB interactions** &mdash; Protein-protein interaction combined scores between gene pairs, with Europe PMC literature PMIDs
 
 ### Export
 
@@ -366,18 +362,6 @@ The event browser (`/analyses/{id}`) provides a fully interactive table with:
 - **Pagination** &mdash; Configurable page size
 - **Direction-of-effect badges** &mdash; Visual indicators for exon skipping vs. inclusion
 
-### Event Cards
-
-The event cards view displays significant events ranked by FDR and |&Delta;&Psi;|. Each event card includes:
-
-- **SpliceView** &mdash; Schematic of the splicing event with inclusion/exclusion levels
-- **ExonDiagram** &mdash; Interactive exon-intron diagram with donor/acceptor/PPT/branch-point annotations
-- **SpliceSiteTrack** &mdash; All 4 SE splice sites (upstream, skipped 5', skipped 3', downstream)
-- **Sequence source badge** &mdash; Indicates whether sequences come from local FASTA or Ensembl REST fallback
-- **PermutationPanel** &mdash; Interactive permutation test results (per-event |&Delta;&Psi;| empirical p-values at multiple iteration counts)
-- **ScienceNote** &mdash; Collapsible citation widgets linking to primary literature
-- **AnnotatedCard** &mdash; Gene annotations (PanelApp, GO, UniProt, STRING-DB) in tabbed panels
-
 ### Deep Splice Analysis
 
 The deep analysis page (`/analyses/{id}/deep-analysis`) enables a two-group partitioning of SE events for comparative analysis. The workflow is:
@@ -414,7 +398,6 @@ Search for any gene by HUGO symbol using the Ensembl-backed autocomplete. The an
 - **PanelApp** &mdash; Disease panels and confidence level (green = diagnostic grade)
 - **Gene Ontology** &mdash; Top 3 terms per category (BP, MF, CC)
 - **UniProt** &mdash; Reviewed protein function summary
-- **STRING-DB** &mdash; Interaction scores with other genes in the analysis, plus supporting literature PMIDs
 
 ### Exporting Results
 
@@ -767,7 +750,6 @@ The backend exposes a versioned REST API under `/api/v1`. Full interactive docum
 | `GET` | `/api/v1/analyses/{id}` | Get analysis details + sample groups |
 | `DELETE` | `/api/v1/analyses/{id}` | Delete analysis and all associated data asynchronously (returns 204 immediately; deletion runs in a background task with explicit ordered deletes; status set to `deleting` during cleanup, reset to `error` on failure) |
 | `GET` | `/api/v1/analyses/{id}/events` | Paginated, filterable event list |
-| `GET` | `/api/v1/analyses/{id}/events/top10` | Ranked significant events by FDR |
 
 **Event query parameters:**
 

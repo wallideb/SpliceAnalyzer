@@ -423,7 +423,18 @@ def _regularized_beta(x: float, a: float, b: float, max_iter: int = 200) -> floa
 
 
 def _proportion_z_test(k1: int, n1: int, k2: int, n2: int) -> tuple[float | None, float | None]:
-    """Two-proportion z-test. Returns (z_stat, p_value) or (None, None)."""
+    """Standard pooled two-proportion z-test for H0: p1 = p2.
+
+    Uses the pooled proportion p_pool = (k1+k2)/(n1+n2) to estimate the common
+    proportion under H0, giving SE = sqrt(p_pool*(1-p_pool)*(1/n1+1/n2)).
+    The two-tailed p-value is 2*(1 - Phi(|z|)).
+
+    This is a large-sample normal approximation, not an exact test.  For small
+    expected counts Fisher's exact test is generally preferred.  No continuity
+    correction is applied.  SE = 0 (and None is returned) whenever p_pool is 0
+    or 1, i.e. all observations across both groups are failures or all are
+    successes; the test is undefined in that case.
+    """
     if n1 < 1 or n2 < 1:
         return None, None
     p1 = k1 / n1
@@ -439,7 +450,12 @@ def _proportion_z_test(k1: int, n1: int, k2: int, n2: int) -> tuple[float | None
 
 
 def _normal_cdf(x: float) -> float:
-    """Standard normal CDF approximation (Abramowitz & Stegun)."""
+    """Standard normal CDF via the identity Phi(x) = 0.5 * erfc(-x / sqrt(2)).
+
+    The identity is mathematically exact; the numerical result depends on the
+    precision of math.erfc (Python's C-library implementation), not on any
+    hand-coded Abramowitz-Stegun approximation.
+    """
     return 0.5 * math.erfc(-x / math.sqrt(2))
 
 

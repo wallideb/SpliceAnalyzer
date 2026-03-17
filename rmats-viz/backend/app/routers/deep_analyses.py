@@ -336,28 +336,29 @@ def _welch_t_test(vals1: list[float], vals2: list[float]) -> tuple[float | None,
     m1, m2 = statistics.mean(vals1), statistics.mean(vals2)
     v1 = statistics.variance(vals1)
     v2 = statistics.variance(vals2)
-    se = math.sqrt(v1 / n1 + v2 / n2)
-    if se == 0:
+    se2 = v1 / n1 + v2 / n2
+    if se2 <= 0.0 or not math.isfinite(se2):
         return None, None
-    t_stat = (m1 - m2) / se
     # Welch-Satterthwaite degrees of freedom
-    num = (v1 / n1 + v2 / n2) ** 2
     denom = (v1 / n1) ** 2 / (n1 - 1) + (v2 / n2) ** 2 / (n2 - 1)
-    if denom <= 0:
+    if denom <= 0.0 or not math.isfinite(denom):
         return None, None
-    df = num / denom
+    df = se2 ** 2 / denom
+    if not math.isfinite(df) or df <= 0.0:
+        return None, None
+    t_stat = (m1 - m2) / math.sqrt(se2)
     # Two-tailed p-value: 2 * P(T ≥ |t|)
-    p = min(1.0, 2.0 * _t_upper_tail_approx(abs(t_stat), df))
+    p = min(1.0, 2.0 * _t_upper_tail(abs(t_stat), df))
     return t_stat, p
 
 
-def _t_upper_tail_approx(t: float, df: float) -> float:
+def _t_upper_tail(t: float, df: float) -> float:
     """Return the upper-tail probability P(T ≥ t) for Student's t-distribution.
 
-    Uses the regularized incomplete beta function:
+    Uses the exact regularized incomplete beta function:
       P(T ≥ t) = 0.5 * I_{df/(df+t²)}(df/2, 1/2)
 
-    For a two-tailed test: p = min(1.0, 2.0 * _t_upper_tail_approx(abs(t_stat), df))
+    For a two-tailed test: p = min(1.0, 2.0 * _t_upper_tail(abs(t_stat), df))
     """
     x = df / (df + t * t)
     a, b = df / 2.0, 0.5

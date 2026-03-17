@@ -476,6 +476,8 @@ Event deduplication runs in two stages during TSV ingestion (`parser.py`):
 
 **Publication note:** Stage 1 sorts on FDR; stage 2 sorts on raw p-value. After multiple-testing correction these statistics can disagree, so the "best" event kept in each stage can differ for the same pair of near-duplicates. Both criteria should be reported in methods.
 
+> **Methods statement:** Events were deduplicated in two sequential stages. First, exact duplicate events sharing the same event-specific genomic key were collapsed by retaining the event with the lowest FDR, breaking ties by the largest absolute ΔΨ. Second, within each (event_type, gene_id, chr, strand) group, near-duplicate events were greedily removed after sorting by ascending p-value and descending absolute ΔΨ; an event was discarded if either its exon start or exon end coordinate lay within 50 bp of any previously retained event. Because this second pass already suppresses overlap-defined duplicates, a subsequent event-clustering step on the retained events was uninformative in practice.
+
 ### 3. Splice Site Sequence Extraction
 
 Genomic sequences are extracted using `samtools faidx` from a locally indexed GRCh38 FASTA. Coordinates follow the rMATS/BED convention (0-based start, exclusive end); these are converted to the 1-based inclusive format expected by samtools.

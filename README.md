@@ -469,9 +469,15 @@ coverage = mean(IJC_i + SJC_i)   for all replicates i in the group
 
 Events where either group has `coverage < 10` or where coverage data is missing/unparseable for either group are discarded. This threshold prevents low-confidence events from inflating significant hit lists and is applied once at ingestion time.
 
-### 2. Event Clustering
+### 2. Event Clustering and Deduplication
 
-Near-identical SE events (arising from overlapping transcripts or minor coordinate differences) are deduplicated using a **Union-Find (Disjoint Set Union)** algorithm. Two events are merged into the same cluster if they share the same chromosome and strand, and all four boundary coordinates (upstream exon end, skipped exon start, skipped exon end, downstream exon start) differ by at most 50 bp. The representative event per cluster is the one with the lowest FDR.
+Event deduplication occurs in two stages at ingestion, followed by coordinate-based clustering:
+
+**Stage 1 — exact-coordinate deduplication (FDR-ranked):** Within each event type, rows sharing identical genomic coordinates are collapsed to the one with the lowest FDR (ties broken by highest |ΔΨ|). Rows with missing FDR are ranked last.
+
+**Stage 2 — overlap deduplication (p-value-ranked):** Within each (event type, gene, chromosome, strand) group, events whose skipped-exon boundaries fall within 50 bp of an already-retained event are removed. Ranking uses raw p-value (most significant first; ties by |ΔΨ|). Because stage 1 uses FDR and stage 2 uses p-value, the two stages can in principle select different "winners" for borderline events.
+
+**Stage 3 — Union-Find clustering:** Near-identical SE events (arising from overlapping transcripts or minor coordinate differences) are further grouped using a **Union-Find (Disjoint Set Union)** algorithm. Two events are merged into the same cluster if they share the same chromosome and strand, and all four boundary coordinates differ by at most 50 bp. The representative event per cluster is the one with the lowest FDR.
 
 ### 3. Splice Site Sequence Extraction
 
@@ -611,10 +617,10 @@ Minus-strand events are reverse-complemented before scanning.
 
 For each of the 95 (motif, region) pairs:
 
-1. Compute **hit rate** = fraction of events with ≥ 1 motif occurrence
-2. Compare significant vs. background groups using a **two-proportion z-test** (pooled proportion estimator)
-3. Apply **Bonferroni correction** across all 95 tests: `p_adj = min(p × 95, 1.0)`
-4. Report associations with `p_adj < 0.05` as significant
+1. Compute **hit rate** = fraction of events with ≥ 1 motif occurrence (binary, not density)
+2. Compare significant vs. background groups using a **standard pooled two-proportion z-test** (large-sample normal approximation)
+3. Apply **Benjamini-Hochberg FDR correction** across all testable (motif × region) pairs
+4. Report associations with q < 0.05 as significant
 
 Mean motif density (fraction of nucleotides covered by overlapping motif hits) is also reported per group.
 
@@ -652,7 +658,7 @@ Unique HGNC gene symbols from significant events are submitted to the **Enrichr 
 
 3. Return top 10 terms per library by adjusted p-value
 
-The **combined score** = |z-score| × log(p-value), where z-score measures deviation from a random gene-list background (Enrichr's internal model) and p-value is from Fisher's exact test. FDR adjustment uses Benjamini-Hochberg correction applied internally by Enrichr.
+The **combined score** = |z-score| × ln(p-value) (natural logarithm; Chen et al., 2013), where z-score measures deviation from a random gene-list background (Enrichr's internal model) and p-value is from Fisher's exact test. FDR adjustment uses Benjamini-Hochberg correction applied internally by Enrichr.
 
 All Enrichr HTTP calls are issued inside `asyncio.to_thread` to avoid blocking the event loop. The five library GETs are dispatched in parallel (one thread per library via `ThreadPoolExecutor`), so total network time is ~1× latency rather than 5×.
 

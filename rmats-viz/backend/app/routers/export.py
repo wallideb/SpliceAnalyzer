@@ -1110,10 +1110,9 @@ def _build_pdf(
                             donor_logo,
                             caption(
                                 "Skipped exon 5'SS donor splice site sequence logo (9 nt: 3 nt exon + 6 nt intron). "
-                                "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
-                                "e<sub>n</sub> = (s-1)/(2 ln2 n). Canonical GT at positions +1/+2 highlighted in yellow. "
-                                f"n = {n_donor} sequences. "
-                                "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+                                "Letter height ∝ nucleotide frequency (frequency mode; columns always full height; no IC scaling). "
+                                "Canonical GT at positions +1/+2 highlighted in yellow. "
+                                f"n = {n_donor} sequences."
                             ),
                         ]),
                         sp(),
@@ -1128,10 +1127,9 @@ def _build_pdf(
                             acceptor_logo,
                             caption(
                                 "Skipped exon 3'SS acceptor splice site sequence logo (23 nt: 20 nt intron + 3 nt exon). "
-                                "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
+                                "Letter height ∝ nucleotide frequency (frequency mode; columns always full height; no IC scaling). "
                                 "Canonical AG at positions -2/-1 highlighted in yellow. "
-                                f"n = {n_acc} sequences. "
-                                "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+                                f"n = {n_acc} sequences."
                             ),
                         ]),
                         sp(),
@@ -1309,9 +1307,8 @@ def _build_pdf(
             ))
         _block.append(caption(
             "Skipped exon 5'SS donor sequence logos: significant vs non-significant events. "
-            "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
-            "Canonical GT at positions +1/+2 highlighted. "
-            "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+            "Letter height ∝ nucleotide frequency (frequency mode; columns always full height; no IC scaling). "
+            "Canonical GT at positions +1/+2 highlighted."
         ))
         story += [KeepTogether(_block), sp()]
 
@@ -1349,9 +1346,8 @@ def _build_pdf(
             ))
         _block.append(caption(
             "Skipped exon 3'SS acceptor sequence logos: significant vs non-significant events. "
-            "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
-            "Canonical AG at positions -2/-1 highlighted. "
-            "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+            "Letter height ∝ nucleotide frequency (frequency mode; columns always full height; no IC scaling). "
+            "Canonical AG at positions -2/-1 highlighted."
         ))
         story += [KeepTogether(_block), sp()]
 
@@ -1618,8 +1614,8 @@ def _build_pdf(
             f"Gene symbols from significant events (n = {n_genes} unique genes) were submitted "
             "to the Enrichr REST API (Ma'ayan Lab). Enrichment was computed against five curated "
             "gene-set libraries: KEGG 2021, GO Biological Process, GO Molecular Function, "
-            "Reactome 2022, and WikiPathways 2023. The combined score = |z-score| × log(p-value) "
-            "(Chen et al., 2013).",
+            "Reactome 2022, and WikiPathways 2023. The combined score = |z-score| × ln(p-value) "
+            "(natural logarithm; Chen et al., 2013).",
             "body",
         ))
         story.append(sp(0.2))
@@ -1816,10 +1812,11 @@ def _build_pdf(
               "curated gene-set libraries: KEGG 2021 Human, GO Biological Process 2023, GO "
               "Molecular Function 2023, Reactome 2022, and WikiPathways 2023 Human.", "body"),
             p("For each term the Enrichr combined score is defined as: "
-              "CS = |z| × log(p), where z is the deviation from a random background (computed "
-              "by Enrichr using a random gene-list model) and p is the Fisher's exact test "
-              "p-value. FDR-adjusted p-values use Benjamini-Hochberg correction applied "
-              "internally by Enrichr. The top 10 terms per library by adjusted p-value are "
+              "CS = |z| × ln(p), where ln is the natural logarithm, z is the deviation "
+              "from a random background (computed by Enrichr using a random gene-list model) "
+              "and p is the Fisher's exact test p-value. FDR-adjusted p-values use "
+              "Benjamini-Hochberg correction applied internally by Enrichr. "
+              "The top 10 terms per library by adjusted p-value are "
               "retained and displayed in this report.", "body"),
         ]
     story.append(sp())
@@ -1937,15 +1934,16 @@ def _build_pdf(
             p("&nbsp;&nbsp;&nbsp;z = (p^<sub>1</sub> - p^<sub>2</sub>) / "
               "sqrt[ p^(1 - p^)(1/n<sub>1</sub> + 1/n<sub>2</sub>) ]", "code"),
             p("Two-tailed p-values are computed from the standard normal CDF. "
-              "Bonferroni correction multiplies each p-value by the number of tests "
-              "(95 = 5 regions × 19 motifs). Groups with fewer than 5 events are skipped.", "body"),
+              "Raw p-values are adjusted across all testable (motif × region) pairs "
+              "using the Benjamini-Hochberg FDR procedure (q &lt; 0.05). "
+              "Groups with fewer than 5 events are skipped.", "body"),
             p("<b>C.7 Enrichr Combined Score</b>", "h3"),
             p("The Enrichr combined score (Chen et al., 2013 [9]) is defined as:", "body"),
-            p("&nbsp;&nbsp;&nbsp;CS = |z| × log(p)", "code"),
-            p("where z is the z-score computed by Enrichr against a random background model "
-              "(draws from the full human gene set) and p is the Fisher's exact test p-value "
-              "for overlap between the submitted gene list and the gene set. "
-              "A higher CS indicates stronger enrichment signal beyond background expectation. "
+            p("&nbsp;&nbsp;&nbsp;CS = |z| × ln(p)", "code"),
+            p("where ln is the natural logarithm, z is the z-score computed by Enrichr against "
+              "a random background model (draws from the full human gene set), and p is the "
+              "Fisher's exact test p-value for overlap between the submitted gene list and the "
+              "gene set. A higher CS indicates stronger enrichment signal beyond background expectation. "
               "BH-FDR adjusted p-values are applied within each library.", "body"),
         ]
     story.append(sp())

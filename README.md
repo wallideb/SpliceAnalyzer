@@ -110,7 +110,7 @@ The application supports all five rMATS event types:
 A second-pass module that partitions events into **significant** and **non-significant** groups using user-defined FDR and |&Delta;&Psi;| thresholds, then runs the following analyses across groups:
 
 - **Pattern comparison** &mdash; Side-by-side group statistics: GT-AG canonical rates, PPT score distributions, exon/intron size distributions, frame-class breakdown, comparison sequence logos; Welch's t-test and two-proportion z-test for each metric
-- **hnRNP motif enrichment** &mdash; rMAPS2-inspired analysis scanning five genomic regions around each SE event for 19 consensus hnRNP binding motifs; two-proportion z-test per motif–region pair with Bonferroni correction (n = 95)
+- **hnRNP motif enrichment** &mdash; rMAPS2-inspired analysis scanning five genomic regions around each SE event for 19 consensus hnRNP binding motifs; two-proportion z-test per motif–region pair with Benjamini-Hochberg FDR correction (q &lt; 0.05, 95 tests)
 - **Pathway enrichment (Enrichr)** &mdash; Significant-event gene symbols submitted to the Enrichr REST API against five curated gene-set libraries; top terms per library by adjusted p-value
 - **Permutation testing** &mdash; Per-event |&Delta;&Psi;| significance testing against a null distribution of permuted sample labels
 
@@ -529,15 +529,16 @@ Each skipped exon is mapped to its **MANE Select** transcript (the clinically va
 1. **Local GFF3** — If `MANE.GRCh38.ensembl_genomic.gff.gz` is present, CDS intervals are parsed directly (fast, no network required)
 2. **Ensembl REST API** — Fallback when the GFF3 is unavailable; queries `/lookup/id/{gene_id}` + `/overlap/id/{transcript_id}` for exon and CDS features
 
-The exon is classified by its overlap with the CDS:
+The exon is classified (`frame_class`) by its relationship to the CDS:
 
 | Class | Condition |
 |-------|-----------|
-| `in_frame` | Exon fully within CDS; `cds_exon_length % 3 == 0` |
-| `frameshift` | Exon fully within CDS; `cds_exon_length % 3 != 0` |
-| `non_coding` | Exon entirely within UTR5 or UTR3 |
-| `partial` | Exon spans a CDS boundary |
-| `unknown` | No MANE transcript found or lookup failed |
+| `in_frame` | CDS-overlapping exon length divisible by 3 (exon fully or partially within CDS) |
+| `frameshift` | CDS-overlapping exon length not divisible by 3 (exon fully or partially within CDS) |
+| `non_coding` | Exon entirely within UTR or no CDS overlap |
+| `unknown` | No MANE Select transcript found or lookup failed |
+
+A companion `frame_region` field records the positional context: `CDS` (fully coding), `partial` (exon spans a CDS boundary — one end in UTR), `UTR5`, `UTR3`, or `unknown`. Events with `frame_region = partial` still receive an `in_frame` or `frameshift` classification based on the coding portion of the exon length.
 
 Results are cached in a local SQLite database with WAL journal mode to support concurrent access.
 
@@ -627,7 +628,7 @@ Mean motif density (fraction of nucleotides covered by overlapping motif hits) i
 |--------|--------|----------------|
 | Test statistic | Wilcoxon rank-sum on per-window density | Two-proportion z-test on binary hit rate |
 | Resolution | Nucleotide-level sliding window | Five discrete genomic sub-regions |
-| Correction | Per-comparison | Bonferroni across all 95 pairs |
+| Correction | Per-comparison | Benjamini-Hochberg FDR (q &lt; 0.05) across all 95 pairs |
 | Groups | Up-regulated, down-regulated, background | Significant, non-significant |
 
 #### Performance
@@ -921,7 +922,7 @@ Each analytical panel embeds collapsible `ScienceNote` widgets that cite the pri
 | Branch-point motif | YNYURAY (Y = C/T, N = any, R = A/G) | Padgett et al. (1986) |
 | Permutation p-value | `p = (k+1)/(N+1)` with continuity correction | Phipson & Smyth (2010) |
 | FDR correction | Benjamini-Hochberg step-up procedure | Benjamini & Hochberg (1995) |
-| hnRNP hit-rate z-test | Two-proportion z-test with Bonferroni (n=95) | Agresti (2002) |
+| hnRNP hit-rate z-test | Two-proportion z-test + Benjamini-Hochberg FDR (q &lt; 0.05, n=95) | Agresti (2002); Benjamini &amp; Hochberg (1995) |
 | Welch t-test df | Welch-Satterthwaite approximation | Welch (1947) |
 | Enrichr combined score | `CS = \|z\| × log(p)` | Chen et al. (2013) |
 

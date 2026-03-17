@@ -507,7 +507,7 @@ export const en = {
         "6-nt 5'SS and 20-nt 3'SS consensus zones, following the rMAPS2 convention that these " +
         "regions are strongly constrained by splice-site signals. rMAPS2 uses a sliding window " +
         "(50 bp) with Wilcoxon rank-sum test on motif density; our simplified implementation " +
-        "uses a two-proportion z-test on motif presence per region with Bonferroni correction.",
+        "uses a two-proportion z-test on motif presence per region with Benjamini-Hochberg FDR correction (q < 0.05, 95 tests).",
     },
     enrichr: {
       title: "Method — Enrichr pathway enrichment",
@@ -674,7 +674,7 @@ export const en = {
     colSig: "Sig",
     colBg: "Background",
     showing: "Showing {{n}} of {{total}} results",
-    bonferroni: "Bonferroni-corrected p-values",
+    bonferroni: "BH FDR-adjusted p-values",
     heatmapTitle: "Enrichment heatmap — best motif per protein × region",
     enriched: "Enriched in sig.",
     depleted: "Depleted in sig.",

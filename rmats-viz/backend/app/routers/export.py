@@ -1499,7 +1499,7 @@ def _build_pdf(
             "Inspired by rMAPS2 (Hwang et al., 2020), this analysis scans five genomic regions "
             "around each skipped exon for known hnRNP RNA-binding protein consensus motifs "
             "and compares their frequency between significant and non-significant events using "
-            "a two-proportion z-test with Bonferroni correction.",
+            "a two-proportion z-test with Benjamini-Hochberg FDR correction (q &lt; 0.05).",
             "body",
         ))
 
@@ -1547,13 +1547,13 @@ def _build_pdf(
             story += [hnrnp_tbl, sp(0.2)]
             story.append(p(
                 f"Showing {min(len(sig_motifs_sorted), 20)} of {len(sig_motifs)} significant motif-region "
-                "associations (Bonferroni-corrected p &lt; 0.05). "
+                "associations (BH FDR q &lt; 0.05). "
                 "Sig % / Bg % = percentage of events with at least one motif hit.",
                 "small",
             ))
         else:
             story.append(p(
-                "No motif-region combinations reached significance after Bonferroni correction.",
+                "No motif-region combinations reached significance after Benjamini-Hochberg FDR correction (q &lt; 0.05).",
                 "body",
             ))
 
@@ -1564,7 +1564,7 @@ def _build_pdf(
             story.append(p("All Non-Significant Motif-Region Associations", "h3"))
             story.append(p(
                 "The following motif-region pairs were tested but did not reach significance "
-                "after Bonferroni correction (p<sub>adj</sub> ≥ 0.05).",
+                "after Benjamini-Hochberg FDR correction (q ≥ 0.05).",
                 "body",
             ))
             nonsig_motifs_sorted = sorted(
@@ -1789,8 +1789,8 @@ def _build_pdf(
               "Chkheidze et al. (1999 [12]) and Makeyev &amp; Liebhaber (2002 [13]). "
               "For each motif-region pair, the hit rate (fraction of events with ≥ 1 match) is "
               "compared between the significant and background groups using a two-proportion z-test "
-              "(pooled proportion). Bonferroni correction (n = 5 regions × 19 motifs = 95 tests) "
-              "is applied; associations with p<sub>adj</sub> &lt; 0.05 are reported as significant. "
+              "(pooled proportion). Benjamini-Hochberg FDR correction is applied across all 95 "
+              "(motif × region) pairs; associations with q &lt; 0.05 are reported as significant. "
               "This differs from rMAPS2, which uses a Wilcoxon rank-sum test on sliding-window "
               "densities; our approach tests binary hit rates across genomic sub-regions.", "body"),
             p("<b>Summary — SpliceAnalyzer vs. rMAPS2:</b> rMAPS2 characterises positional RBP "
@@ -1800,8 +1800,8 @@ def _build_pdf(
               "region-centric binary enrichment model: each of the five predefined genomic "
               "sub-regions is treated as a unit, hit rates (fraction of events containing ≥ 1 "
               "motif match) are compared between the significant and background event sets via a "
-              "two-proportion z-test, and family-wise error control is applied with Bonferroni "
-              "correction across all motif–region pairs. This design trades positional resolution "
+              "two-proportion z-test, and false discovery rate control is applied with "
+              "Benjamini-Hochberg FDR correction across all motif–region pairs. This design trades positional resolution "
               "for statistical clarity and direct interpretability in the context of discrete "
               "regulatory zones (exonic body, proximal/distal intronic flanks), providing a "
               "complementary, region-level view of hnRNP motif associations.", "body"),

@@ -467,7 +467,7 @@ On import, each rMATS event is evaluated for read support. For each sample group
 coverage = mean(IJC_i + SJC_i)   for all replicates i in the group
 ```
 
-Events where either group has `coverage < 10` are discarded. This threshold prevents low-confidence events from inflating significant hit lists and is applied once at ingestion time.
+Events where either group has `coverage < 10` or where coverage data is missing/unparseable for either group are discarded. This threshold prevents low-confidence events from inflating significant hit lists and is applied once at ingestion time.
 
 ### 2. Event Clustering
 

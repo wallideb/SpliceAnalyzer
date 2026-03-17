@@ -491,5 +491,10 @@ def _proportion_z_test(
 
 
 def _normal_cdf(x: float) -> float:
-    """Standard normal CDF via the exact identity Phi(x) = 0.5 * erfc(-x / sqrt(2))."""
+    """Standard normal CDF via the identity Phi(x) = 0.5 * erfc(-x / sqrt(2)).
+
+    The identity is mathematically exact; the numerical result depends on the
+    precision of math.erfc (Python's C-library implementation), not on any
+    hand-coded approximation.
+    """
     return 0.5 * math.erfc(-x / math.sqrt(2))

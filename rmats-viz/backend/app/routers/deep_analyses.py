@@ -16,9 +16,9 @@ import logging
 import math
 import statistics
 import uuid
+from collections import Counter
 
 logger = logging.getLogger(__name__)
-from collections import Counter
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select

@@ -552,6 +552,8 @@ A permutation test assesses the significance of |&Delta;&Psi;| for each SE event
 2. A null distribution of |&Delta;&Psi;| is built from `N` permutations (50, 100, 250, or 500 iterations)
 3. The empirical two-tailed p-value uses the **Phipson & Smyth (2010)** continuity correction: `p = (k + 1) / (N + 1)`, where `k` is the number of permuted |&Delta;&Psi;| values ≥ the observed value
 
+**Sign convention:** ΔΨ = mean(PSI<sub>group1</sub>) − mean(PSI<sub>group2</sub>), consistent with rMATS `IncLevelDifference`. The null distribution is built with the same group-ordering convention, so the sign is preserved and the two-tailed test compares |ΔΨ<sub>obs</sub>| against |ΔΨ<sub>null</sub>|.
+
 When FDR and |&Delta;&Psi;| filters are applied in the deep analysis view, the **Sig. p&lt;0.05** and **Sig. p&lt;0.01** percentages are recomputed exclusively over the filtered event subset, ensuring the values shown in the UI and PDF report are always consistent with each other.
 
 ### 9. Sequence Logos
@@ -619,7 +621,7 @@ For each of the 95 (motif, region) pairs:
 
 1. Compute **hit rate** = fraction of events with ≥ 1 motif occurrence (binary, not density)
 2. Compare significant vs. background groups using a **standard pooled two-proportion z-test** (large-sample normal approximation)
-3. Apply **Benjamini-Hochberg FDR correction** across all testable (motif × region) pairs
+3. Apply **Benjamini-Hochberg FDR correction** (step-up procedure) across all testable (motif × region) pairs; adjusted q-values are enforced monotone by a cumulative-minimum scan from largest rank back to smallest
 4. Report associations with q < 0.05 as significant
 
 Mean motif density (fraction of nucleotides covered by overlapping motif hits) is also reported per group.
@@ -925,9 +927,12 @@ Each analytical panel embeds collapsible `ScienceNote` widgets that cite the pri
 | PPT score | Fraction of C+T in ~47 nt upstream of 3'SS | Coolidge et al. (1997) |
 | Branch-point motif | YNYURAY (Y = C/T, N = any, R = A/G) | Padgett et al. (1986) |
 | Permutation p-value | `p = (k+1)/(N+1)` with continuity correction | Phipson & Smyth (2010) |
-| FDR correction | Benjamini-Hochberg step-up procedure | Benjamini & Hochberg (1995) |
+| FDR correction | Benjamini-Hochberg step-up procedure; monotonicity via cumulative minimum from largest rank | Benjamini & Hochberg (1995) |
 | hnRNP hit-rate z-test | Two-proportion z-test + Benjamini-Hochberg FDR (q &lt; 0.05, n=95) | Agresti (2002); Benjamini &amp; Hochberg (1995) |
 | Welch t-test df | Welch-Satterthwaite approximation | Welch (1947) |
+| Welch t-test p-value | `p = 2 × P(T ≥ \|t\|)` via numerically evaluated regularized incomplete beta (Lentz's CF) | Abramowitz & Stegun (1972) |
+| Two-proportion z-test | `z = (p₁−p₂) / √[p̂(1−p̂)(1/n₁+1/n₂)]`; large-sample normal approximation | Agresti (2002) |
+| Normal CDF | `Φ(x) = 0.5 × erfc(−x/√2)`; identity exact, precision from C-library `erfc` | — |
 | Enrichr combined score | `CS = \|z\| × log(p)` | Chen et al. (2013) |
 
 ---

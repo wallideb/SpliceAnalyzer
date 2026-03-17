@@ -1913,12 +1913,19 @@ def _build_pdf(
               "/ [(s<sub>1</sub><super>2</super>/n<sub>1</sub>)<super>2</super>/(n<sub>1</sub>-1) "
               "+ (s<sub>2</sub><super>2</super>/n<sub>2</sub>)<super>2</super>/(n<sub>2</sub>-1)]", "code"),
             p("• <b>Two-proportion z-test</b>: for proportions (canonical GT, canonical AG, "
-              "upstream GT, downstream AG, in-frame %, branch-point detection):", "body"),
+              "upstream GT, downstream AG, in-frame %, branch-point detection). "
+              "This is a large-sample normal approximation, not an exact test:", "body"),
             p("&nbsp;&nbsp;&nbsp;z = (p<sub>1</sub> - p<sub>2</sub>) "
               "/ sqrt[p(1-p)(1/n<sub>1</sub> + 1/n<sub>2</sub>)]", "code"),
-            p("where p is the pooled proportion across both groups.", "body"),
-            p("All p-values are two-tailed. The regularised incomplete beta function "
-              "is computed via Lentz's continued fraction algorithm for the t-distribution CDF.", "body"),
+            p("where p is the pooled proportion across both groups. "
+              "Two-tailed p-values are computed from the normal CDF via the exact identity "
+              "Φ(x) = 0.5 × erfc(−x / √2).", "body"),
+            p("All p-values are two-tailed. The numerically evaluated regularized incomplete "
+              "beta function (Lentz's continued-fraction algorithm) is used for the "
+              "t-distribution CDF. "
+              "No multiple-testing correction is applied across this metric panel; "
+              "results should be treated as exploratory with inflated family-wise "
+              "false-positive risk across the full set of tests.", "body"),
             p("<b>C.5 Permutation Test</b>", "h3"),
             p("For each significant SE event, sample-label permutation generates a null ΔΨ "
               "distribution.  The empirical p-value is: p = (r + 1) / (K + 1), where r is "

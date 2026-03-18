@@ -658,7 +658,7 @@ Unique HGNC gene symbols from significant events are submitted to the **Enrichr 
 
 3. Return top 10 terms per library by adjusted p-value
 
-The **combined score** = log(p) × z (Chen et al., 2013), where p is the unadjusted Fisher's exact test p-value for overlap and z is Enrichr's deviation-from-expected-rank z-score. Adjusted p-values are reported separately by Enrichr within each library.
+The **combined score** = log(p) × z (Chen et al., 2013), where log is the natural logarithm, p is the unadjusted Fisher's exact test p-value for overlap, and z is Enrichr's deviation-from-expected-rank z-score. Adjusted p-values are reported separately by Enrichr within each library.
 
 All Enrichr HTTP calls are issued inside `asyncio.to_thread` to avoid blocking the event loop. The five library GETs are dispatched in parallel (one thread per library via `ThreadPoolExecutor`), so total network time is ~1× latency rather than 5×.
 
@@ -930,7 +930,7 @@ Each analytical panel embeds collapsible `ScienceNote` widgets that cite the pri
 | Welch t-test p-value | `p = 2 × P(T ≥ \|t\|)` via numerically evaluated regularized incomplete beta (Lentz's CF) | Abramowitz & Stegun (1972) |
 | Two-proportion z-test | `z = (p₁−p₂) / √[p̂(1−p̂)(1/n₁+1/n₂)]`; large-sample normal approximation | Agresti (2002) |
 | Normal CDF | `Φ(x) = 0.5 × erfc(−x/√2)`; identity exact, precision from C-library `erfc` | — |
-| Enrichr combined score | `CS = \|z\| × log(p)` | Chen et al. (2013) |
+| Enrichr combined score | `CS = log(p) × z` (log = natural logarithm) | Chen et al. (2013) |
 
 ---
 

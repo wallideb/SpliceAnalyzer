@@ -1706,12 +1706,12 @@ def _build_pdf(
         hr(),
         p("<b>1. Splicing Event Detection — rMATS</b>", "h3"),
         p("Alternative splicing events (SE, RI, A3SS, A5SS, MXE) are detected by "
-          "<b>rMATS</b> (Shen et al., 2014 [1]) from aligned RNA-seq data. rMATS applies "
-          "a multivariate uniform prior with a Bayesian framework to compute the "
-          "posterior probability that ΔΨ exceeds a cutoff (default 0). Junction and "
-          "exon-body read counts are combined in the JCEC model, while JC mode uses "
-          "junction reads only. Output files used here are junction counts "
-          "(<i>.MATS.JC.txt</i>).", "body"),
+          "<b>rMATS</b> (Shen et al., 2014 [1]) from aligned RNA-seq data. rMATS uses a "
+          "likelihood-ratio test to assess whether the difference in mean ΔΨ between groups "
+          "exceeds a user-defined threshold, while modelling replicate variability in a "
+          "hierarchical framework. Junction and exon-body read counts are combined in the "
+          "JCEC model, while JC mode uses junction reads only. "
+          "Output files used here are junction counts (<i>.MATS.JC.txt</i>).", "body"),
         p("<b>2. Splice Site Annotation</b>", "h3"),
         p("For each SE event, rMATS-Viz extracts flanking genomic sequences from "
           "the GRCh38 (hg38) reference genome indexed with <b>samtools faidx</b>:", "body"),
@@ -1762,8 +1762,9 @@ def _build_pdf(
             p("<b>7. Permutation Test</b>", "h3"),
             p("For each significant SE event, sample labels are randomly permuted (keeping "
               "group sizes fixed) to build a null distribution of ΔΨ. The empirical two-tailed "
-              "p-value equals the fraction of permuted |ΔΨ| values ≥ the observed |ΔΨ|, "
-              "plus one (Phipson &amp; Smyth, 2010 [7]). The test is run at multiple iteration "
+              "p-value is p = (r + 1) / (K + 1), where r is the number of permuted |ΔΨ| values "
+              "≥ the observed |ΔΨ| and K is the number of iterations; the +1 correction avoids "
+              "p = 0 (Phipson &amp; Smyth, 2010 [7]). The test is run at multiple iteration "
               "counts (50, 100, 250, 500) to assess convergence.", "body"),
             p("<b>8. hnRNP Motif Enrichment Analysis</b>", "h3"),
             p("RNA-binding protein (RBP) motif enrichment is computed in a rMAPS2-inspired "
@@ -1880,8 +1881,8 @@ def _build_pdf(
         hr(),
         p("<b>C.1 Splicing Event Statistics (rMATS)</b>", "h3"),
         p("rMATS computes for each event:", "body"),
-        p("• <b>delta-PSI</b>: dPSI = PSI<sub>sample1</sub> - PSI<sub>sample2</sub>, "
-          "where PSI is the percent spliced in. Range: [-1, +1].", "body"),
+        p("• <b>ΔΨ (delta-PSI)</b>: ΔΨ = PSI<sub>sample1</sub> − PSI<sub>sample2</sub>, "
+          "where PSI is the percent spliced in. Range: [−1, +1].", "body"),
         p("• <b>p-value</b>: rMATS uses a likelihood-ratio test to assess whether "
           "the difference in mean PSI between groups exceeds a user-defined threshold c, "
           "while modelling replicate variability in a hierarchical framework.", "body"),
@@ -1906,7 +1907,7 @@ def _build_pdf(
             p("<b>C.4 Deep Analysis Statistical Tests</b>", "h3"),
             p("Events are split into significant and non-significant groups. "
               "The following two-tailed tests compare splice features:", "body"),
-            p("• <b>Welch's t-test</b>: for continuous features (mean delta-PSI, exon size, "
+            p("• <b>Welch's t-test</b>: for continuous features (mean ΔΨ, exon size, "
               "PPT score). Uses Welch-Satterthwaite approximation for degrees of freedom:", "body"),
             p("&nbsp;&nbsp;&nbsp;df = (s<sub>1</sub><super>2</super>/n<sub>1</sub> + s<sub>2</sub><super>2</super>/n<sub>2</sub>)<super>2</super> "
               "/ [(s<sub>1</sub><super>2</super>/n<sub>1</sub>)<super>2</super>/(n<sub>1</sub>-1) "
@@ -1950,9 +1951,10 @@ def _build_pdf(
             p("<b>C.7 Enrichr Combined Score</b>", "h3"),
             p("The Enrichr combined score (Chen et al., 2013 [9]) is defined as:", "body"),
             p("&nbsp;&nbsp;&nbsp;CS = log(p) × z", "code"),
-            p("where p is the unadjusted Fisher's exact test p-value for overlap between the "
-              "submitted gene list and the gene set, and z is Enrichr's deviation-from-expected-rank "
-              "z-score. Adjusted p-values are reported separately by Enrichr within each library.", "body"),
+            p("where log is the natural logarithm, p is the unadjusted Fisher's exact test "
+              "p-value for overlap between the submitted gene list and the gene set, and z is "
+              "Enrichr's deviation-from-expected-rank z-score. Adjusted p-values are reported "
+              "separately by Enrichr within each library.", "body"),
         ]
     story.append(sp())
 

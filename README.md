@@ -372,11 +372,23 @@ The deep analysis page (`/analyses/{id}/deep-analysis`) enables a two-group part
 
 | Tab | Content |
 |-----|---------|
-| **Annotated Events** | Cards for the significant events only, with full per-event annotations |
+| **Annotated Events** | Cards for the significant events only, with full per-event annotations (see below) |
 | **Splice** | Pattern comparison panel: side-by-side aggregate statistics for significant vs. non-significant groups (logos, GT-AG rates, PPT scores, frame breakdown), with statistical tests |
 | **Motifs** | IUPAC recurrent motif analysis across SE events |
 | **hnRNP** | hnRNP motif enrichment analysis — frequency table and protein × region heatmap |
 | **Enrichr** | Pathway enrichment results across five gene-set libraries |
+
+#### Annotated Events
+
+Each significant SE event is displayed as a card containing:
+
+- **SpliceView** &mdash; Schematic of the splicing event with inclusion/exclusion levels per sample group
+- **ExonDiagram** &mdash; Interactive exon-intron diagram annotated with donor/acceptor sites, PPT window, and branch-point position
+- **SpliceSiteTrack** &mdash; All four SE splice sites (upstream donor, skipped 5'SS, skipped 3'SS, downstream acceptor) with sequence and canonical check
+- **Sequence source badge** &mdash; Indicates whether sequences were extracted from the local GRCh38 FASTA or the Ensembl REST fallback
+- **PermutationPanel** &mdash; Interactive permutation test results: per-event empirical |ΔΨ| p-values at 50, 100, 250, and 500 iterations, with null-distribution histogram
+- **Gene annotation tabs** &mdash; PanelApp disease panels, GO terms, and UniProt function summary for the host gene
+- **ScienceNote** &mdash; Collapsible citation widgets linking each algorithm to its primary literature
 
 #### hnRNP Motif Panel
 

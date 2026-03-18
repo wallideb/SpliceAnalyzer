@@ -658,7 +658,7 @@ Unique HGNC gene symbols from significant events are submitted to the **Enrichr 
 
 3. Return top 10 terms per library by adjusted p-value
 
-The **combined score** = |z-score| × ln(p-value) (natural logarithm; Chen et al., 2013), where z-score measures deviation from a random gene-list background (Enrichr's internal model) and p-value is from Fisher's exact test. FDR adjustment uses Benjamini-Hochberg correction applied internally by Enrichr.
+The **combined score** = log(p) × z (Chen et al., 2013), where p is the unadjusted Fisher's exact test p-value for overlap and z is Enrichr's deviation-from-expected-rank z-score. Adjusted p-values are reported separately by Enrichr within each library.
 
 All Enrichr HTTP calls are issued inside `asyncio.to_thread` to avoid blocking the event loop. The five library GETs are dispatched in parallel (one thread per library via `ThreadPoolExecutor`), so total network time is ~1× latency rather than 5×.
 

@@ -1614,8 +1614,8 @@ def _build_pdf(
             f"Gene symbols from significant events (n = {n_genes} unique genes) were submitted "
             "to the Enrichr REST API (Ma'ayan Lab). Enrichment was computed against five curated "
             "gene-set libraries: KEGG 2021, GO Biological Process, GO Molecular Function, "
-            "Reactome 2022, and WikiPathways 2023. The combined score = |z-score| × ln(p-value) "
-            "(natural logarithm; Chen et al., 2013).",
+            "Reactome 2022, and WikiPathways 2023. The combined score = log(p) × z "
+            "(Chen et al., 2013).",
             "body",
         ))
         story.append(sp(0.2))
@@ -1812,10 +1812,9 @@ def _build_pdf(
               "curated gene-set libraries: KEGG 2021 Human, GO Biological Process 2023, GO "
               "Molecular Function 2023, Reactome 2022, and WikiPathways 2023 Human.", "body"),
             p("For each term the Enrichr combined score is defined as: "
-              "CS = |z| × ln(p), where ln is the natural logarithm, z is the deviation "
-              "from a random background (computed by Enrichr using a random gene-list model) "
-              "and p is the Fisher's exact test p-value. FDR-adjusted p-values use "
-              "Benjamini-Hochberg correction applied internally by Enrichr. "
+              "CS = log(p) × z, where p is the unadjusted Fisher's exact test p-value for overlap "
+              "and z is Enrichr's deviation-from-expected-rank z-score. "
+              "Adjusted p-values are reported separately by Enrichr within each library. "
               "The top 10 terms per library by adjusted p-value are "
               "retained and displayed in this report.", "body"),
         ]
@@ -1883,9 +1882,9 @@ def _build_pdf(
         p("rMATS computes for each event:", "body"),
         p("• <b>delta-PSI</b>: dPSI = PSI<sub>sample1</sub> - PSI<sub>sample2</sub>, "
           "where PSI is the percent spliced in. Range: [-1, +1].", "body"),
-        p("• <b>p-value</b>: likelihood-ratio test comparing a model with ΔΨ ≠ 0 "
-          "against a null model (ΔΨ = 0), using a multivariate uniform prior "
-          "on the individual sample PSI values.", "body"),
+        p("• <b>p-value</b>: rMATS uses a likelihood-ratio test to assess whether "
+          "the difference in mean PSI between groups exceeds a user-defined threshold c, "
+          "while modelling replicate variability in a hierarchical framework.", "body"),
         p("• <b>FDR</b>: Benjamini-Hochberg correction across all events.", "body"),
         p("<b>C.2 Sequence Logos</b>", "h3"),
         p("Logos are rendered in <b>frequency mode</b>: every column fills the full "
@@ -1949,12 +1948,10 @@ def _build_pdf(
               "for stable proportion estimates; groups with fewer than 5 events are skipped.", "body"),
             p("<b>C.7 Enrichr Combined Score</b>", "h3"),
             p("The Enrichr combined score (Chen et al., 2013 [9]) is defined as:", "body"),
-            p("&nbsp;&nbsp;&nbsp;CS = |z| × ln(p)", "code"),
-            p("where ln is the natural logarithm, z is the z-score computed by Enrichr against "
-              "a random background model (draws from the full human gene set), and p is the "
-              "Fisher's exact test p-value for overlap between the submitted gene list and the "
-              "gene set. A higher CS indicates stronger enrichment signal beyond background expectation. "
-              "BH-FDR adjusted p-values are applied within each library.", "body"),
+            p("&nbsp;&nbsp;&nbsp;CS = log(p) × z", "code"),
+            p("where p is the unadjusted Fisher's exact test p-value for overlap between the "
+              "submitted gene list and the gene set, and z is Enrichr's deviation-from-expected-rank "
+              "z-score. Adjusted p-values are reported separately by Enrichr within each library.", "body"),
         ]
     story.append(sp())
 

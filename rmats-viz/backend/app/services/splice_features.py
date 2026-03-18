@@ -8,8 +8,12 @@ Features computed
 -----------------
 Sizes:
   exon_size              = exon_end - exon_start
-  upstream_intron_size   = exon_start - upstream_ee   (+ strand convention)
-  downstream_intron_size = downstream_es - exon_end
+  + strand:
+    upstream_intron_size   = exon_start - upstream_ee
+    downstream_intron_size = downstream_es - exon_end
+  - strand (upstream exon at higher genomic coords):
+    upstream_intron_size   = upstream_es - exon_end
+    downstream_intron_size = exon_start - downstream_ee
 
 GT-AG canonical rule:
   donor_is_gt    donor_seq[3:5] == "GT"
@@ -163,20 +167,40 @@ def compute_features(
 
     exon_start    = _get(event, "exon_start")
     exon_end      = _get(event, "exon_end")
+    upstream_es   = _get(event, "upstream_es")
     upstream_ee   = _get(event, "upstream_ee")
     downstream_es = _get(event, "downstream_es")
+    downstream_ee = _get(event, "downstream_ee")
+    strand        = _get(event, "strand") or "+"
 
     res = SpliceFeatureResult()
 
     # Sizes (no FASTA required)
     if exon_start is not None and exon_end is not None:
         res.exon_size = int(exon_end) - int(exon_start)
-    if upstream_ee is not None and exon_start is not None:
-        us = int(exon_start) - int(upstream_ee)
-        res.upstream_intron_size = us if us >= 0 else None
-    if downstream_es is not None and exon_end is not None:
-        ds = int(downstream_es) - int(exon_end)
-        res.downstream_intron_size = ds if ds >= 0 else None
+
+    # Intron sizes are strand-dependent.
+    # + strand layout: [upstream_es … upstream_ee) — intron — [exon_start … exon_end) — intron — [downstream_es … downstream_ee)
+    #   upstream intron   = exon_start - upstream_ee
+    #   downstream intron = downstream_es - exon_end
+    # - strand layout: [downstream_es … downstream_ee) — intron — [exon_start … exon_end) — intron — [upstream_es … upstream_ee)
+    #   (transcript runs right→left; upstream exon is at higher genomic coords)
+    #   upstream intron   = upstream_es - exon_end
+    #   downstream intron = exon_start - downstream_ee
+    if strand == "+":
+        if upstream_ee is not None and exon_start is not None:
+            us = int(exon_start) - int(upstream_ee)
+            res.upstream_intron_size = us if us >= 0 else None
+        if downstream_es is not None and exon_end is not None:
+            ds = int(downstream_es) - int(exon_end)
+            res.downstream_intron_size = ds if ds >= 0 else None
+    else:
+        if upstream_es is not None and exon_end is not None:
+            us = int(upstream_es) - int(exon_end)
+            res.upstream_intron_size = us if us >= 0 else None
+        if downstream_ee is not None and exon_start is not None:
+            ds = int(exon_start) - int(downstream_ee)
+            res.downstream_intron_size = ds if ds >= 0 else None
 
     if windows is None:
         return res

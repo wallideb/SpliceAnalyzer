@@ -222,6 +222,9 @@ def annotate_from_local(
     cds_list = data["cds"]
 
     # --- Exon rank by maximum overlap ---
+    # exons are sorted ascending by genomic start (low → high).
+    # For minus-strand genes the transcript runs high → low, so exon "1"
+    # in transcript order is the LAST entry in the sorted list.
     best_rank: int | None = None
     best_overlap = 0
     for idx, ex in enumerate(exons, start=1):
@@ -230,6 +233,9 @@ def annotate_from_local(
             best_overlap = overlap
             best_rank = idx
     if best_rank is not None and best_overlap > 0:
+        strand = data.get("strand", "+")
+        if strand == "-":
+            best_rank = len(exons) - best_rank + 1
         result["exon_rank"] = best_rank
 
     # --- Frame class ---

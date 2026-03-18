@@ -18,11 +18,18 @@ For a skipped exon [exon_start, exon_end) on strand + :
   donor (5'SS)    chr : exon_end-3   .. exon_end+6      →  3nt exon + GT + 4nt intron
   acceptor (3'SS) chr : exon_start-20 .. exon_start+3   → 20nt intron + AG + 3nt exon
   ppt_zone        chr : exon_start-50 .. exon_start-3   → 47nt upstream of acceptor
+  upstream donor  chr : upstream_ee-3 .. upstream_ee+6  →  9nt window at upstream exon 5'SS
+  dn. acceptor    chr : downstream_es-20 .. downstream_es+3 → 23nt at downstream exon 3'SS
 
-For strand - (positions are still genomic / + strand):
+For strand - (positions are still genomic / + strand; all sequences RC'd after fetch):
+  Transcript runs right→left.  Upstream exon (5' in mRNA) is at HIGHER genomic coords.
   donor (5'SS)    chr : exon_start-6  .. exon_start+3   → RC → 3nt exon + GT + 4nt intron
   acceptor (3'SS) chr : exon_end-3    .. exon_end+20    → RC → 20nt intron + AG + 3nt exon
   ppt_zone        chr : exon_end+3    .. exon_end+50    → RC → 47nt PPT region
+  upstream donor  chr : upstream_es-6 .. upstream_es+3  → RC → 9nt at upstream exon 5'SS
+                        (upstream_es = LOW boundary of upstream exon = intron junction)
+  dn. acceptor    chr : downstream_ee-3 .. downstream_ee+20 → RC → 23nt at dn. exon 3'SS
+                        (downstream_ee = HIGH boundary of downstream exon = intron junction)
 """
 
 from __future__ import annotations
@@ -251,13 +258,22 @@ def get_splice_windows(
     exon_start: int,
     exon_end: int,
     fasta_path: str | None = None,
+    upstream_es: int | None = None,
     upstream_ee: int | None = None,
     downstream_es: int | None = None,
+    downstream_ee: int | None = None,
 ) -> SpliceWindows:
     """Extract splice-signal windows for one SE skipped exon.
 
-    upstream_ee   — end coordinate of the upstream flanking exon (0-based excl)
-    downstream_es — start coordinate of the downstream flanking exon (0-based incl)
+    All four flanking exon coordinates should be supplied (0-based BED):
+      upstream_es / upstream_ee   — start/end of the upstream flanking exon
+      downstream_es / downstream_ee — start/end of the downstream flanking exon
+
+    The splice-site boundary used per strand:
+      + strand: upstream donor at upstream_ee (high boundary)
+                downstream acceptor at downstream_es (low boundary)
+      - strand: upstream donor at upstream_es (low boundary, intron is 5' of it)
+                downstream acceptor at downstream_ee (high boundary, intron is 3' of it)
 
     Uses a single batched samtools call for all 3-5 regions (1 subprocess
     instead of 5), which is ~4x faster per event.
@@ -269,28 +285,41 @@ def get_splice_windows(
     # Regions are always fetched on + strand; RC applied afterwards if needed.
     regions: list[tuple[str, int, int]] = []
     if strand == "+":
+        # Upstream flanking exon: donor (5'SS) is at the HIGH boundary (upstream_ee)
+        # Downstream flanking exon: acceptor (3'SS) is at the LOW boundary (downstream_es)
+        has_up = upstream_ee is not None
+        has_dn = downstream_es is not None
         regions.append((chrom, exon_end - 3,    exon_end + 6))      # donor
         regions.append((chrom, exon_start - 20, exon_start + 3))    # acceptor
         regions.append((chrom, exon_start - 50, exon_start - 3))    # ppt
         regions.append(
             (chrom, upstream_ee - 3, upstream_ee + 6)
-            if upstream_ee is not None else (chrom, 0, 0)
+            if has_up else (chrom, 0, 0)
         )
         regions.append(
             (chrom, downstream_es - 20, downstream_es + 3)
-            if downstream_es is not None else (chrom, 0, 0)
+            if has_dn else (chrom, 0, 0)
         )
     else:
+        # Minus strand: transcript runs right→left (high → low genomic coords).
+        # Upstream exon (5' in mRNA) is at HIGHER genomic coords than the skipped exon.
+        # Its donor (5'SS) is at the LOW boundary (upstream_es) — the intron is at
+        # even lower genomic coords (between upstream_es and exon_end).
+        # Downstream exon (3' in mRNA) is at LOWER genomic coords.
+        # Its acceptor (3'SS) is at the HIGH boundary (downstream_ee) — the intron
+        # is at higher genomic coords (between downstream_ee and exon_start).
+        has_up = upstream_es is not None
+        has_dn = downstream_ee is not None
         regions.append((chrom, exon_start - 6,  exon_start + 3))    # donor
         regions.append((chrom, exon_end - 3,    exon_end + 20))     # acceptor
         regions.append((chrom, exon_end + 3,    exon_end + 50))     # ppt
         regions.append(
-            (chrom, upstream_ee - 6, upstream_ee + 3)
-            if upstream_ee is not None else (chrom, 0, 0)
+            (chrom, upstream_es - 6, upstream_es + 3)
+            if has_up else (chrom, 0, 0)
         )
         regions.append(
-            (chrom, downstream_es - 3, downstream_es + 20)
-            if downstream_es is not None else (chrom, 0, 0)
+            (chrom, downstream_ee - 3, downstream_ee + 20)
+            if has_dn else (chrom, 0, 0)
         )
 
     seqs = extract_regions_batch(regions, fp)
@@ -302,21 +331,26 @@ def get_splice_windows(
         donor_seq=seqs[0],
         acceptor_seq=seqs[1],
         ppt_seq=seqs[2],
-        upstream_donor_seq=seqs[3] if upstream_ee is not None else "",
-        downstream_acceptor_seq=seqs[4] if downstream_es is not None else "",
+        upstream_donor_seq=seqs[3] if has_up else "",
+        downstream_acceptor_seq=seqs[4] if has_dn else "",
         source="fasta",
     )
 
 
 def get_splice_windows_batch(
-    events: list[tuple[str, str, int, int, int | None, int | None]],
+    events: list[tuple[str, str, int, int, int | None, int | None, int | None, int | None]],
     fasta_path: str | None = None,
 ) -> list[SpliceWindows]:
     """Extract splice windows for many events in ONE samtools call.
 
     Parameters
     ----------
-    events : list of (chrom, strand, exon_start, exon_end, upstream_ee, downstream_es)
+    events : list of
+        (chrom, strand, exon_start, exon_end,
+         upstream_es, upstream_ee, downstream_es, downstream_ee)
+
+    The correct splice-site boundary is selected per strand (see
+    get_splice_windows() docstring for the strand logic).
 
     Returns a list of SpliceWindows (same order as *events*).
     ~20-50x faster than calling get_splice_windows() per event because
@@ -330,10 +364,14 @@ def get_splice_windows_batch(
     all_regions: list[tuple[str, int, int]] = []
     event_meta: list[tuple[bool, bool, bool]] = []  # (need_rc, has_up, has_dn)
 
-    for chrom, strand, exon_start, exon_end, upstream_ee, downstream_es in events:
+    for chrom, strand, exon_start, exon_end, upstream_es, upstream_ee, downstream_es, downstream_ee in events:
         need_rc = strand == "-"
-        has_up = upstream_ee is not None
-        has_dn = downstream_es is not None
+        if strand == "+":
+            has_up = upstream_ee is not None
+            has_dn = downstream_es is not None
+        else:
+            has_up = upstream_es is not None
+            has_dn = downstream_ee is not None
         event_meta.append((need_rc, has_up, has_dn))
 
         if strand == "+":
@@ -349,15 +387,17 @@ def get_splice_windows_batch(
                 if has_dn else (chrom, 0, 0)
             )
         else:
+            # Minus strand: upstream donor at upstream_es (low boundary)
+            #               downstream acceptor at downstream_ee (high boundary)
             all_regions.append((chrom, exon_start - 6,  exon_start + 3))
             all_regions.append((chrom, exon_end - 3,    exon_end + 20))
             all_regions.append((chrom, exon_end + 3,    exon_end + 50))
             all_regions.append(
-                (chrom, upstream_ee - 6, upstream_ee + 3)
+                (chrom, upstream_es - 6, upstream_es + 3)
                 if has_up else (chrom, 0, 0)
             )
             all_regions.append(
-                (chrom, downstream_es - 3, downstream_es + 20)
+                (chrom, downstream_ee - 3, downstream_ee + 20)
                 if has_dn else (chrom, 0, 0)
             )
 
@@ -421,13 +461,16 @@ def get_splice_windows_from_ensembl(
     strand: str,
     exon_start: int,
     exon_end: int,
+    upstream_es: int | None = None,
     upstream_ee: int | None = None,
     downstream_es: int | None = None,
+    downstream_ee: int | None = None,
 ) -> SpliceWindows:
     """Identical window definitions to get_splice_windows() via Ensembl REST API.
 
     Used as a fallback when no local FASTA/samtools is available.
     Makes up to 5 sequential HTTP calls (donor, acceptor, PPT, upstream donor, downstream acceptor).
+    See get_splice_windows() for the strand-specific boundary logic.
     """
     if strand == "+":
         donor_seq    = _fetch_ensembl_seq(chrom, exon_end - 3,    exon_end + 6)
@@ -442,16 +485,18 @@ def get_splice_windows_from_ensembl(
             if downstream_es is not None else ""
         )
     else:
+        # Minus strand: upstream donor at upstream_es (low boundary)
+        #               downstream acceptor at downstream_ee (high boundary)
         donor_seq    = reverse_complement(_fetch_ensembl_seq(chrom, exon_start - 6, exon_start + 3))
         acceptor_seq = reverse_complement(_fetch_ensembl_seq(chrom, exon_end - 3,   exon_end + 20))
         ppt_seq      = reverse_complement(_fetch_ensembl_seq(chrom, exon_end + 3,   exon_end + 50))
         upstream_donor_seq = (
-            reverse_complement(_fetch_ensembl_seq(chrom, upstream_ee - 6, upstream_ee + 3))
-            if upstream_ee is not None else ""
+            reverse_complement(_fetch_ensembl_seq(chrom, upstream_es - 6, upstream_es + 3))
+            if upstream_es is not None else ""
         )
         downstream_acceptor_seq = (
-            reverse_complement(_fetch_ensembl_seq(chrom, downstream_es - 3, downstream_es + 20))
-            if downstream_es is not None else ""
+            reverse_complement(_fetch_ensembl_seq(chrom, downstream_ee - 3, downstream_ee + 20))
+            if downstream_ee is not None else ""
         )
 
     return SpliceWindows(

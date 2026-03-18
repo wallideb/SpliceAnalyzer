@@ -22,14 +22,16 @@ For a skipped exon [exon_start, exon_end) on strand + :
   dn. acceptor    chr : downstream_es-20 .. downstream_es+3 → 23nt at downstream exon 3'SS
 
 For strand - (positions are still genomic / + strand; all sequences RC'd after fetch):
-  Transcript runs right→left.  Upstream exon (5' in mRNA) is at HIGHER genomic coords.
-  donor (5'SS)    chr : exon_start-6  .. exon_start+3   → RC → 3nt exon + GT + 4nt intron
-  acceptor (3'SS) chr : exon_end-3    .. exon_end+20    → RC → 20nt intron + AG + 3nt exon
-  ppt_zone        chr : exon_end+3    .. exon_end+50    → RC → 47nt PPT region
-  upstream donor  chr : upstream_es-6 .. upstream_es+3  → RC → 9nt at upstream exon 5'SS
-                        (upstream_es = LOW boundary of upstream exon = intron junction)
-  dn. acceptor    chr : downstream_ee-3 .. downstream_ee+20 → RC → 23nt at dn. exon 3'SS
-                        (downstream_ee = HIGH boundary of downstream exon = intron junction)
+  rMATS uses genomic ordering: upstream_*=lower coords, downstream_*=higher coords.
+  For minus strand the rMATS "downstream" exon (higher coords) is 5′ in transcript;
+  the rMATS "upstream" exon (lower coords) is 3′ in transcript.
+  donor (5'SS)    chr : exon_start-6  .. exon_start+3      → RC → 3nt exon + GT + 4nt intron
+  acceptor (3'SS) chr : exon_end-3    .. exon_end+20       → RC → 20nt intron + AG + 3nt exon
+  ppt_zone        chr : exon_end+3    .. exon_end+50       → RC → 47nt PPT region
+  upstream donor  chr : downstream_es-6 .. downstream_es+3 → RC → 9nt at 5′ flanking exon 5'SS
+                        (downstream_es = LOW boundary of rMATS downstream exon = intron junction)
+  dn. acceptor    chr : upstream_ee-3  .. upstream_ee+20   → RC → 23nt at 3′ flanking exon 3'SS
+                        (upstream_ee = HIGH boundary of rMATS upstream exon = intron junction)
 """
 
 from __future__ import annotations
@@ -301,25 +303,26 @@ def get_splice_windows(
             if has_dn else (chrom, 0, 0)
         )
     else:
-        # Minus strand: transcript runs right→left (high → low genomic coords).
-        # Upstream exon (5' in mRNA) is at HIGHER genomic coords than the skipped exon.
-        # Its donor (5'SS) is at the LOW boundary (upstream_es) — the intron is at
-        # even lower genomic coords (between upstream_es and exon_end).
-        # Downstream exon (3' in mRNA) is at LOWER genomic coords.
-        # Its acceptor (3'SS) is at the HIGH boundary (downstream_ee) — the intron
-        # is at higher genomic coords (between downstream_ee and exon_start).
-        has_up = upstream_es is not None
-        has_dn = downstream_ee is not None
+        # Minus strand: rMATS uses GENOMIC ordering (upstream_*=lower coords,
+        # downstream_*=higher coords) regardless of strand.
+        # For minus strand, the rMATS "downstream" exon (higher genomic coords)
+        # is the 5′ flanking exon (transcript-upstream); its 5'SS donor is at
+        # downstream_es (LOW boundary of that exon).
+        # The rMATS "upstream" exon (lower genomic coords) is the 3′ flanking
+        # exon (transcript-downstream); its 3'SS acceptor is at upstream_ee
+        # (HIGH boundary of that exon).
+        has_up = upstream_ee is not None    # transcript-downstream exon (rMATS upstream)
+        has_dn = downstream_es is not None  # transcript-upstream exon (rMATS downstream)
         regions.append((chrom, exon_start - 6,  exon_start + 3))    # donor
         regions.append((chrom, exon_end - 3,    exon_end + 20))     # acceptor
         regions.append((chrom, exon_end + 3,    exon_end + 50))     # ppt
         regions.append(
-            (chrom, upstream_es - 6, upstream_es + 3)
-            if has_up else (chrom, 0, 0)
+            (chrom, downstream_es - 6, downstream_es + 3)
+            if has_dn else (chrom, 0, 0)
         )
         regions.append(
-            (chrom, downstream_ee - 3, downstream_ee + 20)
-            if has_dn else (chrom, 0, 0)
+            (chrom, upstream_ee - 3, upstream_ee + 20)
+            if has_up else (chrom, 0, 0)
         )
 
     seqs = extract_regions_batch(regions, fp)
@@ -331,8 +334,8 @@ def get_splice_windows(
         donor_seq=seqs[0],
         acceptor_seq=seqs[1],
         ppt_seq=seqs[2],
-        upstream_donor_seq=seqs[3] if has_up else "",
-        downstream_acceptor_seq=seqs[4] if has_dn else "",
+        upstream_donor_seq=seqs[3] if has_dn else "",       # slot 3 = rMATS downstream = 5′ flanking
+        downstream_acceptor_seq=seqs[4] if has_up else "",  # slot 4 = rMATS upstream = 3′ flanking
         source="fasta",
     )
 
@@ -370,8 +373,12 @@ def get_splice_windows_batch(
             has_up = upstream_ee is not None
             has_dn = downstream_es is not None
         else:
-            has_up = upstream_es is not None
-            has_dn = downstream_ee is not None
+            # Minus strand: rMATS "downstream" exon (higher coords) is 5′ flanking
+            # (transcript-upstream); "upstream" exon (lower coords) is 3′ flanking.
+            # has_up → slot 3 (upstream_donor) uses downstream_es
+            # has_dn → slot 4 (downstream_acceptor) uses upstream_ee
+            has_up = downstream_es is not None  # 5′ flanking exon (rMATS downstream)
+            has_dn = upstream_ee is not None    # 3′ flanking exon (rMATS upstream)
         event_meta.append((need_rc, has_up, has_dn))
 
         if strand == "+":
@@ -387,17 +394,17 @@ def get_splice_windows_batch(
                 if has_dn else (chrom, 0, 0)
             )
         else:
-            # Minus strand: upstream donor at upstream_es (low boundary)
-            #               downstream acceptor at downstream_ee (high boundary)
+            # Minus strand: upstream donor at downstream_es (LOW boundary of 5′ flanking exon)
+            #               downstream acceptor at upstream_ee (HIGH boundary of 3′ flanking exon)
             all_regions.append((chrom, exon_start - 6,  exon_start + 3))
             all_regions.append((chrom, exon_end - 3,    exon_end + 20))
             all_regions.append((chrom, exon_end + 3,    exon_end + 50))
             all_regions.append(
-                (chrom, upstream_es - 6, upstream_es + 3)
+                (chrom, downstream_es - 6, downstream_es + 3)
                 if has_up else (chrom, 0, 0)
             )
             all_regions.append(
-                (chrom, downstream_ee - 3, downstream_ee + 20)
+                (chrom, upstream_ee - 3, upstream_ee + 20)
                 if has_dn else (chrom, 0, 0)
             )
 
@@ -485,18 +492,19 @@ def get_splice_windows_from_ensembl(
             if downstream_es is not None else ""
         )
     else:
-        # Minus strand: upstream donor at upstream_es (low boundary)
-        #               downstream acceptor at downstream_ee (high boundary)
+        # Minus strand: rMATS "downstream" exon (higher coords) is 5′ flanking.
+        # upstream donor at downstream_es (LOW boundary of 5′ flanking exon)
+        # downstream acceptor at upstream_ee (HIGH boundary of 3′ flanking exon)
         donor_seq    = reverse_complement(_fetch_ensembl_seq(chrom, exon_start - 6, exon_start + 3))
         acceptor_seq = reverse_complement(_fetch_ensembl_seq(chrom, exon_end - 3,   exon_end + 20))
         ppt_seq      = reverse_complement(_fetch_ensembl_seq(chrom, exon_end + 3,   exon_end + 50))
         upstream_donor_seq = (
-            reverse_complement(_fetch_ensembl_seq(chrom, upstream_es - 6, upstream_es + 3))
-            if upstream_es is not None else ""
+            reverse_complement(_fetch_ensembl_seq(chrom, downstream_es - 6, downstream_es + 3))
+            if downstream_es is not None else ""
         )
         downstream_acceptor_seq = (
-            reverse_complement(_fetch_ensembl_seq(chrom, downstream_ee - 3, downstream_ee + 20))
-            if downstream_ee is not None else ""
+            reverse_complement(_fetch_ensembl_seq(chrom, upstream_ee - 3, upstream_ee + 20))
+            if upstream_ee is not None else ""
         )
 
     return SpliceWindows(

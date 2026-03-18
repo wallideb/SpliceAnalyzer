@@ -736,16 +736,18 @@ async def get_hnrnp_motifs(
                     if dn_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
                         n_short_dn_intron += 1
             else:
-                if ev.upstream_es is None:
+                # Minus strand: rMATS "downstream" exon (higher coords) is 5′ flanking.
+                # Upstream intron spans [exon_end, downstream_es); downstream intron spans [upstream_ee, exon_start).
+                if ev.downstream_es is None:
                     n_null_up_es += 1
                 else:
-                    up_intron = ev.upstream_es - ev.exon_end
+                    up_intron = ev.downstream_es - ev.exon_end
                     if up_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
                         n_short_up_intron += 1
-                if ev.downstream_ee is None:
+                if ev.upstream_ee is None:
                     n_null_dn_ee += 1
                 else:
-                    dn_intron = ev.exon_start - ev.downstream_ee
+                    dn_intron = ev.exon_start - ev.upstream_ee
                     if dn_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
                         n_short_dn_intron += 1
 

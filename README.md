@@ -386,9 +386,10 @@ Each significant SE event is displayed as a card containing:
 - **ExonDiagram** &mdash; Interactive exon-intron diagram annotated with donor/acceptor sites, PPT window, and branch-point position
 - **SpliceSiteTrack** &mdash; All four SE splice sites (upstream donor, skipped 5'SS, skipped 3'SS, downstream acceptor) with sequence and canonical check
 - **Sequence source badge** &mdash; Indicates whether sequences were extracted from the local GRCh38 FASTA or the Ensembl REST fallback
-- **PermutationPanel** &mdash; Interactive permutation test results: per-event empirical |ΔΨ| p-values at 50, 100, 250, and 500 iterations, with null-distribution histogram
 - **Gene annotation tabs** &mdash; PanelApp disease panels, GO terms, and UniProt function summary for the host gene
 - **ScienceNote** &mdash; Collapsible citation widgets linking each algorithm to its primary literature
+
+> **PermutationPanel** (per-event empirical |ΔΨ| p-values at 50, 100, 250, and 500 iterations, with null-distribution histogram) is a separate panel available across several deep analysis tabs, not embedded in individual event cards.
 
 #### hnRNP Motif Panel
 

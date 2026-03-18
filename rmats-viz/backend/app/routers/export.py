@@ -1921,8 +1921,8 @@ def _build_pdf(
               "Two-tailed p-values are computed from the normal CDF via the exact identity "
               "Φ(x) = 0.5 × erfc(−x / √2).", "body"),
             p("All p-values are two-tailed. The numerically evaluated regularized incomplete "
-              "beta function (Lentz's continued-fraction algorithm) is used for the "
-              "t-distribution CDF. "
+              "beta function (Lentz's continued-fraction algorithm) is used to evaluate the "
+              "t-distribution upper-tail probability P(T ≥ |t|). "
               "No multiple-testing correction is applied across this metric panel; "
               "results should be treated as exploratory with inflated family-wise "
               "false-positive risk across the full set of tests.", "body"),
@@ -1944,8 +1944,9 @@ def _build_pdf(
               "Φ(x) = 0.5 × erfc(−x / √2); note that the two-proportion z-test itself is "
               "a large-sample normal approximation, not an exact test. "
               "Raw p-values are adjusted across all testable (motif × region) pairs "
-              "using the Benjamini-Hochberg FDR procedure (q &lt; 0.05). "
-              "Groups with fewer than 5 events are skipped.", "body"),
+              "using the Benjamini-Hochberg FDR procedure as a discovery-oriented screen (q &lt; 0.05). "
+              "This large-sample approximation is applied only when group sizes are sufficient "
+              "for stable proportion estimates; groups with fewer than 5 events are skipped.", "body"),
             p("<b>C.7 Enrichr Combined Score</b>", "h3"),
             p("The Enrichr combined score (Chen et al., 2013 [9]) is defined as:", "body"),
             p("&nbsp;&nbsp;&nbsp;CS = |z| × ln(p)", "code"),

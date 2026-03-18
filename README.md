@@ -620,7 +620,7 @@ For each of the 95 (motif, region) pairs:
 1. Compute **hit rate** = fraction of events with ≥ 1 motif occurrence (binary, not density)
 2. Compare significant vs. background groups using a **standard pooled two-proportion z-test** (large-sample normal approximation)
 3. Apply **Benjamini-Hochberg FDR correction** (step-up procedure) across all testable (motif × region) pairs; adjusted q-values are enforced monotone by a cumulative-minimum scan from largest rank back to smallest
-4. Report associations with q < 0.05 as significant
+4. Report associations with q < 0.05 — this is a **discovery-oriented screen**, not a confirmatory test in the strict FWER sense; BH FDR controls the expected proportion of false discoveries rather than the family-wise error rate
 
 Mean motif density (fraction of nucleotides covered by overlapping motif hits) is also reported per group.
 

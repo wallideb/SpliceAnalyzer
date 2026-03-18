@@ -177,31 +177,43 @@ def define_se_regions(
     is applied after extraction if strand == '-'.
 
     Strand conventions (all positions are 0-based genomic):
-    + strand layout:  [upstream_es … upstream_ee) ── intron ── [exon_start … exon_end) ── intron ── [downstream_es … downstream_ee)
-                       5'SS donor at upstream_ee; acceptor at exon_start
-    - strand layout:  [downstream_es … downstream_ee) ── intron ── [exon_start … exon_end) ── intron ── [upstream_es … upstream_ee)
-                       (transcript runs R→L; upstream exon is at higher genomic coords)
-                       5'SS donor of upstream exon at upstream_es (LOW-coord boundary);
-                       5'SS donor of skipped exon at exon_start (LOW-coord boundary).
+    rMATS ALWAYS uses genomic ordering: upstream_*=lower coords, downstream_*=higher coords.
+    True genomic layout for both strands:
+      [upstream_es … upstream_ee) ── intron ── [exon_start … exon_end) ── intron ── [downstream_es … downstream_ee)
+
+    + strand: upstream exon is 5′ in transcript (lower coords); downstream is 3′ (higher coords).
+    - strand: rMATS "upstream" exon (lower coords) is 3′ in transcript;
+              rMATS "downstream" exon (higher coords) is 5′ in transcript.
+              Upstream intron (5′ of skipped) spans [exon_end, downstream_es).
+              Downstream intron (3′ of skipped) spans [upstream_ee, exon_start).
     """
     regions: list[tuple[str, int, int]] = []
 
-    # 1. Upstream exon: _FLANK_LEN nt closest to the upstream intron (transcript-proximal end).
-    #    + strand: rightmost nt adjacent to intron is at upstream_ee  → [upstream_ee - take, upstream_ee)
-    #    - strand: leftmost  nt adjacent to intron is at upstream_es  → [upstream_es, upstream_es + take)
-    if upstream_es is not None and upstream_ee is not None:
-        up_len = upstream_ee - upstream_es
-        take = min(up_len, _FLANK_LEN)
-        if strand == "+":
+    # 1. Upstream exon (5′ flanking): _FLANK_LEN nt closest to the upstream intron.
+    #    + strand: 5′ flanking = rMATS upstream exon; intron-proximal end at upstream_ee
+    #              → [upstream_ee - take, upstream_ee)
+    #    - strand: 5′ flanking = rMATS downstream exon (higher coords); intron-proximal end
+    #              at downstream_es (LOW boundary of that exon) → [downstream_es, downstream_es + take)
+    if strand == "+":
+        if upstream_es is not None and upstream_ee is not None:
+            take = min(upstream_ee - upstream_es, _FLANK_LEN)
             regions.append((chrom, upstream_ee - take, upstream_ee))
         else:
-            regions.append((chrom, upstream_es, upstream_es + take))
+            regions.append((chrom, 0, 0))
     else:
-        regions.append((chrom, 0, 0))
+        if downstream_es is not None and downstream_ee is not None:
+            take = min(downstream_ee - downstream_es, _FLANK_LEN)
+            regions.append((chrom, downstream_es, downstream_es + take))
+        else:
+            regions.append((chrom, 0, 0))
 
-    # 2. Upstream intron: first _FLANK_LEN nt after 5'SS exclusion.
-    #    + strand: 5'SS donor at upstream_ee; intron extends RIGHT → exclude [upstream_ee, upstream_ee+6)
-    #    - strand: 5'SS donor at upstream_es (LOW-coord); intron extends LEFT → exclude [upstream_es-6, upstream_es)
+    # 2. Upstream intron (5′ of skipped exon): first _FLANK_LEN nt after 5'SS exclusion.
+    #    + strand: 5'SS at upstream_ee; intron spans [upstream_ee, exon_start)
+    #              → exclude [upstream_ee, upstream_ee+6); body starts at upstream_ee+6
+    #    - strand: 5'SS at downstream_es (LOW boundary of rMATS downstream exon);
+    #              intron spans [exon_end, downstream_es) in genomic space;
+    #              in transcript direction intron is read from downstream_es down to exon_end.
+    #              → exclude [downstream_es-6, downstream_es); body ends at downstream_es-6
     if strand == "+":
         if upstream_ee is not None:
             istart = upstream_ee + _FIVE_SS_EXCL
@@ -210,8 +222,8 @@ def define_se_regions(
         else:
             regions.append((chrom, 0, 0))
     else:
-        if upstream_es is not None:
-            iend = upstream_es - _FIVE_SS_EXCL
+        if downstream_es is not None:
+            iend = downstream_es - _FIVE_SS_EXCL
             istart = max(iend - _FLANK_LEN, exon_end + _THREE_SS_EXCL)
             regions.append((chrom, istart, iend) if iend > istart else (chrom, 0, 0))
         else:
@@ -220,11 +232,13 @@ def define_se_regions(
     # 3. Skipped exon body
     regions.append((chrom, exon_start, exon_end))
 
-    # 4. Downstream intron: first _FLANK_LEN nt after 5'SS exclusion.
-    #    + strand: 5'SS donor at exon_end; intron extends RIGHT; 3'SS at downstream_es
+    # 4. Downstream intron (3′ of skipped exon): first _FLANK_LEN nt after 5'SS exclusion.
+    #    + strand: 5'SS at exon_end; intron spans [exon_end, downstream_es)
     #              → exclude [exon_end, exon_end+6); bound by downstream_es - 20
-    #    - strand: 5'SS donor at exon_start (LOW-coord); intron extends LEFT; 3'SS at downstream_ee
-    #              → exclude [exon_start-6, exon_start); bound by downstream_ee + 20
+    #    - strand: 5'SS at exon_start (LOW boundary of skipped exon = 3' end in transcript);
+    #              intron spans [upstream_ee, exon_start) in genomic space;
+    #              in transcript direction read from exon_start down to upstream_ee.
+    #              → exclude [exon_start-6, exon_start); bound by upstream_ee + 20
     if strand == "+":
         if downstream_es is not None:
             istart = exon_end + _FIVE_SS_EXCL
@@ -233,25 +247,30 @@ def define_se_regions(
         else:
             regions.append((chrom, 0, 0))
     else:
-        if downstream_ee is not None:
+        if upstream_ee is not None:
             iend = exon_start - _FIVE_SS_EXCL
-            istart = max(iend - _FLANK_LEN, downstream_ee + _THREE_SS_EXCL)
+            istart = max(iend - _FLANK_LEN, upstream_ee + _THREE_SS_EXCL)
             regions.append((chrom, istart, iend) if iend > istart else (chrom, 0, 0))
         else:
             regions.append((chrom, 0, 0))
 
-    # 5. Downstream exon: _FLANK_LEN nt closest to the downstream intron (transcript-proximal end).
-    #    + strand: leftmost nt adjacent to intron is at downstream_es → [downstream_es, downstream_es + take)
-    #    - strand: rightmost nt adjacent to intron is at downstream_ee → [downstream_ee - take, downstream_ee)
-    if downstream_es is not None and downstream_ee is not None:
-        dn_len = downstream_ee - downstream_es
-        take = min(dn_len, _FLANK_LEN)
-        if strand == "+":
+    # 5. Downstream exon (3′ flanking): _FLANK_LEN nt closest to the downstream intron.
+    #    + strand: 3′ flanking = rMATS downstream exon; intron-proximal end at downstream_es
+    #              → [downstream_es, downstream_es + take)
+    #    - strand: 3′ flanking = rMATS upstream exon (lower coords); intron-proximal end
+    #              at upstream_ee (HIGH boundary of that exon) → [upstream_ee - take, upstream_ee)
+    if strand == "+":
+        if downstream_es is not None and downstream_ee is not None:
+            take = min(downstream_ee - downstream_es, _FLANK_LEN)
             regions.append((chrom, downstream_es, downstream_es + take))
         else:
-            regions.append((chrom, downstream_ee - take, downstream_ee))
+            regions.append((chrom, 0, 0))
     else:
-        regions.append((chrom, 0, 0))
+        if upstream_es is not None and upstream_ee is not None:
+            take = min(upstream_ee - upstream_es, _FLANK_LEN)
+            regions.append((chrom, upstream_ee - take, upstream_ee))
+        else:
+            regions.append((chrom, 0, 0))
 
     return regions
 

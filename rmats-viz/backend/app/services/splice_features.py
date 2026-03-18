@@ -11,9 +11,10 @@ Sizes:
   + strand:
     upstream_intron_size   = exon_start - upstream_ee
     downstream_intron_size = downstream_es - exon_end
-  - strand (upstream exon at higher genomic coords):
-    upstream_intron_size   = upstream_es - exon_end
-    downstream_intron_size = exon_start - downstream_ee
+  - strand (rMATS "upstream"=lower genomic coords=3′ in transcript;
+             rMATS "downstream"=higher genomic coords=5′ in transcript):
+    upstream_intron_size   = downstream_es - exon_end
+    downstream_intron_size = exon_start - upstream_ee
 
 GT-AG canonical rule:
   donor_is_gt    donor_seq[3:5] == "GT"
@@ -180,13 +181,21 @@ def compute_features(
         res.exon_size = int(exon_end) - int(exon_start)
 
     # Intron sizes are strand-dependent.
-    # + strand layout: [upstream_es … upstream_ee) — intron — [exon_start … exon_end) — intron — [downstream_es … downstream_ee)
-    #   upstream intron   = exon_start - upstream_ee
-    #   downstream intron = downstream_es - exon_end
-    # - strand layout: [downstream_es … downstream_ee) — intron — [exon_start … exon_end) — intron — [upstream_es … upstream_ee)
-    #   (transcript runs right→left; upstream exon is at higher genomic coords)
-    #   upstream intron   = upstream_es - exon_end
-    #   downstream intron = exon_start - downstream_ee
+    # rMATS ALWAYS uses genomic ordering: upstream_* = lower genomic coords,
+    # downstream_* = higher genomic coords, regardless of strand.
+    # True genomic layout for both strands:
+    #   [upstream_es … upstream_ee) — intron — [exon_start … exon_end) — intron — [downstream_es … downstream_ee)
+    #
+    # + strand: upstream exon is 5′ in transcript.
+    #   upstream_intron_size   = exon_start - upstream_ee
+    #   downstream_intron_size = downstream_es - exon_end
+    #
+    # - strand: rMATS "upstream" exon (lower genomic coords) is 3′ in transcript;
+    #           rMATS "downstream" exon (higher genomic coords) is 5′ in transcript.
+    #   upstream intron (5′ of skipped exon)   = between exon_end and downstream_es
+    #   downstream intron (3′ of skipped exon) = between upstream_ee and exon_start
+    #   upstream_intron_size   = downstream_es - exon_end
+    #   downstream_intron_size = exon_start - upstream_ee
     if strand == "+":
         if upstream_ee is not None and exon_start is not None:
             us = int(exon_start) - int(upstream_ee)
@@ -195,11 +204,13 @@ def compute_features(
             ds = int(downstream_es) - int(exon_end)
             res.downstream_intron_size = ds if ds >= 0 else None
     else:
-        if upstream_es is not None and exon_end is not None:
-            us = int(upstream_es) - int(exon_end)
+        # rMATS "downstream" exon (higher coords) is transcript-upstream for minus strand
+        if downstream_es is not None and exon_end is not None:
+            us = int(downstream_es) - int(exon_end)
             res.upstream_intron_size = us if us >= 0 else None
-        if downstream_ee is not None and exon_start is not None:
-            ds = int(exon_start) - int(downstream_ee)
+        # rMATS "upstream" exon (lower coords) is transcript-downstream for minus strand
+        if upstream_ee is not None and exon_start is not None:
+            ds = int(exon_start) - int(upstream_ee)
             res.downstream_intron_size = ds if ds >= 0 else None
 
     if windows is None:

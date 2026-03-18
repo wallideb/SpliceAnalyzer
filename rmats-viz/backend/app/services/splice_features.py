@@ -8,8 +8,12 @@ Features computed
 -----------------
 Sizes:
   exon_size              = exon_end - exon_start
-  upstream_intron_size   = exon_start - upstream_ee   (+ strand convention)
-  downstream_intron_size = downstream_es - exon_end
+  + strand:
+    upstream_intron_size   = exon_start - upstream_ee
+    downstream_intron_size = downstream_es - exon_end
+  - strand (upstream exon at higher genomic coords):
+    upstream_intron_size   = upstream_es - exon_end
+    downstream_intron_size = exon_start - downstream_ee
 
 GT-AG canonical rule:
   donor_is_gt    donor_seq[3:5] == "GT"

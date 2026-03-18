@@ -132,8 +132,10 @@ async def _fetch_features(
                     event.exon_start,
                     event.exon_end,
                     None,
+                    event.upstream_es,
                     event.upstream_ee,
                     event.downstream_es,
+                    event.downstream_ee,
                 )
             except Exception as exc:
                 logger.warning("FASTA extraction failed for %s: %s", event.id, exc)
@@ -147,8 +149,10 @@ async def _fetch_features(
                     event.strand or "+",
                     event.exon_start,
                     event.exon_end,
+                    event.upstream_es,
                     event.upstream_ee,
                     event.downstream_es,
+                    event.downstream_ee,
                 )
                 if not windows.donor_seq:   # empty → Ensembl also failed
                     windows = None
@@ -291,12 +295,14 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
 
                 # ── Step 1: Mega-batch samtools (FASTA) or per-event Ensembl ──
                 if fa_ok:
-                    # Build tuples for mega-batch
+                    # Build tuples for mega-batch — all four flanking coords so
+                    # the correct splice-site boundary is used per strand.
                     event_tuples = [
                         (
                             ev.chr or "", ev.strand or "+",
                             ev.exon_start, ev.exon_end,
-                            ev.upstream_ee, ev.downstream_es,
+                            ev.upstream_es, ev.upstream_ee,
+                            ev.downstream_es, ev.downstream_ee,
                         )
                         for ev in chunk
                         if ev.exon_start is not None and ev.exon_end is not None
@@ -329,7 +335,8 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                                     get_splice_windows_from_ensembl,
                                     ev.chr or "", ev.strand or "+",
                                     ev.exon_start, ev.exon_end,
-                                    ev.upstream_ee, ev.downstream_es,
+                                    ev.upstream_es, ev.upstream_ee,
+                                    ev.downstream_es, ev.downstream_ee,
                                 )
                                 return w if w.donor_seq else None
                             except Exception:

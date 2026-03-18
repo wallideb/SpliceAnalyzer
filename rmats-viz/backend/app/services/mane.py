@@ -61,9 +61,17 @@ def _db_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(str(path), timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
+    # Schema migration: add strand column to primary key (v2).
+    # If the old schema (without strand) exists, drop it so that minus-strand
+    # exon_rank values are recomputed correctly.
+    try:
+        conn.execute("SELECT strand FROM mane_cache LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("DROP TABLE IF EXISTS mane_cache")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS mane_cache (
             gene_id TEXT NOT NULL,
+            strand TEXT NOT NULL DEFAULT '+',
             exon_start INTEGER NOT NULL,
             exon_end INTEGER NOT NULL,
             transcript_id TEXT,
@@ -71,7 +79,7 @@ def _db_conn() -> sqlite3.Connection:
             frame_region TEXT,
             frame_class TEXT,
             cds_exon_length INTEGER,
-            PRIMARY KEY (gene_id, exon_start, exon_end)
+            PRIMARY KEY (gene_id, strand, exon_start, exon_end)
         )"""
     )
     conn.execute(
@@ -86,12 +94,12 @@ def _db_conn() -> sqlite3.Connection:
     return conn
 
 
-def _cache_get(gene_id: str, exon_start: int, exon_end: int) -> dict | None:
+def _cache_get(gene_id: str, strand: str, exon_start: int, exon_end: int) -> dict | None:
     conn = _db_conn()
     row = conn.execute(
         "SELECT transcript_id, exon_rank, frame_region, frame_class, cds_exon_length"
-        " FROM mane_cache WHERE gene_id=? AND exon_start=? AND exon_end=?",
-        (gene_id, exon_start, exon_end),
+        " FROM mane_cache WHERE gene_id=? AND strand=? AND exon_start=? AND exon_end=?",
+        (gene_id, strand, exon_start, exon_end),
     ).fetchone()
     if row:
         return dict(zip(
@@ -101,15 +109,15 @@ def _cache_get(gene_id: str, exon_start: int, exon_end: int) -> dict | None:
     return None
 
 
-def _cache_set(gene_id: str, exon_start: int, exon_end: int, data: dict) -> None:
+def _cache_set(gene_id: str, strand: str, exon_start: int, exon_end: int, data: dict) -> None:
     conn = _db_conn()
     conn.execute(
         """INSERT OR REPLACE INTO mane_cache
-           (gene_id, exon_start, exon_end, transcript_id,
+           (gene_id, strand, exon_start, exon_end, transcript_id,
             exon_rank, frame_region, frame_class, cds_exon_length)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            gene_id, exon_start, exon_end,
+            gene_id, strand, exon_start, exon_end,
             data.get("transcript_id"),
             data.get("exon_rank"),
             data.get("frame_region"),
@@ -198,10 +206,15 @@ def _frame_class(
     }
 
     exons = transcript.get("Exon", [])
-    # Find exon rank by maximum overlap (robust against boundary differences)
+    sorted_exons = sorted(exons, key=lambda e: e.get("start", 0))
+    # Find exon rank by maximum overlap (robust against boundary differences).
+    # Exons are sorted ascending by genomic position (low → high).
+    # For minus-strand transcripts the transcript runs high → low, so the
+    # rank must be reversed: exon "1" in transcript order is the last in the
+    # sorted list.
     best_rank: int | None = None
     best_overlap = 0
-    for idx, ex in enumerate(sorted(exons, key=lambda e: e.get("start", 0)), start=1):
+    for idx, ex in enumerate(sorted_exons, start=1):
         ex_s = ex.get("start", 0) - 1  # Ensembl 1-based → 0-based
         ex_e = ex.get("end", 0)
         overlap = max(0, min(exon_end, ex_e) - max(exon_start, ex_s))
@@ -209,6 +222,9 @@ def _frame_class(
             best_overlap = overlap
             best_rank = idx
     if best_rank is not None and best_overlap > 0:
+        strand_val = transcript.get("strand", 1)
+        if strand_val == -1:
+            best_rank = len(sorted_exons) - best_rank + 1
         result["exon_rank"] = best_rank
 
     # CDS intervals
@@ -334,7 +350,7 @@ def annotate_mane(
     3. Fall back to Ensembl REST API
     """
     # Check cache first
-    cached = _cache_get(gene_id, exon_start, exon_end)
+    cached = _cache_get(gene_id, strand, exon_start, exon_end)
     if cached is not None:
         return cached
 
@@ -344,7 +360,7 @@ def annotate_mane(
         if local_result and local_result.get("transcript_id"):
             logger.debug("MANE from local GFF3 for %s: %s", gene_id, local_result["transcript_id"])
             if local_result.get("frame_class") not in (None, "unknown"):
-                _cache_set(gene_id, exon_start, exon_end, local_result)
+                _cache_set(gene_id, strand, exon_start, exon_end, local_result)
             return local_result
 
     # --- Strategy 2: Ensembl REST API ---
@@ -373,5 +389,5 @@ def annotate_mane(
 
     # Only cache definitive results — "unknown" may be retried on next compute
     if result.get("frame_class") not in (None, "unknown"):
-        _cache_set(gene_id, exon_start, exon_end, result)
+        _cache_set(gene_id, strand, exon_start, exon_end, result)
     return result

@@ -38,6 +38,7 @@
   - [Exporting Results](#exporting-results)
 - [Methodology](#methodology)
   - [Coverage Filtering](#1-coverage-filtering)
+  - [Ingestion Deduplication](#2-ingestion-deduplication)
   - [Splice Site Sequence Extraction](#3-splice-site-sequence-extraction)
   - [Splice Site Signals](#4-splice-site-signals)
   - [Polypyrimidine Tract](#5-polypyrimidine-tract-ppt)
@@ -518,7 +519,7 @@ The branch-point adenosine is identified by scanning the PPT region for the **YN
 
 | Output | Description |
 |--------|-------------|
-| `bp_motif_found` | `True` if any match with score ≥ 4 is found |
+| `bp_motif_found` | `True` if any match with score ≥ 5 is found |
 | `bp_score` | Best positional score (0–7) |
 | `bp_distance` | Distance (nt) from the motif center to the 3'SS |
 
@@ -668,14 +669,16 @@ The pattern comparison endpoint computes aggregate splice statistics for both th
 
 | Metric | Test | Notes |
 |--------|------|-------|
-| PPT score distribution | Welch's t-test | Unequal-variance two-sample t-test |
+| Mean ΔΨ | Welch's t-test | Unequal-variance two-sample t-test |
+| PPT score distribution | Welch's t-test | |
 | Exon size distribution | Welch's t-test | |
 | Upstream/downstream intron sizes | Welch's t-test | |
 | GT canonical rate | Two-proportion z-test | k=events with GT, n=events with donor seq |
 | AG canonical rate | Two-proportion z-test | |
 | Upstream donor GT rate | Two-proportion z-test | Length ≥ 9 bp guard applied |
 | Downstream acceptor AG rate | Two-proportion z-test | Length ≥ 23 bp guard applied |
-| Frame class fractions | Two-proportion z-test | Separate test per class |
+| In-frame proportion | Two-proportion z-test | In-frame events vs. all events with frame annotation |
+| Branch point found | Two-proportion z-test | k=events with bp match, n=events with PPT window |
 
 Welch's t-test and the two-tailed p-value are computed in pure Python (no NumPy/SciPy) using the Welch-Satterthwaite degrees-of-freedom formula and the numerically evaluated regularized incomplete beta function (Lentz's continued-fraction algorithm).
 
@@ -873,7 +876,7 @@ The following features are computed for each SE (Skipped Exon) event:
 
 | Feature | Description |
 |---------|-------------|
-| `bp_motif_found` | Whether a YNYURAY motif was found (score &ge; 4) |
+| `bp_motif_found` | Whether a YNYURAY motif was found (score &ge; 5) |
 | `bp_distance` | Distance (nt) from best motif center to 3'SS |
 | `bp_score` | Positional match score (0&ndash;7): each position earns 1 point if it matches the consensus |
 

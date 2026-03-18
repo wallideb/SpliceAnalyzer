@@ -18,7 +18,6 @@ import statistics
 import uuid
 from collections import Counter
 
-logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -37,6 +36,8 @@ from app.schemas.deep_analysis import (
 )
 from app.schemas.event import SplicingEventResponse
 from app.services.splice_features import compute_pwm, iupac_consensus
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["deep-analyses"])
 

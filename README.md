@@ -33,13 +33,11 @@
 - [Usage Guide](#usage-guide)
   - [Creating an Analysis](#creating-an-analysis)
   - [Browsing Events](#browsing-events)
-  - [Event Cards](#event-cards)
   - [Deep Splice Analysis](#deep-splice-analysis)
   - [Gene Annotations](#gene-annotations)
   - [Exporting Results](#exporting-results)
 - [Methodology](#methodology)
   - [Coverage Filtering](#1-coverage-filtering)
-  - [Event Clustering](#2-event-clustering)
   - [Splice Site Sequence Extraction](#3-splice-site-sequence-extraction)
   - [Splice Site Signals](#4-splice-site-signals)
   - [Polypyrimidine Tract](#5-polypyrimidine-tract-ppt)
@@ -70,7 +68,9 @@
 
 ## Overview
 
-**SpliceAnalyzer** provides a browser-based interface on top of [rMATS](https://rnaseq-mats.sourceforge.io/) junction-count output files (e.g., `SE.MATS.JC.txt`). It enables researchers to upload rMATS results, explore alternative splicing events interactively, characterize splice-site signals at single-event resolution, perform aggregate statistical analyses across event groups, and export curated findings for publication or clinical review.
+**SpliceAnalyzer** provides a browser-based interface on top of [rMATS](https://rnaseq-mats.sourceforge.io/) junction-count output files (e.g., `SE.MATS.JC.txt`). It enables researchers to upload rMATS results, explore alternative splicing events interactively, characterize splice-site signals at single-event resolution, perform aggregate statistical analyses across event groups, and export curated findings in a report format.
+
+> **Disclaimer:** This tool is experimental and intended for research use only. It has not been validated for clinical or diagnostic purposes. Users are solely responsible for the interpretation and use of any results.
 
 The application supports all five rMATS event types:
 
@@ -92,8 +92,6 @@ The application supports all five rMATS event types:
 - **Coverage filtering** &mdash; Events with mean per-replicate junction coverage (IJC + SJC) below 10X in either sample group are automatically filtered out on import
 - **Analysis management** &mdash; Create, list, navigate, and delete named analyses
 - **Event browser** &mdash; Sortable, filterable, paginated table of all splicing events with support for filtering by event type, gene symbol, FDR threshold, P-value, and minimum |&Delta;&Psi;|
-- **Event ranking** &mdash; Significant events ranked by statistical significance (FDR) and inclusion-level difference (|&Delta;&Psi;|), displayed as annotated cards
-- **Gene basket** &mdash; Collect genes of interest across analyses for batch annotation and export
 - **Dark mode** &mdash; Toggle-able theme with persistent preference via `localStorage`
 - **Internationalisation** &mdash; Full English / French language switcher; all UI strings are externalized
 
@@ -103,7 +101,6 @@ The application supports all five rMATS event types:
 - **Polypyrimidine tract (PPT)** &mdash; Score (C+T fraction) and longest consecutive pyrimidine run in the ~47 nt upstream of the 3'SS
 - **Branch-point detection** &mdash; Rule-based YNYURAY motif search with positional scoring (0&ndash;7 scale) and distance to 3'SS
 - **Exon and intron sizing** &mdash; Skipped exon length plus upstream and downstream intron sizes
-- **Event clustering** &mdash; Union-Find algorithm deduplicates near-identical SE events sharing exon boundaries within a 50 bp threshold
 - **Aggregate pattern analysis** &mdash; Position Weight Matrices (PWM), IUPAC consensus sequences, and statistical summaries across all SE events
 - **Sequence source flexibility** &mdash; Primary extraction from local GRCh38 FASTA via `samtools faidx` (batched, chunked at 5 000 regions per call), with automatic Ensembl REST API fallback when FASTA is unavailable
 
@@ -112,7 +109,7 @@ The application supports all five rMATS event types:
 A second-pass module that partitions events into **significant** and **non-significant** groups using user-defined FDR and |&Delta;&Psi;| thresholds, then runs the following analyses across groups:
 
 - **Pattern comparison** &mdash; Side-by-side group statistics: GT-AG canonical rates, PPT score distributions, exon/intron size distributions, frame-class breakdown, comparison sequence logos; Welch's t-test and two-proportion z-test for each metric
-- **hnRNP motif enrichment** &mdash; rMAPS2-inspired analysis scanning five genomic regions around each SE event for 19 consensus hnRNP binding motifs; two-proportion z-test per motif–region pair with Bonferroni correction (n = 95)
+- **hnRNP motif enrichment** &mdash; rMAPS2-inspired analysis scanning five genomic regions around each SE event for 19 consensus hnRNP binding motifs; two-proportion z-test per motif–region pair with Benjamini-Hochberg FDR correction (q &lt; 0.05, 95 tests)
 - **Pathway enrichment (Enrichr)** &mdash; Significant-event gene symbols submitted to the Enrichr REST API against five curated gene-set libraries; top terms per library by adjusted p-value
 - **Permutation testing** &mdash; Per-event |&Delta;&Psi;| significance testing against a null distribution of permuted sample labels
 
@@ -128,11 +125,10 @@ A second-pass module that partitions events into **significant** and **non-signi
 - **PanelApp disease panels** &mdash; Queries PanelApp Australia (with PanelApp UK fallback) for diagnostic gene panel membership and confidence ratings (green/amber/red); circuit breaker prevents cascade timeouts on unreachable instances
 - **Gene Ontology** &mdash; Retrieves GO terms (Biological Process, Molecular Function, Cellular Component) via mygene.info
 - **UniProt** &mdash; Fetches reviewed protein function summaries
-- **STRING-DB interactions** &mdash; Protein-protein interaction combined scores between gene pairs, with Europe PMC literature PMIDs
 
 ### Export
 
-- **PDF report** &mdash; Multi-page publication-ready document including: analysis summary, significant SE events with splice feature tables, deep analysis sections (hnRNP motif enrichment, pathway enrichment with significant p-values bolded and starred, pattern comparison), frequency-mode sequence logos, methodology appendix, bibliographic references, and statistical methods. Optionally includes deep analysis results when a deep analysis object is linked
+- **PDF report** &mdash; Multi-page PDF report including: analysis summary, significant SE events with splice feature tables, deep analysis sections (hnRNP motif enrichment, pathway enrichment with significant p-values bolded and starred, pattern comparison), frequency-mode sequence logos, methodology appendix, bibliographic references, and statistical methods. Optionally includes deep analysis results when a deep analysis object is linked
 - **Excel export (deep analysis only)** &mdash; Interactive modal for selecting annotation column groups (`core`, `panelapp`, `go`, `stringdb`) before download; optional groups are fetched in parallel at export time
 
 ### Scientific Provenance
@@ -203,7 +199,7 @@ SpliceAnalyzer/
     │       ├── models/
     │       │   ├── analysis.py          # Analysis, SampleGroup
     │       │   ├── event.py             # SplicingEvent
-    │       │   ├── splice.py            # EventCluster, EventSpliceFeature
+    │       │   ├── splice.py            # EventSpliceFeature
     │       │   └── deep_analysis.py     # DeepAnalysis, DeepAnalysisEvent
     │       ├── routers/
     │       │   ├── analyses.py          # Analysis CRUD + file upload
@@ -217,7 +213,6 @@ SpliceAnalyzer/
     │       └── services/
     │           ├── parser.py            # rMATS TSV parsing + coverage filter
     │           ├── event_selector.py    # Event ranking by FDR / ΔΨ
-    │           ├── event_cluster.py     # Union-Find SE event deduplication
     │           ├── sequence.py          # samtools faidx wrapper (chunked batching)
     │           ├── splice_features.py   # GT-AG, PPT score, branch-point
     │           ├── mane.py              # MANE Select transcript + frame class
@@ -367,18 +362,6 @@ The event browser (`/analyses/{id}`) provides a fully interactive table with:
 - **Pagination** &mdash; Configurable page size
 - **Direction-of-effect badges** &mdash; Visual indicators for exon skipping vs. inclusion
 
-### Event Cards
-
-The event cards view displays significant events ranked by FDR and |&Delta;&Psi;|. Each event card includes:
-
-- **SpliceView** &mdash; Schematic of the splicing event with inclusion/exclusion levels
-- **ExonDiagram** &mdash; Interactive exon-intron diagram with donor/acceptor/PPT/branch-point annotations
-- **SpliceSiteTrack** &mdash; All 4 SE splice sites (upstream, skipped 5', skipped 3', downstream)
-- **Sequence source badge** &mdash; Indicates whether sequences come from local FASTA or Ensembl REST fallback
-- **PermutationPanel** &mdash; Interactive permutation test results (per-event |&Delta;&Psi;| empirical p-values at multiple iteration counts)
-- **ScienceNote** &mdash; Collapsible citation widgets linking to primary literature
-- **AnnotatedCard** &mdash; Gene annotations (PanelApp, GO, UniProt, STRING-DB) in tabbed panels
-
 ### Deep Splice Analysis
 
 The deep analysis page (`/analyses/{id}/deep-analysis`) enables a two-group partitioning of SE events for comparative analysis. The workflow is:
@@ -389,11 +372,24 @@ The deep analysis page (`/analyses/{id}/deep-analysis`) enables a two-group part
 
 | Tab | Content |
 |-----|---------|
-| **Annotated Events** | Cards for the significant events only, with full per-event annotations |
+| **Annotated Events** | Cards for the significant events only, with full per-event annotations (see below) |
 | **Splice** | Pattern comparison panel: side-by-side aggregate statistics for significant vs. non-significant groups (logos, GT-AG rates, PPT scores, frame breakdown), with statistical tests |
 | **Motifs** | IUPAC recurrent motif analysis across SE events |
 | **hnRNP** | hnRNP motif enrichment analysis — frequency table and protein × region heatmap |
 | **Enrichr** | Pathway enrichment results across five gene-set libraries |
+
+#### Annotated Events
+
+Each significant SE event is displayed as a card containing:
+
+- **SpliceView** &mdash; Schematic of the splicing event with inclusion/exclusion levels per sample group
+- **ExonDiagram** &mdash; Interactive exon-intron diagram annotated with donor/acceptor sites, PPT window, and branch-point position
+- **SpliceSiteTrack** &mdash; All four SE splice sites (upstream donor, skipped 5'SS, skipped 3'SS, downstream acceptor) with sequence and canonical check
+- **Sequence source badge** &mdash; Indicates whether sequences were extracted from the local GRCh38 FASTA or the Ensembl REST fallback
+- **Gene annotation tabs** &mdash; PanelApp disease panels, GO terms, and UniProt function summary for the host gene
+- **ScienceNote** &mdash; Collapsible citation widgets linking each algorithm to its primary literature
+
+> **PermutationPanel** (per-event empirical |ΔΨ| p-values at 50, 100, 250, and 500 iterations, with null-distribution histogram) is a separate panel available across several deep analysis tabs, not embedded in individual event cards.
 
 #### hnRNP Motif Panel
 
@@ -415,7 +411,6 @@ Search for any gene by HUGO symbol using the Ensembl-backed autocomplete. The an
 - **PanelApp** &mdash; Disease panels and confidence level (green = diagnostic grade)
 - **Gene Ontology** &mdash; Top 3 terms per category (BP, MF, CC)
 - **UniProt** &mdash; Reviewed protein function summary
-- **STRING-DB** &mdash; Interaction scores with other genes in the analysis, plus supporting literature PMIDs
 
 ### Exporting Results
 
@@ -439,7 +434,7 @@ Excel export is available exclusively from the **Deep Analysis** page. It export
 
 #### PDF Export
 
-Click the **Export PDF** button to generate a multi-page, publication-ready report. The report includes:
+Click the **Export PDF** button to generate a multi-page PDF report. The report includes:
 
 | Section | Content |
 |---------|---------|
@@ -467,11 +462,19 @@ On import, each rMATS event is evaluated for read support. For each sample group
 coverage = mean(IJC_i + SJC_i)   for all replicates i in the group
 ```
 
-Events where either group has `coverage < 10` are discarded. This threshold prevents low-confidence events from inflating significant hit lists and is applied once at ingestion time.
+Events where either group has `coverage < 10` or where coverage data is missing/unparseable for either group are discarded. This threshold prevents low-confidence events from inflating significant hit lists and is applied once at ingestion time.
 
-### 2. Event Clustering
+### 2. Ingestion Deduplication
 
-Near-identical SE events (arising from overlapping transcripts or minor coordinate differences) are deduplicated using a **Union-Find (Disjoint Set Union)** algorithm. Two events are merged into the same cluster if they share the same chromosome and strand, and all four boundary coordinates (upstream exon end, skipped exon start, skipped exon end, downstream exon start) differ by at most 50 bp. The representative event per cluster is the one with the lowest FDR.
+Event deduplication runs in two stages during TSV ingestion (`parser.py`):
+
+**Stage 1 — exact-coordinate deduplication (FDR-ranked):** Within each event type, rows sharing identical genomic coordinates are collapsed to the one with the lowest FDR (ties broken by highest |ΔΨ|). Rows with missing FDR are ranked last.
+
+**Stage 2 — overlap deduplication (p-value-ranked):** Within each (event type, gene, chromosome, strand) group, events whose skipped-exon start or end falls within 50 bp of an already-retained event are removed. The removal condition is OR (start-near **or** end-near), so two exons that share one boundary but differ by more than 50 bp on the other are still collapsed — this is intentionally conservative. Ranking for this stage uses raw p-value (most significant first; ties by |ΔΨ|).
+
+**Methods note:** Stage 1 sorts on FDR; stage 2 sorts on raw p-value. After multiple-testing correction these statistics can disagree, so the "best" event kept in each stage can differ for the same pair of near-duplicates. Both criteria should be reported in any methods description.
+
+> **Methods statement:** Events were deduplicated in two sequential stages. First, exact duplicate events sharing the same event-specific genomic key were collapsed by retaining the event with the lowest FDR, breaking ties by the largest absolute ΔΨ. Second, within each (event_type, gene_id, chr, strand) group, near-duplicate events were greedily removed after sorting by ascending p-value and descending absolute ΔΨ; an event was discarded if either its exon start or exon end coordinate lay within 50 bp of any previously retained event. Because this second pass already suppresses overlap-defined duplicates, a subsequent event-clustering step on the retained events was uninformative in practice.
 
 ### 3. Splice Site Sequence Extraction
 
@@ -526,15 +529,16 @@ Each skipped exon is mapped to its **MANE Select** transcript (the clinically va
 1. **Local GFF3** — If `MANE.GRCh38.ensembl_genomic.gff.gz` is present, CDS intervals are parsed directly (fast, no network required)
 2. **Ensembl REST API** — Fallback when the GFF3 is unavailable; queries `/lookup/id/{gene_id}` + `/overlap/id/{transcript_id}` for exon and CDS features
 
-The exon is classified by its overlap with the CDS:
+The exon is classified (`frame_class`) by its relationship to the CDS:
 
 | Class | Condition |
 |-------|-----------|
-| `in_frame` | Exon fully within CDS; `cds_exon_length % 3 == 0` |
-| `frameshift` | Exon fully within CDS; `cds_exon_length % 3 != 0` |
-| `non_coding` | Exon entirely within UTR5 or UTR3 |
-| `partial` | Exon spans a CDS boundary |
-| `unknown` | No MANE transcript found or lookup failed |
+| `in_frame` | CDS-overlapping exon length divisible by 3 (exon fully or partially within CDS) |
+| `frameshift` | CDS-overlapping exon length not divisible by 3 (exon fully or partially within CDS) |
+| `non_coding` | Exon entirely within UTR or no CDS overlap |
+| `unknown` | No MANE Select transcript found or lookup failed |
+
+A companion `frame_region` field records the positional context: `CDS` (fully coding), `partial` (exon spans a CDS boundary — one end in UTR), `UTR5`, `UTR3`, or `unknown`. Events with `frame_region = partial` still receive an `in_frame` or `frameshift` classification based on the coding portion of the exon length.
 
 Results are cached in a local SQLite database with WAL journal mode to support concurrent access.
 
@@ -543,8 +547,10 @@ Results are cached in a local SQLite database with WAL journal mode to support c
 A permutation test assesses the significance of |&Delta;&Psi;| for each SE event by testing whether the observed group difference is larger than expected by chance:
 
 1. Sample labels are randomly permuted (keeping group sizes fixed)
-2. A null distribution of |&Delta;&Psi;| is built from `N` permutations (50, 100, 250, or 500 iterations)
-3. The empirical two-tailed p-value uses the **Phipson & Smyth (2010)** continuity correction: `p = (k + 1) / (N + 1)`, where `k` is the number of permuted |&Delta;&Psi;| values ≥ the observed value
+2. A null distribution of |&Delta;&Psi;| is built from `K` permutations (50, 100, 250, or 500 iterations)
+3. The empirical two-tailed p-value uses the **Phipson & Smyth (2010)** continuity correction: `p = (r + 1) / (K + 1)`, where `r` is the number of permuted |&Delta;&Psi;| values ≥ the observed value
+
+**Sign convention:** ΔΨ = mean(PSI<sub>group1</sub>) − mean(PSI<sub>group2</sub>), consistent with rMATS `IncLevelDifference`. The null distribution is built with the same group-ordering convention, so the sign is preserved and the two-tailed test compares |ΔΨ<sub>obs</sub>| against |ΔΨ<sub>null</sub>|.
 
 When FDR and |&Delta;&Psi;| filters are applied in the deep analysis view, the **Sig. p&lt;0.05** and **Sig. p&lt;0.01** percentages are recomputed exclusively over the filtered event subset, ensuring the values shown in the UI and PDF report are always consistent with each other.
 
@@ -611,10 +617,10 @@ Minus-strand events are reverse-complemented before scanning.
 
 For each of the 95 (motif, region) pairs:
 
-1. Compute **hit rate** = fraction of events with ≥ 1 motif occurrence
-2. Compare significant vs. background groups using a **two-proportion z-test** (pooled proportion estimator)
-3. Apply **Bonferroni correction** across all 95 tests: `p_adj = min(p × 95, 1.0)`
-4. Report associations with `p_adj < 0.05` as significant
+1. Compute **hit rate** = fraction of events with ≥ 1 motif occurrence (binary, not density)
+2. Compare significant vs. background groups using a **standard pooled two-proportion z-test** (large-sample normal approximation)
+3. Apply **Benjamini-Hochberg FDR correction** (step-up procedure) across all testable (motif × region) pairs; adjusted q-values are enforced monotone by a cumulative-minimum scan from largest rank back to smallest
+4. Report associations with q < 0.05 — this is a **discovery-oriented screen**, not a confirmatory test in the strict FWER sense; BH FDR controls the expected proportion of false discoveries rather than the family-wise error rate
 
 Mean motif density (fraction of nucleotides covered by overlapping motif hits) is also reported per group.
 
@@ -624,7 +630,7 @@ Mean motif density (fraction of nucleotides covered by overlapping motif hits) i
 |--------|--------|----------------|
 | Test statistic | Wilcoxon rank-sum on per-window density | Two-proportion z-test on binary hit rate |
 | Resolution | Nucleotide-level sliding window | Five discrete genomic sub-regions |
-| Correction | Per-comparison | Bonferroni across all 95 pairs |
+| Correction | Per-comparison | Benjamini-Hochberg FDR (q &lt; 0.05) across all 95 pairs |
 | Groups | Up-regulated, down-regulated, background | Significant, non-significant |
 
 #### Performance
@@ -652,7 +658,7 @@ Unique HGNC gene symbols from significant events are submitted to the **Enrichr 
 
 3. Return top 10 terms per library by adjusted p-value
 
-The **combined score** = |z-score| × log(p-value), where z-score measures deviation from a random gene-list background (Enrichr's internal model) and p-value is from Fisher's exact test. FDR adjustment uses Benjamini-Hochberg correction applied internally by Enrichr.
+The **combined score** = log(p) × z (Chen et al., 2013), where log is the natural logarithm, p is the unadjusted Fisher's exact test p-value for overlap, and z is Enrichr's deviation-from-expected-rank z-score. Adjusted p-values are reported separately by Enrichr within each library.
 
 All Enrichr HTTP calls are issued inside `asyncio.to_thread` to avoid blocking the event loop. The five library GETs are dispatched in parallel (one thread per library via `ThreadPoolExecutor`), so total network time is ~1× latency rather than 5×.
 
@@ -671,7 +677,9 @@ The pattern comparison endpoint computes aggregate splice statistics for both th
 | Downstream acceptor AG rate | Two-proportion z-test | Length ≥ 23 bp guard applied |
 | Frame class fractions | Two-proportion z-test | Separate test per class |
 
-Welch's t-test and the two-tailed p-value are computed in pure Python (no NumPy/SciPy) using the Welch-Satterthwaite degrees-of-freedom formula and a regularized incomplete beta function approximation (Lentz's continued-fraction algorithm).
+Welch's t-test and the two-tailed p-value are computed in pure Python (no NumPy/SciPy) using the Welch-Satterthwaite degrees-of-freedom formula and the numerically evaluated regularized incomplete beta function (Lentz's continued-fraction algorithm).
+
+No multiple-testing correction is applied across the pattern-comparison metrics. The panel of tests (Welch t-tests and two-proportion z-tests across ~9 metrics) is therefore exploratory; the family-wise false-positive risk is inflated at the stated per-test α, and results should be interpreted accordingly.
 
 Comparison sequence logos (frequency mode) are generated independently for each group.
 
@@ -700,7 +708,6 @@ Background task that runs once per analysis. Events are processed in chunks of 2
 | Sequence extraction | 100 k × 5 = 500 k regions, ~100 samtools calls (5 k regions each) | 10–30 s |
 | MANE annotation + feature compute | Local GFF3 lookup + per-event arithmetic (parallel, semaphore 20) | 5–15 s |
 | DB writes | Bulk upsert, 1 round-trip per 2 000-event chunk | 1–3 s |
-| Event clustering | Union-Find across all SE events | <1 s |
 | **Total (local FASTA + warm MANE cache)** | | **~20–55 s** |
 
 > If the local MANE GFF3 is missing, each event falls back to the Ensembl REST API (3 calls per event). Ensure `MANE_GFF3` is configured at startup to avoid this.
@@ -756,7 +763,6 @@ The backend exposes a versioned REST API under `/api/v1`. Full interactive docum
 | `GET` | `/api/v1/analyses/{id}` | Get analysis details + sample groups |
 | `DELETE` | `/api/v1/analyses/{id}` | Delete analysis and all associated data asynchronously (returns 204 immediately; deletion runs in a background task with explicit ordered deletes; status set to `deleting` during cleanup, reset to `error` on failure) |
 | `GET` | `/api/v1/analyses/{id}/events` | Paginated, filterable event list |
-| `GET` | `/api/v1/analyses/{id}/events/top10` | Ranked significant events by FDR |
 
 **Event query parameters:**
 
@@ -799,11 +805,11 @@ The backend exposes a versioned REST API under `/api/v1`. Full interactive docum
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/v1/splice/compute/{analysis_id}` | Compute splice features + clusters for all SE events |
+| `POST` | `/api/v1/splice/compute/{analysis_id}` | Compute splice features for all SE events |
 | `GET` | `/api/v1/splice/feature/{event_id}` | Per-event features (computed on-the-fly if not cached) |
 | `GET` | `/api/v1/splice/patterns/{analysis_id}` | Aggregate pattern analysis (PWM, consensus, frame stats) |
 
-> The compute endpoint is **idempotent** &mdash; re-running overwrites existing feature rows and refreshes clusters. It requires the GRCh38 FASTA for sequence features; if unavailable, size-only features are computed.
+> The compute endpoint is **idempotent** &mdash; re-running overwrites existing feature rows. It requires the GRCh38 FASTA for sequence features; if unavailable, size-only features are computed.
 
 ### Gene Annotations API
 
@@ -917,11 +923,14 @@ Each analytical panel embeds collapsible `ScienceNote` widgets that cite the pri
 | Frequency logo height | `height(b,i) = f(b,i) × H_logo` | Frequency mode (no IC scaling) |
 | PPT score | Fraction of C+T in ~47 nt upstream of 3'SS | Coolidge et al. (1997) |
 | Branch-point motif | YNYURAY (Y = C/T, N = any, R = A/G) | Padgett et al. (1986) |
-| Permutation p-value | `p = (k+1)/(N+1)` with continuity correction | Phipson & Smyth (2010) |
-| FDR correction | Benjamini-Hochberg step-up procedure | Benjamini & Hochberg (1995) |
-| hnRNP hit-rate z-test | Two-proportion z-test with Bonferroni (n=95) | Agresti (2002) |
+| Permutation p-value | `p = (r+1)/(K+1)`; r = permuted |ΔΨ| ≥ observed, K = iterations | Phipson & Smyth (2010) |
+| FDR correction | Benjamini-Hochberg step-up procedure; monotonicity via cumulative minimum from largest rank | Benjamini & Hochberg (1995) |
+| hnRNP hit-rate z-test | Two-proportion z-test + Benjamini-Hochberg FDR (q &lt; 0.05, n=95) | Agresti (2002); Benjamini &amp; Hochberg (1995) |
 | Welch t-test df | Welch-Satterthwaite approximation | Welch (1947) |
-| Enrichr combined score | `CS = \|z\| × log(p)` | Chen et al. (2013) |
+| Welch t-test p-value | `p = 2 × P(T ≥ \|t\|)` via numerically evaluated regularized incomplete beta (Lentz's CF) | Abramowitz & Stegun (1972) |
+| Two-proportion z-test | `z = (p̂₁−p̂₂) / √[p̂(1−p̂)(1/n₁+1/n₂)]`; large-sample normal approximation | Agresti (2002) |
+| Normal CDF | `Φ(x) = 0.5 × erfc(−x/√2)`; identity exact, precision from C-library `erfc` | — |
+| Enrichr combined score | `CS = log(p) × z` (log = natural logarithm) | Chen et al. (2013) |
 
 ---
 

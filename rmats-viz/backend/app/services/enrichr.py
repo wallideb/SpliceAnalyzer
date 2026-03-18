@@ -13,6 +13,15 @@ Workflow
 2. POST the gene list to Enrichr ``/addList``.
 3. GET enrichment results for all libraries in parallel (ThreadPoolExecutor).
 
+Reproducibility note
+--------------------
+Gene-set library contents are retrieved live from the Enrichr API at the
+time of each analysis run.  Libraries are versioned by name (e.g.,
+KEGG_2021_Human, GO_Biological_Process_2023), but Enrichr may update their
+contents between releases without changing the name.  For publication,
+record the date of the API call alongside results; consider archiving the
+raw Enrichr response JSON to ensure exact reproducibility.
+
 References
 ----------
 - Chen EY et al. Enrichr. BMC Bioinformatics 2013; 14:128

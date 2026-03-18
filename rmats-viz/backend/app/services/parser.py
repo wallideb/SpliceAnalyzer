@@ -61,11 +61,12 @@ def _rename_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def filter_low_coverage(df: pd.DataFrame, min_coverage: int = 10) -> pd.DataFrame:
     """Drop events where mean per-replicate coverage (IJC+SJC) < min_coverage
-    in either sample group.
+    in either sample group, or where coverage data is missing for a group.
 
     Coverage per replicate = IJC + SJC.  For each group the average across
-    replicates must be >= *min_coverage*.  Events missing count columns
-    entirely are kept (they may come from summary-level rMATS output).
+    replicates must be >= *min_coverage*.  Events with missing/unparseable
+    count values in either group are also dropped.  If the four count columns
+    are absent entirely the DataFrame is returned unchanged.
     """
     needed = {"ijc_sample_1", "sjc_sample_1", "ijc_sample_2", "sjc_sample_2"}
     if not needed.issubset(df.columns):
@@ -94,12 +95,8 @@ def filter_low_coverage(df: pd.DataFrame, min_coverage: int = 10) -> pd.DataFram
     mean_cov_1 = _mean_coverage("ijc_sample_1", "sjc_sample_1")
     mean_cov_2 = _mean_coverage("ijc_sample_2", "sjc_sample_2")
 
-    # Keep rows where both groups have sufficient coverage (or where coverage is unknown)
-    mask = (
-        (mean_cov_1 >= min_coverage) | mean_cov_1.isna()
-    ) & (
-        (mean_cov_2 >= min_coverage) | mean_cov_2.isna()
-    )
+    # Keep rows where both groups have sufficient coverage; drop rows with missing data
+    mask = (mean_cov_1 >= min_coverage) & (mean_cov_2 >= min_coverage)
     before = len(df)
     result = df[mask].reset_index(drop=True)
     dropped = before - len(result)

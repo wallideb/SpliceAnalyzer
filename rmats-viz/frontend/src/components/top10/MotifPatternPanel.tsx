@@ -8,7 +8,7 @@
  * view (mode === "motifs").
  *
  * Shows:
- *  - Summary: n SE events analysed, n canonical clusters
+ *  - Summary: n SE events analysed, n with sequences
  *  - Exon size histogram (SVG bar chart, bins of 25 nt)
  *  - 5'SS donor sequence logo (9 nt around GT)
  *  - 3'SS acceptor sequence logo (23 nt around AG)

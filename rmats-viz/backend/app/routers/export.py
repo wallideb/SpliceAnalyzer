@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import uuid
 from io import BytesIO
 from typing import Literal
@@ -360,6 +361,7 @@ from reportlab.platypus import (
     PageBreak, HRFlowable, KeepTogether,
 )
 from reportlab.graphics.shapes import Drawing, Rect, String, Line, Group
+from reportlab.graphics import renderSVG as _renderSVG
 from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.pdfbase import pdfmetrics as _pdfmetrics
 _W, _ = _A4
@@ -839,6 +841,7 @@ def _build_pdf(
     permutation_table: list[dict] | None = None,
     hnrnp_data: dict | None = None,
     enrichr_data: dict | None = None,
+    svg_dir: str | None = None,
 ) -> bytes:
     """Build PDF report.
 
@@ -870,6 +873,17 @@ def _build_pdf(
     def _next_fig() -> int:
         _fig_count[0] += 1
         return _fig_count[0]
+
+    def _save_svg(drawing: Drawing | None, name: str) -> None:
+        """Save *drawing* as an SVG file inside *svg_dir* (no-op if either is None)."""
+        if svg_dir is None or drawing is None:
+            return
+        try:
+            os.makedirs(svg_dir, exist_ok=True)
+            path = os.path.join(svg_dir, f"{name}.svg")
+            _renderSVG.drawToFile(drawing, path)
+        except Exception as exc:
+            logger.warning("SVG export failed for %s: %s", name, exc)
 
     buf = BytesIO()
     USABLE_W = _W - 2 * _MARGIN          # ~15.27 cm
@@ -1041,6 +1055,7 @@ def _build_pdf(
 
             if include_figures:
                 dpsi_fig = _fig_dpsi_distribution(subset_events, group1_label)
+                _save_svg(dpsi_fig, f"sec{section_num:02d}_dpsi_distribution")
                 if dpsi_fig:
                     story += [
                         KeepTogether([
@@ -1056,6 +1071,7 @@ def _build_pdf(
                     ]
 
                 hist_fig = _fig_exon_size_histogram(exsz_vals)
+                _save_svg(hist_fig, f"sec{section_num:02d}_exon_size_histogram")
                 if hist_fig:
                     story += [
                         KeepTogether([
@@ -1071,6 +1087,7 @@ def _build_pdf(
                     ]
 
                 frame_fig = _fig_frame_breakdown(n_if, n_fs, n_nc, n_f)
+                _save_svg(frame_fig, f"sec{section_num:02d}_reading_frame")
                 if frame_fig:
                     story += [
                         KeepTogether([
@@ -1086,16 +1103,16 @@ def _build_pdf(
 
                 n_donor = sum(1 for f in subset_features.values() if f.donor_seq and len(f.donor_seq) >= 9)
                 donor_logo = _fig_splice_site_consensus(subset_features, site="donor", n_sequences=n_donor, max_width=FIG_MAX_W)
+                _save_svg(donor_logo, f"sec{section_num:02d}_5ss_donor_logo")
                 if donor_logo:
                     story += [
                         KeepTogether([
                             donor_logo,
                             caption(
                                 "Skipped exon 5'SS donor splice site sequence logo (9 nt: 3 nt exon + 6 nt intron). "
-                                "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
-                                "e<sub>n</sub> = (s-1)/(2 ln2 n). Canonical GT at positions +1/+2 highlighted in yellow. "
-                                f"n = {n_donor} sequences. "
-                                "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+                                "Letter height ∝ nucleotide frequency (frequency mode; columns always full height; no IC scaling). "
+                                "Canonical GT at positions +1/+2 highlighted in yellow. "
+                                f"n = {n_donor} sequences."
                             ),
                         ]),
                         sp(),
@@ -1103,16 +1120,16 @@ def _build_pdf(
 
                 n_acc = sum(1 for f in subset_features.values() if f.acceptor_seq and len(f.acceptor_seq) >= 23)
                 acceptor_logo = _fig_splice_site_consensus(subset_features, site="acceptor", n_sequences=n_acc, max_width=FIG_MAX_W)
+                _save_svg(acceptor_logo, f"sec{section_num:02d}_3ss_acceptor_logo")
                 if acceptor_logo:
                     story += [
                         KeepTogether([
                             acceptor_logo,
                             caption(
                                 "Skipped exon 3'SS acceptor splice site sequence logo (23 nt: 20 nt intron + 3 nt exon). "
-                                "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
+                                "Letter height ∝ nucleotide frequency (frequency mode; columns always full height; no IC scaling). "
                                 "Canonical AG at positions -2/-1 highlighted in yellow. "
-                                f"n = {n_acc} sequences. "
-                                "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+                                f"n = {n_acc} sequences."
                             ),
                         ]),
                         sp(),
@@ -1131,6 +1148,7 @@ def _build_pdf(
                         {}, site="donor", pwm_data=up_pwm,
                         n_sequences=len(up_seqs), max_width=FIG_MAX_W,
                     )
+                    _save_svg(up_logo, f"sec{section_num:02d}_upstream_5ss_donor_logo")
                     if up_logo:
                         story += [
                             KeepTogether([
@@ -1158,6 +1176,7 @@ def _build_pdf(
                         {}, site="acceptor", pwm_data=dn_pwm,
                         n_sequences=len(dn_seqs), max_width=FIG_MAX_W,
                     )
+                    _save_svg(dn_logo, f"sec{section_num:02d}_downstream_3ss_acceptor_logo")
                     if dn_logo:
                         story += [
                             KeepTogether([
@@ -1261,6 +1280,7 @@ def _build_pdf(
                 {}, site="donor", pwm_data=sig["donor_pwm"],
                 n_sequences=sig["n_se_with_features"], max_width=half_w,
             )
+            _save_svg(d_sig, f"sec{cmp_sec:02d}_comparison_5ss_donor_sig")
             if d_sig:
                 _block += [
                     p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
@@ -1271,6 +1291,7 @@ def _build_pdf(
                 {}, site="donor", pwm_data=nonsig["donor_pwm"],
                 n_sequences=nonsig["n_se_with_features"], max_width=half_w,
             )
+            _save_svg(d_nonsig, f"sec{cmp_sec:02d}_comparison_5ss_donor_nonsig")
             if d_nonsig:
                 _block += [
                     p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
@@ -1286,9 +1307,8 @@ def _build_pdf(
             ))
         _block.append(caption(
             "Skipped exon 5'SS donor sequence logos: significant vs non-significant events. "
-            "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
-            "Canonical GT at positions +1/+2 highlighted. "
-            "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+            "Letter height ∝ nucleotide frequency (frequency mode; columns always full height; no IC scaling). "
+            "Canonical GT at positions +1/+2 highlighted."
         ))
         story += [KeepTogether(_block), sp()]
 
@@ -1299,6 +1319,7 @@ def _build_pdf(
                 {}, site="acceptor", pwm_data=sig["acceptor_pwm"],
                 n_sequences=sig["n_se_with_features"], max_width=half_w,
             )
+            _save_svg(a_sig, f"sec{cmp_sec:02d}_comparison_3ss_acceptor_sig")
             if a_sig:
                 _block += [
                     p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
@@ -1309,6 +1330,7 @@ def _build_pdf(
                 {}, site="acceptor", pwm_data=nonsig["acceptor_pwm"],
                 n_sequences=nonsig["n_se_with_features"], max_width=half_w,
             )
+            _save_svg(a_nonsig, f"sec{cmp_sec:02d}_comparison_3ss_acceptor_nonsig")
             if a_nonsig:
                 _block += [
                     p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
@@ -1324,9 +1346,8 @@ def _build_pdf(
             ))
         _block.append(caption(
             "Skipped exon 3'SS acceptor sequence logos: significant vs non-significant events. "
-            "Letter height ∝ nucleotide frequency (frequency mode, columns always full height). "
-            "Canonical AG at positions -2/-1 highlighted. "
-            "Schneider &amp; Stephens (1990); Crooks et al. (2004)."
+            "Letter height ∝ nucleotide frequency (frequency mode; columns always full height; no IC scaling). "
+            "Canonical AG at positions -2/-1 highlighted."
         ))
         story += [KeepTogether(_block), sp()]
 
@@ -1338,6 +1359,7 @@ def _build_pdf(
                     {}, site="donor", pwm_data=sig["upstream_donor_pwm"],
                     n_sequences=sig["n_se_with_features"], max_width=half_w,
                 )
+                _save_svg(ud_sig, f"sec{cmp_sec:02d}_comparison_upstream_donor_sig")
                 if ud_sig:
                     _block += [
                         p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
@@ -1348,6 +1370,7 @@ def _build_pdf(
                     {}, site="donor", pwm_data=nonsig["upstream_donor_pwm"],
                     n_sequences=nonsig["n_se_with_features"], max_width=half_w,
                 )
+                _save_svg(ud_nonsig, f"sec{cmp_sec:02d}_comparison_upstream_donor_nonsig")
                 if ud_nonsig:
                     _block += [
                         p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
@@ -1376,6 +1399,7 @@ def _build_pdf(
                     {}, site="acceptor", pwm_data=sig["downstream_acceptor_pwm"],
                     n_sequences=sig["n_se_with_features"], max_width=half_w,
                 )
+                _save_svg(da_sig, f"sec{cmp_sec:02d}_comparison_downstream_acceptor_sig")
                 if da_sig:
                     _block += [
                         p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"),
@@ -1386,6 +1410,7 @@ def _build_pdf(
                     {}, site="acceptor", pwm_data=nonsig["downstream_acceptor_pwm"],
                     n_sequences=nonsig["n_se_with_features"], max_width=half_w,
                 )
+                _save_svg(da_nonsig, f"sec{cmp_sec:02d}_comparison_downstream_acceptor_nonsig")
                 if da_nonsig:
                     _block += [
                         p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"),
@@ -1409,9 +1434,11 @@ def _build_pdf(
         # Cf. Frame comparison
         _block = [p(f"{cmp_sec}.6 Reading Frame Comparison", "h3")]
         frame_sig = _fig_frame_breakdown(sig["frame_in_frame"], sig["frame_frameshift"], sig["frame_non_coding"], sig["n_se_with_features"])
+        _save_svg(frame_sig, f"sec{cmp_sec:02d}_comparison_reading_frame_sig")
         if frame_sig:
             _block += [p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"), frame_sig]
         frame_nonsig = _fig_frame_breakdown(nonsig["frame_in_frame"], nonsig["frame_frameshift"], nonsig["frame_non_coding"], nonsig["n_se_with_features"])
+        _save_svg(frame_nonsig, f"sec{cmp_sec:02d}_comparison_reading_frame_nonsig")
         if frame_nonsig:
             _block += [p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"), frame_nonsig]
         t_frame = test_map.get("in_frame_pct")
@@ -1472,7 +1499,7 @@ def _build_pdf(
             "Inspired by rMAPS2 (Hwang et al., 2020), this analysis scans five genomic regions "
             "around each skipped exon for known hnRNP RNA-binding protein consensus motifs "
             "and compares their frequency between significant and non-significant events using "
-            "a two-proportion z-test with Bonferroni correction.",
+            "a two-proportion z-test with Benjamini-Hochberg FDR correction (q &lt; 0.05).",
             "body",
         ))
 
@@ -1520,13 +1547,13 @@ def _build_pdf(
             story += [hnrnp_tbl, sp(0.2)]
             story.append(p(
                 f"Showing {min(len(sig_motifs_sorted), 20)} of {len(sig_motifs)} significant motif-region "
-                "associations (Bonferroni-corrected p &lt; 0.05). "
+                "associations (BH FDR q &lt; 0.05). "
                 "Sig % / Bg % = percentage of events with at least one motif hit.",
                 "small",
             ))
         else:
             story.append(p(
-                "No motif-region combinations reached significance after Bonferroni correction.",
+                "No motif-region combinations reached significance after Benjamini-Hochberg FDR correction (q &lt; 0.05).",
                 "body",
             ))
 
@@ -1537,7 +1564,7 @@ def _build_pdf(
             story.append(p("All Non-Significant Motif-Region Associations", "h3"))
             story.append(p(
                 "The following motif-region pairs were tested but did not reach significance "
-                "after Bonferroni correction (p<sub>adj</sub> ≥ 0.05).",
+                "after Benjamini-Hochberg FDR correction (q ≥ 0.05).",
                 "body",
             ))
             nonsig_motifs_sorted = sorted(
@@ -1587,7 +1614,7 @@ def _build_pdf(
             f"Gene symbols from significant events (n = {n_genes} unique genes) were submitted "
             "to the Enrichr REST API (Ma'ayan Lab). Enrichment was computed against five curated "
             "gene-set libraries: KEGG 2021, GO Biological Process, GO Molecular Function, "
-            "Reactome 2022, and WikiPathways 2023. The combined score = |z-score| × log(p-value) "
+            "Reactome 2022, and WikiPathways 2023. The combined score = log(p) × z "
             "(Chen et al., 2013).",
             "body",
         ))
@@ -1635,10 +1662,15 @@ def _build_pdf(
 
     # ── Top SE events ──────────────────────────────────────────────────────
     story.append(PageBreak())
-    story.append(p(f"{section_n}. Top SE Events (ranked by FDR, |ΔΨ|)", "h2"))
+    _top_title = "Top Significant SE Events (ranked by FDR, |ΔΨ|)" if is_deep else "Top SE Events (ranked by FDR, |ΔΨ|)"
+    story.append(p(f"{section_n}. {_top_title}", "h2"))
     top_se = sorted(
-        [e for e in events if e.event_type == "SE" and e.fdr is not None],
-        key=lambda e: (e.fdr or 1, -(abs(e.inc_level_difference or 0))),
+        [
+            e for e in events
+            if e.event_type == "SE" and e.fdr is not None
+            and (not is_deep or sig_map is None or sig_map.get(e.id, False))
+        ],
+        key=lambda e: (e.fdr if e.fdr is not None else 1.0, -(abs(e.inc_level_difference or 0))),
     )[:20]
 
     if top_se:
@@ -1674,12 +1706,12 @@ def _build_pdf(
         hr(),
         p("<b>1. Splicing Event Detection — rMATS</b>", "h3"),
         p("Alternative splicing events (SE, RI, A3SS, A5SS, MXE) are detected by "
-          "<b>rMATS</b> (Shen et al., 2014) from aligned RNA-seq data. rMATS applies "
-          "a multivariate uniform prior with a Bayesian framework to compute the "
-          "posterior probability that ΔΨ exceeds a cutoff (default 0). Junction and "
-          "exon-body read counts are combined in the JCEC model, while JC mode uses "
-          "junction reads only. Output files used here are junction counts "
-          "(<i>.MATS.JC.txt</i>).", "body"),
+          "<b>rMATS</b> (Shen et al., 2014 [1]) from aligned RNA-seq data. rMATS uses a "
+          "likelihood-ratio test to assess whether the difference in mean ΔΨ between groups "
+          "exceeds a user-defined threshold, while modelling replicate variability in a "
+          "hierarchical framework. Junction and exon-body read counts are combined in the "
+          "JCEC model, while JC mode uses junction reads only. "
+          "Output files used here are junction counts (<i>.MATS.JC.txt</i>).", "body"),
         p("<b>2. Splice Site Annotation</b>", "h3"),
         p("For each SE event, rMATS-Viz extracts flanking genomic sequences from "
           "the GRCh38 (hg38) reference genome indexed with <b>samtools faidx</b>:", "body"),
@@ -1688,12 +1720,12 @@ def _build_pdf(
         p("• <b>5'SS donor (upstream flanking exon):</b> 3 nt exon + 6 nt intron (9 nt window)", "body"),
         p("• <b>3'SS acceptor (downstream flanking exon):</b> 20 nt intron + 3 nt exon (23 nt window)", "body"),
         p("• <b>PPT:</b> ~47 nt upstream of the skipped exon acceptor site", "body"),
-        p("The canonical GT-AG splice site rule (Shapiro &amp; Senapathy, 1987; "
-          "Burge &amp; Karlin, 1997) is verified at the first two intronic positions "
+        p("The canonical GT-AG splice site rule (Shapiro &amp; Senapathy, 1987 [3]; "
+          "Burge &amp; Karlin, 1997 [2]) is verified at the first two intronic positions "
           "of the 5'SS (GT at +1/+2) and last two of the 3'SS (AG at -2/-1). "
           "The PPT score is the fraction of pyrimidine nucleotides (C, T) in the PPT "
           "window. The branch point is searched by matching the YNYURAY motif "
-          "(Coolidge et al., 1997).", "body"),
+          "(Coolidge et al., 1997 [6]).", "body"),
         p("<b>3. Sequence Logos</b>", "h3"),
         p("Position weight matrices (PWMs) are computed from all extracted "
           "sequences per group. Logos are displayed in <b>frequency mode</b>: "
@@ -1705,13 +1737,13 @@ def _build_pdf(
           "acceptor) are highlighted in yellow.", "body"),
         p("<b>4. Reading Frame Classification</b>", "h3"),
         p("The skipped exon is classified by reading-frame impact using the "
-          "MANE Select transcript (Morales et al., 2022) when available:", "body"),
+          "MANE Select transcript (Morales et al., 2022 [4]) when available:", "body"),
         p("• <b>in_frame:</b> CDS length divisible by 3 — protein domain loss without frameshift", "body"),
         p("• <b>frameshift:</b> CDS length not divisible by 3 — likely NMD or truncated protein", "body"),
         p("• <b>non_coding:</b> exon entirely within UTR — regulatory impact", "body"),
         p("<b>5. MANE Select Annotation</b>", "h3"),
         p("The MANE Select transcript is identified via the Ensembl REST API "
-          "(Cunningham et al., 2022). The skipped exon is mapped to transcript "
+          "(Cunningham et al., 2022 [5]). The skipped exon is mapped to transcript "
           "coordinates to determine exon rank, CDS overlap, and frame impact. "
           "Results are cached in a local SQLite database.", "body"),
     ]
@@ -1730,12 +1762,13 @@ def _build_pdf(
             p("<b>7. Permutation Test</b>", "h3"),
             p("For each significant SE event, sample labels are randomly permuted (keeping "
               "group sizes fixed) to build a null distribution of ΔΨ. The empirical two-tailed "
-              "p-value equals the fraction of permuted |ΔΨ| values ≥ the observed |ΔΨ|, "
-              "plus one (Phipson &amp; Smyth, 2010 [13]). The test is run at multiple iteration "
+              "p-value is p = (r + 1) / (K + 1), where r is the number of permuted |ΔΨ| values "
+              "≥ the observed |ΔΨ| and K is the number of iterations; the +1 correction avoids "
+              "p = 0 (Phipson &amp; Smyth, 2010 [7]). The test is run at multiple iteration "
               "counts (50, 100, 250, 500) to assess convergence.", "body"),
             p("<b>8. hnRNP Motif Enrichment Analysis</b>", "h3"),
             p("RNA-binding protein (RBP) motif enrichment is computed in a rMAPS2-inspired "
-              "framework (Hwang et al., 2020 [14]). For each SE event five flanking regions are "
+              "framework (Hwang et al., 2020 [8]). For each SE event five flanking regions are "
               "extracted from GRCh38 (samtools faidx): upstream exon (up to 250 nt), upstream "
               "intron (up to 250 nt after excluding the 6-nt 5'SS signal), skipped exon (full "
               "sequence), downstream intron (up to 250 nt after excluding the 6-nt 5'SS signal), "
@@ -1751,14 +1784,14 @@ def _build_pdf(
               "reflects the events that actually contributed sequence for that region.", "body"),
             p("Nineteen consensus motifs for eight protein families (hnRNP A1/A2, E (PCBP1/E1 "
               "and PCBP2/E2), F/H, K, C, L, M, PTB/I) are matched using IUPAC-degenerate pattern "
-              "search derived from CISBP-RNA (Ray et al., 2013 [17]), Martinez-Contreras et al. "
-              "(2006), and for hnRNP E (PCBP1/E1 CCWWHCC = CC[AT][AT][ACT]CC; PCBP2/E2 CCYYCCH = "
+              "search derived from CISBP-RNA (Ray et al., 2013 [11]), Martinez-Contreras et al. "
+              "(2006 [14]), and for hnRNP E (PCBP1/E1 CCWWHCC = CC[AT][AT][ACT]CC; PCBP2/E2 CCYYCCH = "
               "CC[CT][CT]CC[ACT], both from rMAPS2 Supplementary Table S2, Homo sapiens): "
-              "Chkheidze et al. (1999 [18]) and Makeyev &amp; Liebhaber (2002 [19]). "
+              "Chkheidze et al. (1999 [12]) and Makeyev &amp; Liebhaber (2002 [13]). "
               "For each motif-region pair, the hit rate (fraction of events with ≥ 1 match) is "
               "compared between the significant and background groups using a two-proportion z-test "
-              "(pooled proportion). Bonferroni correction (n = 5 regions × 19 motifs = 95 tests) "
-              "is applied; associations with p<sub>adj</sub> &lt; 0.05 are reported as significant. "
+              "(pooled proportion). Benjamini-Hochberg FDR correction is applied across all 95 "
+              "(motif × region) pairs; associations with q &lt; 0.05 are reported as significant. "
               "This differs from rMAPS2, which uses a Wilcoxon rank-sum test on sliding-window "
               "densities; our approach tests binary hit rates across genomic sub-regions.", "body"),
             p("<b>Summary — SpliceAnalyzer vs. rMAPS2:</b> rMAPS2 characterises positional RBP "
@@ -1768,80 +1801,77 @@ def _build_pdf(
               "region-centric binary enrichment model: each of the five predefined genomic "
               "sub-regions is treated as a unit, hit rates (fraction of events containing ≥ 1 "
               "motif match) are compared between the significant and background event sets via a "
-              "two-proportion z-test, and family-wise error control is applied with Bonferroni "
-              "correction across all motif–region pairs. This design trades positional resolution "
+              "two-proportion z-test, and false discovery rate control is applied with "
+              "Benjamini-Hochberg FDR correction across all motif–region pairs. This design trades positional resolution "
               "for statistical clarity and direct interpretability in the context of discrete "
               "regulatory zones (exonic body, proximal/distal intronic flanks), providing a "
               "complementary, region-level view of hnRNP motif associations.", "body"),
             p("<b>9. Pathway Enrichment (Enrichr)</b>", "h3"),
             p("Unique HGNC gene symbols derived from significant splicing events are submitted to "
-              "the Enrichr REST API (Ma'ayan Lab; Chen et al., 2013 [15]; Kuleshov et al., 2016 "
-              "[16]) via a POST request to <i>/addList</i>. Enrichment is retrieved for five "
+              "the Enrichr REST API (Ma'ayan Lab; Chen et al., 2013 [9]; Kuleshov et al., 2016 "
+              "[10]; Xie et al., 2021 [15]) via a POST request to <i>/addList</i>. Enrichment is retrieved for five "
               "curated gene-set libraries: KEGG 2021 Human, GO Biological Process 2023, GO "
               "Molecular Function 2023, Reactome 2022, and WikiPathways 2023 Human.", "body"),
             p("For each term the Enrichr combined score is defined as: "
-              "CS = |z| × log(p), where z is the deviation from a random background (computed "
-              "by Enrichr using a random gene-list model) and p is the Fisher's exact test "
-              "p-value. FDR-adjusted p-values use Benjamini-Hochberg correction applied "
-              "internally by Enrichr. The top 10 terms per library by adjusted p-value are "
+              "CS = log(p) × z, where p is the unadjusted Fisher's exact test p-value for overlap "
+              "and z is Enrichr's deviation-from-expected-rank z-score. "
+              "Adjusted p-values are reported separately by Enrichr within each library. "
+              "The top 10 terms per library by adjusted p-value are "
               "retained and displayed in this report.", "body"),
         ]
     story.append(sp())
 
     # ── Appendix B — References ──────────────────────────────────────────────
+    # Numbering (15 entries; unused refs [2–4], [9–10], [12] from the old list removed):
+    #  [1] Shen 2014        [2] Burge 1997       [3] Shapiro 1987
+    #  [4] Morales 2022     [5] Cunningham 2022  [6] Coolidge 1997
+    #  [7] Phipson 2010     [8] Hwang 2020        [9] Chen 2013
+    #  [10] Kuleshov 2016   [11] Ray 2013         [12] Chkheidze 1999
+    #  [13] Makeyev 2002    [14] Martinez-Contreras 2006  [15] Xie 2021
     story += [
         p("Appendix B — Bibliographic References", "h2"),
         hr(),
         p("[1] Shen S et al. <i>rMATS: robust and flexible detection of differential "
           "alternative splicing from replicate RNA-Seq data.</i> PNAS. 2014;111(51):E5593-E5601.", "body"),
-        p("[2] Schneider TD, Stephens RM. <i>Sequence logos: a new way to display "
-          "consensus sequences.</i> Nucleic Acids Res. 1990;18(20):6097-6100.", "body"),
-        p("[3] Crooks GE, Hon G, Chandonia JM, Brenner SE. <i>WebLogo: a sequence logo "
-          "generator.</i> Genome Research. 2004;14(6):1188-1190.", "body"),
-        p("[4] Schneider TD, Stormo GD, Gold L, Ehrenfeucht A. <i>Information content "
-          "of binding sites on nucleotide sequences.</i> J Mol Biol. 1986;188(3):415-431.", "body"),
-        p("[5] Burge C, Karlin S. <i>Prediction of complete gene structures in human "
+        p("[2] Burge C, Karlin S. <i>Prediction of complete gene structures in human "
           "genomic DNA.</i> J Mol Biol. 1997;268(1):78-94.", "body"),
-        p("[6] Shapiro MB, Senapathy P. <i>RNA splice junctions of different classes "
+        p("[3] Shapiro MB, Senapathy P. <i>RNA splice junctions of different classes "
           "of eukaryotes: sequence statistics and functional implications in gene "
           "expression.</i> Nucleic Acids Res. 1987;15(17):7155-7174.", "body"),
-        p("[7] Morales J et al. <i>A joint NCBI and EMBL-EBI transcript set for "
+        p("[4] Morales J et al. <i>A joint NCBI and EMBL-EBI transcript set for "
           "clinical genomics and research.</i> Nature. 2022;604:310-315.", "body"),
-        p("[8] Cunningham F et al. <i>Ensembl 2022.</i> Nucleic Acids Res. "
+        p("[5] Cunningham F et al. <i>Ensembl 2022.</i> Nucleic Acids Res. "
           "2022;50(D1):D988-D995.", "body"),
-        p("[9] Gene Ontology Consortium. <i>The Gene Ontology resource: enriching a "
-          "GOld mine.</i> Nucleic Acids Res. 2021;49(D1):D325-D334.", "body"),
-        p("[10] Szklarczyk D et al. <i>The STRING database in 2023: protein–protein "
-          "association networks with increased coverage.</i> Nucleic Acids Res. "
-          "2023;51(D1):D638-D646.", "body"),
-        p("[11] Coolidge CJ, Seely RJ, Patton JG. <i>Functional analysis of the "
+        p("[6] Coolidge CJ, Seely RJ, Patton JG. <i>Functional analysis of the "
           "polypyrimidine tract in pre-mRNA splicing.</i> Nucleic Acids Res. "
           "1997;25(4):888-896.", "body"),
-        p("[12] Padgett RA, Grabowski PJ, Konarska MM, Seiler SR, Sharp PA. "
-          "<i>Splicing of messenger RNA precursors.</i> Annu Rev Biochem. "
-          "1986;55:1119-1150.", "body"),
-        p("[13] Phipson B, Smyth GK. <i>Permutation P-values should never be zero: "
+        p("[7] Phipson B, Smyth GK. <i>Permutation P-values should never be zero: "
           "calculating exact P-values when permutations are randomly drawn.</i> "
           "Stat Appl Genet Mol Biol. 2010;9(1):Article 39.", "body"),
-        p("[14] Hwang JY, Jung S, Kook TL, Rouchka EC, Bok J, Park JW. "
+        p("[8] Hwang JY, Jung S, Kook TL, Rouchka EC, Bok J, Park JW. "
           "<i>rMAPS2: An update of the RNA map analysis and plotting server for "
           "alternative splicing regulation.</i> Nucleic Acids Res. 2020;48(W1):W300-W306.", "body"),
-        p("[15] Chen EY, Tan CM, Kou Y, Duan Q, Wang Z, Meirelles GV, Clark NR, "
+        p("[9] Chen EY, Tan CM, Kou Y, Duan Q, Wang Z, Meirelles GV, Clark NR, "
           "Ma'ayan A. <i>Enrichr: interactive and collaborative HTML5 gene list "
           "enrichment analysis tool.</i> BMC Bioinformatics. 2013;14:128.", "body"),
-        p("[16] Kuleshov MV, Jones MR, Rouillard AD, Fernandez NF, Duan Q, Wang Z, "
+        p("[10] Kuleshov MV, Jones MR, Rouillard AD, Fernandez NF, Duan Q, Wang Z, "
           "Koplev S, Jenkins SL, Jagodnik KM, Lachmann A, McDermott MG, Bhatt DL, "
           "Eisenberg D, Ma'ayan A. <i>Enrichr: a comprehensive gene set enrichment "
           "analysis web server 2016 update.</i> Nucleic Acids Res. 2016;44(W1):W90-W97.", "body"),
-        p("[17] Ray D, Kazan H, Cook KB, Weirauch MT, Najafabadi HS, Li X et al. "
+        p("[11] Ray D, Kazan H, Cook KB, Weirauch MT, Najafabadi HS, Li X et al. "
           "<i>A compendium of RNA-binding motifs for decoding gene regulation.</i> "
           "Nature. 2013;499(7457):172-177.", "body"),
-        p("[18] Chkheidze AN, Lyakhov DL, Makeyev AV, Morales J, Kong J, Liebhaber SA. "
+        p("[12] Chkheidze AN, Lyakhov DL, Makeyev AV, Morales J, Kong J, Liebhaber SA. "
           "<i>Assembly of the alpha-complex on the 3' untranslated region of the human "
           "alpha-globin mRNA.</i> Mol Cell Biol. 1999;19(7):4572-4581.", "body"),
-        p("[19] Makeyev AV, Liebhaber SA. "
+        p("[13] Makeyev AV, Liebhaber SA. "
           "<i>The poly(C)-binding proteins: a multiplicity of functions and a search "
           "for mechanisms.</i> RNA. 2002;8(3):265-278.", "body"),
+        p("[14] Martinez-Contreras R, Cloutier P, Shkreta L, Fisette JF, Revil T, Chabot B. "
+          "<i>hnRNP proteins and splicing control.</i> Adv Exp Med Biol. 2007;623:123-147.", "body"),
+        p("[15] Xie Z, Bailey A, Kuleshov MV, Clarke DJB, Evangelista JE, Jenkins SL, "
+          "Lachmann A, Wojciechowicz ML, Kropiwnicki E, Jagodnik KM, Jeon M, Ma'ayan A. "
+          "<i>Gene set knowledge discovery with Enrichr.</i> Curr Protoc. 2021;1(3):e90.", "body"),
         sp(),
     ]
 
@@ -1851,11 +1881,11 @@ def _build_pdf(
         hr(),
         p("<b>C.1 Splicing Event Statistics (rMATS)</b>", "h3"),
         p("rMATS computes for each event:", "body"),
-        p("• <b>delta-PSI</b>: dPSI = PSI<sub>sample1</sub> - PSI<sub>sample2</sub>, "
-          "where PSI is the percent spliced in. Range: [-1, +1].", "body"),
-        p("• <b>p-value</b>: likelihood-ratio test comparing a model with ΔΨ ≠ 0 "
-          "against a null model (ΔΨ = 0), using a multivariate uniform prior "
-          "on the individual sample PSI values.", "body"),
+        p("• <b>ΔΨ (delta-PSI)</b>: ΔΨ = PSI<sub>sample1</sub> − PSI<sub>sample2</sub>, "
+          "where PSI is the percent spliced in. Range: [−1, +1].", "body"),
+        p("• <b>p-value</b>: rMATS uses a likelihood-ratio test to assess whether "
+          "the difference in mean PSI between groups exceeds a user-defined threshold c, "
+          "while modelling replicate variability in a hierarchical framework.", "body"),
         p("• <b>FDR</b>: Benjamini-Hochberg correction across all events.", "body"),
         p("<b>C.2 Sequence Logos</b>", "h3"),
         p("Logos are rendered in <b>frequency mode</b>: every column fills the full "
@@ -1877,43 +1907,54 @@ def _build_pdf(
             p("<b>C.4 Deep Analysis Statistical Tests</b>", "h3"),
             p("Events are split into significant and non-significant groups. "
               "The following two-tailed tests compare splice features:", "body"),
-            p("• <b>Welch's t-test</b>: for continuous features (mean delta-PSI, exon size, "
+            p("• <b>Welch's t-test</b>: for continuous features (mean ΔΨ, exon size, "
               "PPT score). Uses Welch-Satterthwaite approximation for degrees of freedom:", "body"),
             p("&nbsp;&nbsp;&nbsp;df = (s<sub>1</sub><super>2</super>/n<sub>1</sub> + s<sub>2</sub><super>2</super>/n<sub>2</sub>)<super>2</super> "
               "/ [(s<sub>1</sub><super>2</super>/n<sub>1</sub>)<super>2</super>/(n<sub>1</sub>-1) "
               "+ (s<sub>2</sub><super>2</super>/n<sub>2</sub>)<super>2</super>/(n<sub>2</sub>-1)]", "code"),
             p("• <b>Two-proportion z-test</b>: for proportions (canonical GT, canonical AG, "
-              "upstream GT, downstream AG, in-frame %, branch-point detection):", "body"),
+              "upstream GT, downstream AG, in-frame %, branch-point detection). "
+              "This is a large-sample normal approximation, not an exact test:", "body"),
             p("&nbsp;&nbsp;&nbsp;z = (p<sub>1</sub> - p<sub>2</sub>) "
               "/ sqrt[p(1-p)(1/n<sub>1</sub> + 1/n<sub>2</sub>)]", "code"),
-            p("where p is the pooled proportion across both groups.", "body"),
-            p("All p-values are two-tailed. The regularised incomplete beta function "
-              "is computed via Lentz's continued fraction algorithm for the t-distribution CDF.", "body"),
+            p("where p is the pooled proportion across both groups. "
+              "Two-tailed p-values are computed from the normal CDF via the exact identity "
+              "Φ(x) = 0.5 × erfc(−x / √2).", "body"),
+            p("All p-values are two-tailed. The numerically evaluated regularized incomplete "
+              "beta function (Lentz's continued-fraction algorithm) is used to evaluate the "
+              "t-distribution upper-tail probability P(T ≥ |t|). "
+              "No multiple-testing correction is applied across this metric panel; "
+              "results should be treated as exploratory with inflated family-wise "
+              "false-positive risk across the full set of tests.", "body"),
             p("<b>C.5 Permutation Test</b>", "h3"),
             p("For each significant SE event, sample-label permutation generates a null ΔΨ "
               "distribution.  The empirical p-value is: p = (r + 1) / (K + 1), where r is "
               "the number of permuted |ΔΨ| ≥ observed |ΔΨ| and K is the number of iterations.  "
-              "The +1 correction avoids p = 0 (Phipson &amp; Smyth, 2010 [13]).  "
+              "The +1 correction avoids p = 0 (Phipson &amp; Smyth, 2010 [7]).  "
               "The test is run at 50, 100, 250 and 500 iterations to demonstrate convergence.", "body"),
             p("<b>C.6 hnRNP Motif Enrichment — Two-Proportion z-Test</b>", "h3"),
-            p("For each motif m in region r, let x<sub>1</sub> / n<sub>1</sub> be the hit rate "
-              "in the significant group and x<sub>2</sub> / n<sub>2</sub> in the background. "
+            p("For each motif m in region r, let p^<sub>1</sub> = x<sub>1</sub> / n<sub>1</sub> "
+              "and p^<sub>2</sub> = x<sub>2</sub> / n<sub>2</sub> be the hit rates "
+              "in the significant and background groups respectively. "
               "The pooled proportion is p^ = (x<sub>1</sub> + x<sub>2</sub>) / "
-              "(n<sub>1</sub> + n<sub>2</sub>), where ^ denotes the pooled estimate. "
+              "(n<sub>1</sub> + n<sub>2</sub>). "
               "The test statistic is:", "body"),
             p("&nbsp;&nbsp;&nbsp;z = (p^<sub>1</sub> - p^<sub>2</sub>) / "
               "sqrt[ p^(1 - p^)(1/n<sub>1</sub> + 1/n<sub>2</sub>) ]", "code"),
-            p("Two-tailed p-values are computed from the standard normal CDF. "
-              "Bonferroni correction multiplies each p-value by the number of tests "
-              "(95 = 5 regions × 19 motifs). Groups with fewer than 5 events are skipped.", "body"),
+            p("Two-tailed p-values are computed from the normal CDF via the exact identity "
+              "Φ(x) = 0.5 × erfc(−x / √2); note that the two-proportion z-test itself is "
+              "a large-sample normal approximation, not an exact test. "
+              "Raw p-values are adjusted across all testable (motif × region) pairs "
+              "using the Benjamini-Hochberg FDR procedure as a discovery-oriented screen (q &lt; 0.05). "
+              "This large-sample approximation is applied only when group sizes are sufficient "
+              "for stable proportion estimates; groups with fewer than 5 events are skipped.", "body"),
             p("<b>C.7 Enrichr Combined Score</b>", "h3"),
-            p("The Enrichr combined score (Chen et al., 2013 [15]) is defined as:", "body"),
-            p("&nbsp;&nbsp;&nbsp;CS = |z| × log(p)", "code"),
-            p("where z is the z-score computed by Enrichr against a random background model "
-              "(draws from the full human gene set) and p is the Fisher's exact test p-value "
-              "for overlap between the submitted gene list and the gene set. "
-              "A higher CS indicates stronger enrichment signal beyond background expectation. "
-              "BH-FDR adjusted p-values are applied within each library.", "body"),
+            p("The Enrichr combined score (Chen et al., 2013 [9]) is defined as:", "body"),
+            p("&nbsp;&nbsp;&nbsp;CS = log(p) × z", "code"),
+            p("where log is the natural logarithm, p is the unadjusted Fisher's exact test "
+              "p-value for overlap between the submitted gene list and the gene set, and z is "
+              "Enrichr's deviation-from-expected-rank z-score. Adjusted p-values are reported "
+              "separately by Enrichr within each library.", "body"),
         ]
     story.append(sp())
 
@@ -2157,11 +2198,14 @@ async def export_deep_analysis_pdf(
         _compute_enrichr(),
     )
 
+    svg_dir = os.path.join("/data", "svg_exports", str(deep_analysis_id))
+
     pdf_bytes = await asyncio.to_thread(
         _build_pdf, analysis, events, features, group1_label, group2_label,
         deep_analysis=deep, comparison=comparison,
         sig_map=sig_map, permutation_table=permutation_table,
         hnrnp_data=hnrnp_data, enrichr_data=enrichr_data,
+        svg_dir=svg_dir,
     )
 
     return StreamingResponse(

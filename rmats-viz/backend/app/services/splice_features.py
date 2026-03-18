@@ -23,7 +23,7 @@ Branch-point (YNYURAY rule-based):
   Search the ppt_seq for the 7-mer Y-N-Y-T-R-A-Y.
   Position scoring (0-7): each base earns 1 point if it matches.
   N position always scores 1.
-  Report best match if score >= 4.
+  Report best match if score >= 5 (≥ 5/7 positions match).
   bp_distance = distance of the best motif centre from the 3'-most end of ppt_seq
                 (≈ distance to 3'SS).
 """

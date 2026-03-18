@@ -9,40 +9,6 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
 
 
-class EventCluster(Base):
-    """Canonical cluster of near-identical SE events (|Δexon_start| ≤ 50 bp
-    AND |Δexon_end| ≤ 50 bp, same gene + strand)."""
-    __tablename__ = "event_cluster"
-    __table_args__ = (
-        UniqueConstraint(
-            "analysis_id", "chr", "strand", "exon_start", "exon_end",
-            name="uq_event_cluster_identity",
-        ),
-        Index("ix_event_cluster_analysis", "analysis_id"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    analysis_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("analyses.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    gene_symbol: Mapped[str | None] = mapped_column(Text, nullable=True)
-    chr: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    strand: Mapped[str | None] = mapped_column(String(1), nullable=True)
-    exon_start: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    exon_end: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    n_events: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    source_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
-    rep_event_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("splicing_events.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-
-
 class EventSpliceFeature(Base):
     """Splice-signal features computed from local GRCh38 FASTA for one SE event."""
     __tablename__ = "event_splice_feature"

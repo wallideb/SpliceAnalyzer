@@ -64,7 +64,6 @@ class ComputeJobResponse(BaseModel):
     analysis_id: str
     n_se_events: int
     n_computed: int
-    n_clusters: int
     fasta_available: bool
     message: str
 
@@ -106,11 +105,6 @@ class FrameStats(BaseModel):
     frameshift: int = 0
     non_coding: int = 0
     unknown: int = 0
-
-
-class ClusterInfo(BaseModel):
-    n_raw_events: int = 0
-    n_clusters: int = 0
 
 
 class EventPermResult(BaseModel):
@@ -156,7 +150,6 @@ class PatternAnalysisResponse(BaseModel):
     analysis_id: str
     n_se_events: int
     n_analyzed: int          # events with FASTA sequences
-    clusters: ClusterInfo
     fasta_available: bool
     # Significance thresholds applied
     fdr_threshold: float = 0.05

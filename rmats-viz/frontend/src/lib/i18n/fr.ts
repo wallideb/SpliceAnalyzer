@@ -328,7 +328,6 @@ export const fr: Translations = {
     fastaNotAvailable: "FASTA non disponible — tailles depuis coords uniquement",
     summarySeEvents: "Événements SE",
     summaryAnalyzed: "Analysés (seq.)",
-    summaryClusters: "Clusters",
     sectionConsensus: "Exon consensus — vue d'ensemble cohorte",
     sectionExonSizes: "Distribution des tailles d'exons sautés (nt)",
     statMean: "Moy.",
@@ -515,7 +514,7 @@ export const fr: Translations = {
         "rMAPS2 (ces régions sont fortement contraintes par les signaux de sites d'épissage). " +
         "rMAPS2 utilise une fenêtre glissante (50 pb) avec test de Wilcoxon sur la densité de motifs ; " +
         "notre implémentation simplifiée utilise un test z de deux proportions sur la présence de " +
-        "motifs par région avec correction de Bonferroni.",
+        "motifs par région avec correction BH FDR (q < 0,05, 95 tests).",
     },
     enrichr: {
       title: "Méthode — Enrichissement de voies Enrichr",
@@ -682,7 +681,7 @@ export const fr: Translations = {
     colSig: "Sig.",
     colBg: "Référence",
     showing: "Affichage de {{n}} sur {{total}} résultats",
-    bonferroni: "p-values corrigées par Bonferroni",
+    bonferroni: "p-values ajustées BH FDR",
     heatmapTitle: "Carte de chaleur — meilleur motif par protéine × région",
     enriched: "Enrichi chez sig.",
     depleted: "Appauvri chez sig.",

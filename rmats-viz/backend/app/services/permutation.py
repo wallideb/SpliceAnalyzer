@@ -4,29 +4,56 @@ Permutation test for rMATS events
 For each SE event, tests whether the observed ΔΨ is significant relative
 to a null distribution built by randomly permuting sample labels.
 
+Sign convention
+---------------
+ΔΨ = mean(PSI_sample1) − mean(PSI_sample2), consistent with rMATS
+IncLevelDifference = IncLevel1 − IncLevel2.
+
 Algorithm (ΔΨ per event)
 -------------------------
 1. Collect per-sample PSI values from inc_level_1 and inc_level_2.
 2. Pool all n1 + n2 samples.  In each permutation iteration, randomly
    split the pool into groups of size n1 and n2.
-3. Compute permuted ΔΨ = mean(perm2) − mean(perm1).
+3. Compute permuted ΔΨ = mean(perm1) − mean(perm2).
 4. Repeat n_iterations times → null distribution for this event.
-5. Empirical p-value = fraction of iterations where
-       |permuted ΔΨ| >= |observed ΔΨ|.
+5. Empirical two-tailed p-value (Phipson–Smyth):
+       p = (#{|permuted ΔΨ| ≥ |observed ΔΨ|} + 1) / (n_iter + 1)
+   The +1 correction prevents impossible zero p-values with random
+   (non-exhaustive) permutations.
 
-Algorithm (scalar metric)
---------------------------
-• Events are split into G1 (ΔΨ < 0, more skipped in condition 2) and
-  G2 (ΔΨ > 0, more included in condition 2) based on PSI values.
-• Observed stat = mean(metric_G2) − mean(metric_G1).
-• Each permutation shuffles event-to-group assignment and recomputes the
-  mean difference.
-• Empirical two-tailed p-value as above.
+Algorithm (scalar metric, auxiliary)
+--------------------------------------
+Events are split by the sign of their per-event ΔΨ into two groups (G1: ΔΨ < 0,
+G2: ΔΨ > 0).  A scalar metric is extracted from the associated splice-feature
+record of each event (where available); the observed statistic is
+mean(G2) − mean(G1).  Each permutation randomly reassigns event-to-group labels
+and recomputes the mean difference.  The same Phipson–Smyth p-value formula is
+used.  The grouping variable is derived from the data (ΔΨ sign), not an external
+experimental label; results should be interpreted as exploratory.
+The specific metrics tested are implementation details derived from the
+`features` list passed to `run_permutation` — they are not explicit
+parameters of the function interface.
+
+Min-max normalization
+---------------------
+For metrics that are normalised before permutation (e.g. exon size), the
+global min and max are computed once from the full pooled dataset before
+any permutation step.  This is a single fixed monotone linear transform
+applied uniformly to all values, which preserves the ordering of |Δ| and
+therefore leaves the two-sided permutation p-value unchanged (apart from
+floating-point rounding).  If normalisation were recomputed within each
+permutation or separately per group, the test statistic would change and
+the p-value would not be preserved.
 
 Global null distribution
 ------------------------
 The returned histogram represents the distribution of *all* permuted ΔΨ
 values across all events × iterations, which is useful for a combined view.
+
+Reproducibility
+---------------
+A fixed seed (default 42) makes results reproducible across runs that use
+the same code path.  Pass seed=None for an unseeded (non-reproducible) run.
 
 Performance notes
 -----------------
@@ -91,7 +118,7 @@ class EventPermResult:
 @dataclass
 class MetricPermResult:
     """Permutation result for a single scalar metric across all events."""
-    metric_name: str          # ppt_score | exon_size | frame_in_frame | canonical_sites
+    metric_name: str          # identifier for the metric (implementation-defined)
     label: str                # human-readable tab label
     observed_stat: float | None = None   # mean(G2) - mean(G1)
     empirical_p_value: float | None = None
@@ -247,7 +274,7 @@ def run_permutation(
         if not psi1 or not psi2:
             continue
 
-        observed_delta = (_mean(psi2) or 0.0) - (_mean(psi1) or 0.0)
+        observed_delta = (_mean(psi1) or 0.0) - (_mean(psi2) or 0.0)
         all_observed.append(observed_delta)
         event_deltas.append((observed_delta, feat))
 
@@ -261,7 +288,7 @@ def run_permutation(
         shuffled_all = pool[indices]
         g1_means = shuffled_all[:, :n1].mean(axis=1)
         g2_means = shuffled_all[:, n1:].mean(axis=1)
-        null_deltas_arr = g2_means - g1_means
+        null_deltas_arr = g1_means - g2_means
 
         null_deltas = null_deltas_arr.tolist()
         all_null_values.extend(null_deltas)
@@ -306,7 +333,6 @@ def run_permutation(
     )
 
     # ── Auxiliary metric permutation tests ──────────────────────────────────
-    # Split events by ΔΨ sign: G1 = more skipped (ΔΨ<0), G2 = more included (ΔΨ>0)
     metric_results: list[MetricPermResult] = []
     if event_deltas:
         metric_results = _compute_metric_permutations(event_deltas, n_iterations, rng)
@@ -331,8 +357,7 @@ def _compute_metric_permutations(
     n_iterations: int,
     rng: random.Random,
 ) -> list[MetricPermResult]:
-    """Build per-metric permutation tests by splitting events on ΔΨ sign."""
-
+    """Build per-metric permutation tests by splitting events on ΔΨ sign (G1: ΔΨ<0, G2: ΔΨ>0)."""
     g1_feats = [f for d, f in event_deltas if d < 0 and f is not None]
     g2_feats = [f for d, f in event_deltas if d > 0 and f is not None]
 

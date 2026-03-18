@@ -31,16 +31,23 @@ Motifs scanned (consensus sequences from literature & CISBP-RNA):
   - PTB (hnRNP I): UCUU, UCUCU, CUCU
 
 For each motif in each region, we compute:
-  - motif density = (# occurrences × motif_length) / region_length
-  - A proportion z-test (significant vs background) with Bonferroni correction
+  - motif density = (# occurrences × motif_length) / region_length  [descriptive]
+  - A standard pooled two-proportion z-test on binary hit presence
+    (event hit / no-hit) between significant and background groups.
+    This is a large-sample normal approximation, not an exact test.
+  - Raw p-values are adjusted across all testable (motif × region) pairs
+    using the Benjamini-Hochberg FDR procedure.  A pair is called
+    significant at q < 0.05 (expected FDR ≤ 5 %).
 
 Note
 ----
 rMAPS2 uses a sliding window (default 50 bp) with Wilcoxon rank-sum test on
 per-window motif density, and separates events into upregulated, downregulated,
 and background groups.  Our simplified implementation uses a two-proportion
-z-test on motif presence per region with Bonferroni correction, comparing
-significant vs non-significant events.
+z-test on binary motif presence per region, comparing significant vs
+non-significant events.  BH is preferred over Bonferroni for this exploratory
+screen because it controls the proportion of false positives among discoveries
+rather than the probability of any false positive in the family.
 
 References
 ----------
@@ -382,8 +389,13 @@ def compare_groups(
 ) -> list[MotifEnrichmentResult]:
     """Compare motif enrichment between significant and background groups.
 
-    Uses a two-proportion z-test at each (motif, region) and applies
-    Bonferroni correction across all tests.
+    For each (motif, region) pair, applies the standard pooled two-proportion
+    z-test on binary hit presence (event hit / no-hit).  This is a large-sample
+    normal approximation, not an exact test.
+
+    Multiple-testing correction: Benjamini-Hochberg FDR across all testable
+    (motif, region) pairs.  p_adjusted is the BH-adjusted q-value; significant
+    is set to True when q < 0.05.
     """
     bg_lookup: dict[tuple[str, str], MotifRegionResult] = {
         (r.motif_name, r.region): r for r in bg_results
@@ -412,14 +424,16 @@ def compare_groups(
             p_value=round(p, 6) if p is not None else None,
         ))
 
-    # Bonferroni correction
-    n_tests = len([r for r in raw if r.p_value is not None])
+    # Benjamini-Hochberg FDR correction over all testable pairs
+    testable = [r for r in raw if r.p_value is not None]
+    if testable:
+        p_raw = [r.p_value for r in testable]  # type: ignore[misc]
+        q_values = _bh_adjust(p_raw)
+        for r, q in zip(testable, q_values):
+            r.p_adjusted = round(q, 6)
+            r.significant = q < 0.05
     for r in raw:
-        if r.p_value is not None and n_tests > 0:
-            r.p_adjusted = round(min(r.p_value * n_tests, 1.0), 6)
-            r.significant = r.p_adjusted < 0.05
-        else:
-            r.p_adjusted = None
+        if r.p_adjusted is None:
             r.significant = False
 
     return raw
@@ -429,10 +443,38 @@ def compare_groups(
 # Stats helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _bh_adjust(p_values: list[float]) -> list[float]:
+    """Benjamini-Hochberg FDR adjustment.
+
+    Returns q-values in the same order as the input.  BH adjusted p-values
+    are computed by sorting ascending on raw p-value, applying the BH scale
+    factor at each rank, then enforcing monotonicity via a cumulative minimum
+    scanned from the largest rank back to the smallest (q[rank i] <= q[rank i+1]).
+    """
+    n = len(p_values)
+    if n == 0:
+        return []
+    order = sorted(range(n), key=lambda i: p_values[i])
+    adjusted = [0.0] * n
+    for rank, idx in enumerate(order, start=1):
+        adjusted[idx] = p_values[idx] * n / rank
+    # Enforce monotonicity: cumulative minimum from largest rank back to smallest
+    min_q = 1.0
+    for idx in reversed(order):
+        min_q = min(min_q, adjusted[idx])
+        adjusted[idx] = min_q
+    return adjusted
+
+
 def _proportion_z_test(
     k1: int, n1: int, k2: int, n2: int,
 ) -> tuple[float | None, float | None]:
-    """Two-proportion z-test. Returns (z, p) or (None, None)."""
+    """Standard pooled two-proportion z-test for H0: p1 = p2.
+
+    Returns (z_stat, raw_p_value) or (None, None) when the test is undefined.
+    This is a large-sample normal approximation; caller is responsible for
+    multiple-testing correction.
+    """
     if n1 < 1 or n2 < 1:
         return None, None
     p1 = k1 / n1
@@ -449,5 +491,10 @@ def _proportion_z_test(
 
 
 def _normal_cdf(x: float) -> float:
-    """Standard normal CDF (Abramowitz & Stegun)."""
+    """Standard normal CDF via the identity Phi(x) = 0.5 * erfc(-x / sqrt(2)).
+
+    The identity is mathematically exact; the numerical result depends on the
+    precision of math.erfc (Python's C-library implementation), not on any
+    hand-coded approximation.
+    """
     return 0.5 * math.erfc(-x / math.sqrt(2))

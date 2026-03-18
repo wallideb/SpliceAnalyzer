@@ -16,9 +16,9 @@ import logging
 import math
 import statistics
 import uuid
+from collections import Counter
 
 logger = logging.getLogger(__name__)
-from collections import Counter
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -336,37 +336,56 @@ def _welch_t_test(vals1: list[float], vals2: list[float]) -> tuple[float | None,
     m1, m2 = statistics.mean(vals1), statistics.mean(vals2)
     v1 = statistics.variance(vals1)
     v2 = statistics.variance(vals2)
-    se = math.sqrt(v1 / n1 + v2 / n2)
-    if se == 0:
+    se2 = v1 / n1 + v2 / n2
+    if se2 <= 0.0 or not math.isfinite(se2):
         return None, None
-    t_stat = (m1 - m2) / se
     # Welch-Satterthwaite degrees of freedom
-    num = (v1 / n1 + v2 / n2) ** 2
     denom = (v1 / n1) ** 2 / (n1 - 1) + (v2 / n2) ** 2 / (n2 - 1)
-    df = num / denom if denom > 0 else 1
-    # Two-tailed p-value using t-distribution approximation
-    p = _t_cdf_approx(abs(t_stat), df) * 2
-    return round(t_stat, 4), round(min(p, 1.0), 4)
+    if denom <= 0.0 or not math.isfinite(denom):
+        return None, None
+    df = se2 ** 2 / denom
+    if not math.isfinite(df) or df <= 0.0:
+        return None, None
+    t_stat = (m1 - m2) / math.sqrt(se2)
+    # Two-tailed p-value: 2 * P(T ≥ |t|)
+    p = min(1.0, 2.0 * _t_upper_tail(abs(t_stat), df))
+    return t_stat, p
 
 
-def _t_cdf_approx(t: float, df: float) -> float:
-    """Approximate upper-tail p-value for Student t-distribution.
-    Uses the regularized incomplete beta function approximation."""
+def _t_upper_tail(t: float, df: float) -> float:
+    """Return the upper-tail probability P(T ≥ t) for Student's t-distribution.
+
+    Uses the numerically evaluated regularized incomplete beta function:
+      P(T ≥ t) = 0.5 * I_{df/(df+t²)}(df/2, 1/2)
+
+    For a two-tailed test: p = min(1.0, 2.0 * _t_upper_tail(abs(t_stat), df))
+    """
     x = df / (df + t * t)
-    # Regularized incomplete beta function approximation via continued fraction
     a, b = df / 2.0, 0.5
     return 0.5 * _regularized_beta(x, a, b)
 
 
 def _regularized_beta(x: float, a: float, b: float, max_iter: int = 200) -> float:
-    """Regularized incomplete beta function I_x(a,b) via Lentz's continued fraction."""
+    """Regularized incomplete beta function I_x(a,b) via Lentz's continued fraction.
+
+    Boundary cases are exact by definition: I_0(a,b) = 0 and I_1(a,b) = 1.
+    In the t-tail context, x=1 arises only when t=0; _t_upper_tail then returns
+    0.5 * 1 = 0.5, giving a two-tailed p-value of 1.0, which is correct.
+
+    The symmetry relation I_x(a,b) = 1 - I_{1-x}(b,a) is applied when x is large
+    (x > (a+1)/(a+b+2)) to keep x in the convergence region of the continued
+    fraction and avoid numerical breakdown for x close to 1.
+    """
     if x <= 0:
         return 0.0
-    if x >= 1:
+    if x >= 1:          # I_1(a,b) = 1 by definition
         return 1.0
+    # Use symmetry for numerical stability when x is large
+    if x > (a + 1.0) / (a + b + 2.0):
+        return 1.0 - _regularized_beta(1.0 - x, b, a, max_iter)
     # Use the log-beta prefix
     lbeta = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
-    front = math.exp(a * math.log(x) + b * math.log(1 - x) - lbeta) / a
+    front = math.exp(a * math.log(x) + b * math.log1p(-x) - lbeta) / a
 
     # Modified Lentz's algorithm for continued fraction
     f = 1.0
@@ -398,13 +417,24 @@ def _regularized_beta(x: float, a: float, b: float, max_iter: int = 200) -> floa
         d = 1.0 / d
         delta = c * d
         f *= delta
-        if abs(delta - 1.0) < 1e-8:
-            break
-    return front * f
+        if abs(delta - 1.0) < 3e-7:
+            return front * f
+    raise ArithmeticError("Incomplete beta continued fraction did not converge")
 
 
 def _proportion_z_test(k1: int, n1: int, k2: int, n2: int) -> tuple[float | None, float | None]:
-    """Two-proportion z-test. Returns (z_stat, p_value) or (None, None)."""
+    """Standard pooled two-proportion z-test for H0: p1 = p2.
+
+    Uses the pooled proportion p_pool = (k1+k2)/(n1+n2) to estimate the common
+    proportion under H0, giving SE = sqrt(p_pool*(1-p_pool)*(1/n1+1/n2)).
+    The two-tailed p-value is 2*(1 - Phi(|z|)).
+
+    This is a large-sample normal approximation, not an exact test.  For small
+    expected counts Fisher's exact test is generally preferred.  No continuity
+    correction is applied.  SE = 0 (and None is returned) whenever p_pool is 0
+    or 1, i.e. all observations across both groups are failures or all are
+    successes; the test is undefined in that case.
+    """
     if n1 < 1 or n2 < 1:
         return None, None
     p1 = k1 / n1
@@ -420,7 +450,12 @@ def _proportion_z_test(k1: int, n1: int, k2: int, n2: int) -> tuple[float | None
 
 
 def _normal_cdf(x: float) -> float:
-    """Standard normal CDF approximation (Abramowitz & Stegun)."""
+    """Standard normal CDF via the identity Phi(x) = 0.5 * erfc(-x / sqrt(2)).
+
+    The identity is mathematically exact; the numerical result depends on the
+    precision of math.erfc (Python's C-library implementation), not on any
+    hand-coded Abramowitz-Stegun approximation.
+    """
     return 0.5 * math.erfc(-x / math.sqrt(2))
 
 

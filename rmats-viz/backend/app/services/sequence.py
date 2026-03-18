@@ -285,22 +285,25 @@ def get_splice_windows(
 
     # Build region list in a fixed order: donor, acceptor, ppt, up_donor, dn_acceptor
     # Regions are always fetched on + strand; RC applied afterwards if needed.
+    # has_upstream_donor    : whether slot 3 (upstream_donor_seq) can be filled
+    # has_downstream_acceptor: whether slot 4 (downstream_acceptor_seq) can be filled
+    # Both are named from the transcript perspective (5'→3').
     regions: list[tuple[str, int, int]] = []
     if strand == "+":
         # Upstream flanking exon: donor (5'SS) is at the HIGH boundary (upstream_ee)
         # Downstream flanking exon: acceptor (3'SS) is at the LOW boundary (downstream_es)
-        has_up = upstream_ee is not None
-        has_dn = downstream_es is not None
+        has_upstream_donor      = upstream_ee is not None
+        has_downstream_acceptor = downstream_es is not None
         regions.append((chrom, exon_end - 3,    exon_end + 6))      # donor
         regions.append((chrom, exon_start - 20, exon_start + 3))    # acceptor
         regions.append((chrom, exon_start - 50, exon_start - 3))    # ppt
         regions.append(
             (chrom, upstream_ee - 3, upstream_ee + 6)
-            if has_up else (chrom, 0, 0)
+            if has_upstream_donor else (chrom, 0, 0)
         )
         regions.append(
             (chrom, downstream_es - 20, downstream_es + 3)
-            if has_dn else (chrom, 0, 0)
+            if has_downstream_acceptor else (chrom, 0, 0)
         )
     else:
         # Minus strand: rMATS uses GENOMIC ordering (upstream_*=lower coords,
@@ -311,18 +314,18 @@ def get_splice_windows(
         # The rMATS "upstream" exon (lower genomic coords) is the 3′ flanking
         # exon (transcript-downstream); its 3'SS acceptor is at upstream_ee
         # (HIGH boundary of that exon).
-        has_up = upstream_ee is not None    # transcript-downstream exon (rMATS upstream)
-        has_dn = downstream_es is not None  # transcript-upstream exon (rMATS downstream)
+        has_upstream_donor      = downstream_es is not None  # 5′ flanking exon (rMATS downstream)
+        has_downstream_acceptor = upstream_ee is not None    # 3′ flanking exon (rMATS upstream)
         regions.append((chrom, exon_start - 6,  exon_start + 3))    # donor
         regions.append((chrom, exon_end - 3,    exon_end + 20))     # acceptor
         regions.append((chrom, exon_end + 3,    exon_end + 50))     # ppt
         regions.append(
             (chrom, downstream_es - 6, downstream_es + 3)
-            if has_dn else (chrom, 0, 0)
+            if has_upstream_donor else (chrom, 0, 0)
         )
         regions.append(
             (chrom, upstream_ee - 3, upstream_ee + 20)
-            if has_up else (chrom, 0, 0)
+            if has_downstream_acceptor else (chrom, 0, 0)
         )
 
     seqs = extract_regions_batch(regions, fp)
@@ -334,8 +337,8 @@ def get_splice_windows(
         donor_seq=seqs[0],
         acceptor_seq=seqs[1],
         ppt_seq=seqs[2],
-        upstream_donor_seq=seqs[3] if has_dn else "",       # slot 3 = rMATS downstream = 5′ flanking
-        downstream_acceptor_seq=seqs[4] if has_up else "",  # slot 4 = rMATS upstream = 3′ flanking
+        upstream_donor_seq=seqs[3] if has_upstream_donor else "",
+        downstream_acceptor_seq=seqs[4] if has_downstream_acceptor else "",
         source="fasta",
     )
 
@@ -363,23 +366,28 @@ def get_splice_windows_batch(
         return []
     fp = fasta_path or settings.GRCH38_FASTA
 
-    # Build a flat region list: 5 regions per event, in order
+    # Build a flat region list: 5 regions per event, in order.
+    # has_upstream_donor    : whether slot 3 (upstream_donor_seq) can be filled
+    # has_downstream_acceptor: whether slot 4 (downstream_acceptor_seq) can be filled
+    # Both are named from the transcript perspective (5'→3').
     all_regions: list[tuple[str, int, int]] = []
-    event_meta: list[tuple[bool, bool, bool]] = []  # (need_rc, has_up, has_dn)
+    event_meta: list[tuple[bool, bool, bool]] = []  # (need_rc, has_upstream_donor, has_downstream_acceptor)
 
     for chrom, strand, exon_start, exon_end, upstream_es, upstream_ee, downstream_es, downstream_ee in events:
         need_rc = strand == "-"
         if strand == "+":
-            has_up = upstream_ee is not None
-            has_dn = downstream_es is not None
+            # Upstream flanking exon: donor (5'SS) is at the HIGH boundary (upstream_ee)
+            # Downstream flanking exon: acceptor (3'SS) is at the LOW boundary (downstream_es)
+            has_upstream_donor      = upstream_ee is not None
+            has_downstream_acceptor = downstream_es is not None
         else:
             # Minus strand: rMATS "downstream" exon (higher coords) is 5′ flanking
-            # (transcript-upstream); "upstream" exon (lower coords) is 3′ flanking.
-            # has_up → slot 3 (upstream_donor) uses downstream_es
-            # has_dn → slot 4 (downstream_acceptor) uses upstream_ee
-            has_up = downstream_es is not None  # 5′ flanking exon (rMATS downstream)
-            has_dn = upstream_ee is not None    # 3′ flanking exon (rMATS upstream)
-        event_meta.append((need_rc, has_up, has_dn))
+            # (transcript-upstream); its 5'SS donor is at downstream_es.
+            # rMATS "upstream" exon (lower coords) is 3′ flanking; its 3'SS
+            # acceptor is at upstream_ee.
+            has_upstream_donor      = downstream_es is not None  # 5′ flanking exon (rMATS downstream)
+            has_downstream_acceptor = upstream_ee is not None    # 3′ flanking exon (rMATS upstream)
+        event_meta.append((need_rc, has_upstream_donor, has_downstream_acceptor))
 
         if strand == "+":
             all_regions.append((chrom, exon_end - 3,    exon_end + 6))
@@ -387,11 +395,11 @@ def get_splice_windows_batch(
             all_regions.append((chrom, exon_start - 50, exon_start - 3))
             all_regions.append(
                 (chrom, upstream_ee - 3, upstream_ee + 6)
-                if has_up else (chrom, 0, 0)
+                if has_upstream_donor else (chrom, 0, 0)
             )
             all_regions.append(
                 (chrom, downstream_es - 20, downstream_es + 3)
-                if has_dn else (chrom, 0, 0)
+                if has_downstream_acceptor else (chrom, 0, 0)
             )
         else:
             # Minus strand: upstream donor at downstream_es (LOW boundary of 5′ flanking exon)
@@ -401,18 +409,18 @@ def get_splice_windows_batch(
             all_regions.append((chrom, exon_end + 3,    exon_end + 50))
             all_regions.append(
                 (chrom, downstream_es - 6, downstream_es + 3)
-                if has_up else (chrom, 0, 0)
+                if has_upstream_donor else (chrom, 0, 0)
             )
             all_regions.append(
                 (chrom, upstream_ee - 3, upstream_ee + 20)
-                if has_dn else (chrom, 0, 0)
+                if has_downstream_acceptor else (chrom, 0, 0)
             )
 
     all_seqs = extract_regions_batch(all_regions, fp)
 
     # Unpack: 5 seqs per event
     results: list[SpliceWindows] = []
-    for i, (need_rc, has_up, has_dn) in enumerate(event_meta):
+    for i, (need_rc, has_upstream_donor, has_downstream_acceptor) in enumerate(event_meta):
         seqs = all_seqs[i * 5 : i * 5 + 5]
         if need_rc:
             seqs = [reverse_complement(s) if s else "" for s in seqs]
@@ -420,8 +428,8 @@ def get_splice_windows_batch(
             donor_seq=seqs[0],
             acceptor_seq=seqs[1],
             ppt_seq=seqs[2],
-            upstream_donor_seq=seqs[3] if has_up else "",
-            downstream_acceptor_seq=seqs[4] if has_dn else "",
+            upstream_donor_seq=seqs[3] if has_upstream_donor else "",
+            downstream_acceptor_seq=seqs[4] if has_downstream_acceptor else "",
             source="fasta",
         ))
 

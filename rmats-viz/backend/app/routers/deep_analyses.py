@@ -18,7 +18,6 @@ import statistics
 import uuid
 from collections import Counter
 
-logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -37,6 +36,8 @@ from app.schemas.deep_analysis import (
 )
 from app.schemas.event import SplicingEventResponse
 from app.services.splice_features import compute_pwm, iupac_consensus
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["deep-analyses"])
 
@@ -253,6 +254,11 @@ class GroupPatternStats(BaseModel):
     upstream_donor_consensus: str | None = None
     downstream_acceptor_consensus: str | None = None
     mean_delta_psi: float | None = None
+    # Flanking intron sizes
+    upstream_intron_size_mean: float | None = None
+    upstream_intron_size_median: float | None = None
+    downstream_intron_size_mean: float | None = None
+    downstream_intron_size_median: float | None = None
 
 
 class StatTestResult(BaseModel):
@@ -559,6 +565,24 @@ def _compute_stat_tests(
         statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
     ))
 
+    # 10. Upstream intron size — Welch's t-test
+    up_introns_sig = [f.upstream_intron_size for f in sig_feats if f.upstream_intron_size is not None]
+    up_introns_ns = [f.upstream_intron_size for f in nonsig_feats if f.upstream_intron_size is not None]
+    t_stat, p_val = _welch_t_test(up_introns_sig, up_introns_ns)
+    results.append(StatTestResult(
+        feature="upstream_intron_size", test_name="Welch's t-test",
+        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
+    ))
+
+    # 11. Downstream intron size — Welch's t-test
+    dn_introns_sig = [f.downstream_intron_size for f in sig_feats if f.downstream_intron_size is not None]
+    dn_introns_ns = [f.downstream_intron_size for f in nonsig_feats if f.downstream_intron_size is not None]
+    t_stat, p_val = _welch_t_test(dn_introns_sig, dn_introns_ns)
+    results.append(StatTestResult(
+        feature="downstream_intron_size", test_name="Welch's t-test",
+        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
+    ))
+
     return results
 
 
@@ -601,6 +625,10 @@ def _compute_group_stats(
     # Mean ΔΨ
     dpsi = [ev.inc_level_difference for ev in events if ev.inc_level_difference is not None]
 
+    # Intron sizes
+    up_introns = [f.upstream_intron_size for f in feats if f.upstream_intron_size is not None]
+    dn_introns = [f.downstream_intron_size for f in feats if f.downstream_intron_size is not None]
+
     return GroupPatternStats(
         n_events=len(events),
         n_se_with_features=len(feats),
@@ -624,6 +652,10 @@ def _compute_group_stats(
         upstream_donor_consensus=iupac_consensus(up_donor_9) if up_donor_9 else None,
         downstream_acceptor_consensus=iupac_consensus(dn_acc_23) if dn_acc_23 else None,
         mean_delta_psi=round(statistics.mean(dpsi), 3) if dpsi else None,
+        upstream_intron_size_mean=round(statistics.mean(up_introns), 1) if up_introns else None,
+        upstream_intron_size_median=round(statistics.median(up_introns), 1) if up_introns else None,
+        downstream_intron_size_mean=round(statistics.mean(dn_introns), 1) if dn_introns else None,
+        downstream_intron_size_median=round(statistics.median(dn_introns), 1) if dn_introns else None,
     )
 
 

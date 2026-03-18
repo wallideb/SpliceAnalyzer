@@ -116,6 +116,11 @@ export interface GroupPatternStats {
   upstream_donor_consensus: string | null;
   downstream_acceptor_consensus: string | null;
   mean_delta_psi: number | null;
+  // Flanking intron sizes
+  upstream_intron_size_mean: number | null;
+  upstream_intron_size_median: number | null;
+  downstream_intron_size_mean: number | null;
+  downstream_intron_size_median: number | null;
 }
 
 export interface StatTestResult {

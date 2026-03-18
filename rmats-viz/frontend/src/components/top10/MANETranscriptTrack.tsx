@@ -76,34 +76,34 @@ function TranscriptDiagram({
   const t = useT();
   if (!exons.length) return null;
 
-  const minSz = Math.min(...exons.map((e) => e.size));
-  const maxSz = Math.max(...exons.map((e) => e.size));
+  // Render in transcript order (5'→3' = left→right) for both strands.
+  // Backend returns exons sorted ascending by genomic position (index 0 = lowest coord).
+  // For minus-strand genes the transcript runs high→low genomically, so we reverse
+  // the array before layout so left = 5' end and right = 3' end in all cases.
+  const orderedExons = strand === "-" ? [...exons].reverse() : exons;
+
+  const minSz = Math.min(...orderedExons.map((e) => e.size));
+  const maxSz = Math.max(...orderedExons.map((e) => e.size));
 
   // Calculate per-exon pixel widths
-  const widths = exons.map((e) => exonPx(e.size, minSz, maxSz));
+  const widths = orderedExons.map((e) => exonPx(e.size, minSz, maxSz));
 
   // Scale so total fits in SVG_W (accounting for intron gaps)
   const totalExonPx = widths.reduce((a, b) => a + b, 0);
-  const totalIntronPx = (exons.length - 1) * INTRON_GAP_W;
+  const totalIntronPx = (orderedExons.length - 1) * INTRON_GAP_W;
   const totalRaw = totalExonPx + totalIntronPx;
   const scale = totalRaw > SVG_W ? SVG_W / totalRaw : 1;
 
-  // Determine skipped exon index by coordinate overlap.
-  // exons[] is sorted ascending by genomic position (index 0 = lowest coord).
-  // For + strand: genomic order == transcript order → skippedIdx = exonRank - 1
-  // For - strand: transcript 5'→3' runs high→low genomically, so
-  //               transcript rank k → genomic sorted index (n - k), e.g.
-  //               rank 4 of 10 → index 6 (the 4th from the 5'/right end).
+  // Determine skipped exon index in orderedExons (transcript order, 5'→3').
+  // exonRank is 1-based in transcript order, so the 0-based index is always
+  // exonRank - 1 regardless of strand (because orderedExons is already oriented).
+  // Coordinate-overlap fallback (when exonRank is null) also searches orderedExons.
   const skippedIdx = (() => {
-    if (exonRank !== null) {
-      return strand === "-"
-        ? exons.length - exonRank   // convert transcript rank → genomic array index
-        : exonRank - 1;             // + strand: same order
-    }
+    if (exonRank !== null) return exonRank - 1;
     if (skippedStart !== null && skippedEnd !== null) {
       let best = -1;
       let bestOv = 0;
-      exons.forEach((e, i) => {
+      orderedExons.forEach((e, i) => {
         const ov = Math.max(0, Math.min(skippedEnd, e.end) - Math.max(skippedStart, e.start));
         if (ov > bestOv) { bestOv = ov; best = i; }
       });
@@ -112,15 +112,15 @@ function TranscriptDiagram({
     return -1;
   })();
 
-  // Build layout
+  // Build layout (left = 5' end, right = 3' end in all cases)
   let curX = 0;
   const blocks: { x: number; w: number; isSkipped: boolean; exon: MANEExon; idx: number }[] = [];
 
-  exons.forEach((exon, i) => {
+  orderedExons.forEach((exon, i) => {
     const w = widths[i] * scale;
     blocks.push({ x: curX, w, isSkipped: i === skippedIdx, exon, idx: i });
     curX += w;
-    if (i < exons.length - 1) curX += INTRON_GAP_W * scale;
+    if (i < orderedExons.length - 1) curX += INTRON_GAP_W * scale;
   });
 
   const totalW = curX;
@@ -153,10 +153,10 @@ function TranscriptDiagram({
           />
 
           {blocks.map(({ x, w, isSkipped, exon, idx }) => {
-            // Genomic rank (1-based in sorted array) for the tooltip.
-            const genomicRank = idx + 1;
+            // Transcript rank (1-based, 5'→3') — idx is already in transcript order.
+            const txRank = idx + 1;
             const tooltip = [
-              t("maneTrack.exonLabel", { rank: genomicRank, total: exons.length }),
+              t("maneTrack.exonLabel", { rank: txRank, total: orderedExons.length }),
               t("maneTrack.sizeLabel", { size: exon.size.toLocaleString() }),
               t("maneTrack.coordsLabel", { start: formatCoord(exon.start), end: formatCoord(exon.end) }),
               isSkipped ? t("maneTrack.skippedLabel") : null,
@@ -188,7 +188,7 @@ function TranscriptDiagram({
                     fill={COLOR_SKIPPED}
                     fontWeight="700"
                   >
-                    E{exonRank ?? genomicRank}
+                    E{exonRank ?? txRank}
                   </text>
                 )}
               </g>
@@ -202,7 +202,7 @@ function TranscriptDiagram({
         <span className="flex items-center gap-1">
           <span className="inline-block w-4 h-2.5 rounded-sm bg-indigo-500" />
           {t("maneTrack.skippedExon")}
-          {exonRank !== null && ` (E${exonRank} / ${exons.length})`}
+          {exonRank !== null && ` (E${exonRank} / ${orderedExons.length})`}
         </span>
         <span className="flex items-center gap-1">
           <span className="inline-block w-4 h-2.5 rounded-sm bg-slate-400/75" />

@@ -1932,10 +1932,11 @@ def _build_pdf(
               "The +1 correction avoids p = 0 (Phipson &amp; Smyth, 2010 [7]).  "
               "The test is run at 50, 100, 250 and 500 iterations to demonstrate convergence.", "body"),
             p("<b>C.6 hnRNP Motif Enrichment — Two-Proportion z-Test</b>", "h3"),
-            p("For each motif m in region r, let x<sub>1</sub> / n<sub>1</sub> be the hit rate "
-              "in the significant group and x<sub>2</sub> / n<sub>2</sub> in the background. "
+            p("For each motif m in region r, let p^<sub>1</sub> = x<sub>1</sub> / n<sub>1</sub> "
+              "and p^<sub>2</sub> = x<sub>2</sub> / n<sub>2</sub> be the hit rates "
+              "in the significant and background groups respectively. "
               "The pooled proportion is p^ = (x<sub>1</sub> + x<sub>2</sub>) / "
-              "(n<sub>1</sub> + n<sub>2</sub>), where ^ denotes the pooled estimate. "
+              "(n<sub>1</sub> + n<sub>2</sub>). "
               "The test statistic is:", "body"),
             p("&nbsp;&nbsp;&nbsp;z = (p^<sub>1</sub> - p^<sub>2</sub>) / "
               "sqrt[ p^(1 - p^)(1/n<sub>1</sub> + 1/n<sub>2</sub>) ]", "code"),

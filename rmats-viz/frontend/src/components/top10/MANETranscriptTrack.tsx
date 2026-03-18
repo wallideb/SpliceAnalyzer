@@ -88,9 +88,18 @@ function TranscriptDiagram({
   const totalRaw = totalExonPx + totalIntronPx;
   const scale = totalRaw > SVG_W ? SVG_W / totalRaw : 1;
 
-  // Determine skipped exon index by coordinate overlap
+  // Determine skipped exon index by coordinate overlap.
+  // exons[] is sorted ascending by genomic position (index 0 = lowest coord).
+  // For + strand: genomic order == transcript order → skippedIdx = exonRank - 1
+  // For - strand: transcript 5'→3' runs high→low genomically, so
+  //               transcript rank k → genomic sorted index (n - k), e.g.
+  //               rank 4 of 10 → index 6 (the 4th from the 5'/right end).
   const skippedIdx = (() => {
-    if (exonRank !== null) return exonRank - 1; // 0-based
+    if (exonRank !== null) {
+      return strand === "-"
+        ? exons.length - exonRank   // convert transcript rank → genomic array index
+        : exonRank - 1;             // + strand: same order
+    }
     if (skippedStart !== null && skippedEnd !== null) {
       let best = -1;
       let bestOv = 0;
@@ -144,9 +153,10 @@ function TranscriptDiagram({
           />
 
           {blocks.map(({ x, w, isSkipped, exon, idx }) => {
-            const rank = idx + 1;
+            // Genomic rank (1-based in sorted array) for the tooltip.
+            const genomicRank = idx + 1;
             const tooltip = [
-              t("maneTrack.exonLabel", { rank, total: exons.length }),
+              t("maneTrack.exonLabel", { rank: genomicRank, total: exons.length }),
               t("maneTrack.sizeLabel", { size: exon.size.toLocaleString() }),
               t("maneTrack.coordsLabel", { start: formatCoord(exon.start), end: formatCoord(exon.end) }),
               isSkipped ? t("maneTrack.skippedLabel") : null,
@@ -166,7 +176,8 @@ function TranscriptDiagram({
                   strokeWidth={isSkipped ? 1 : 0}
                   opacity={isSkipped ? 1 : 0.75}
                 />
-                {/* Rank label for skipped exon */}
+                {/* Rank label for skipped exon — always show transcript-order rank
+                    so it matches the legend "E{exonRank} / {total}" below. */}
                 {isSkipped && (
                   <text
                     x={x + w / 2}
@@ -177,7 +188,7 @@ function TranscriptDiagram({
                     fill={COLOR_SKIPPED}
                     fontWeight="700"
                   >
-                    E{rank}
+                    E{exonRank ?? genomicRank}
                   </text>
                 )}
               </g>

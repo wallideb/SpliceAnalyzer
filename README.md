@@ -547,8 +547,8 @@ Results are cached in a local SQLite database with WAL journal mode to support c
 A permutation test assesses the significance of |&Delta;&Psi;| for each SE event by testing whether the observed group difference is larger than expected by chance:
 
 1. Sample labels are randomly permuted (keeping group sizes fixed)
-2. A null distribution of |&Delta;&Psi;| is built from `N` permutations (50, 100, 250, or 500 iterations)
-3. The empirical two-tailed p-value uses the **Phipson & Smyth (2010)** continuity correction: `p = (k + 1) / (N + 1)`, where `k` is the number of permuted |&Delta;&Psi;| values ≥ the observed value
+2. A null distribution of |&Delta;&Psi;| is built from `K` permutations (50, 100, 250, or 500 iterations)
+3. The empirical two-tailed p-value uses the **Phipson & Smyth (2010)** continuity correction: `p = (r + 1) / (K + 1)`, where `r` is the number of permuted |&Delta;&Psi;| values ≥ the observed value
 
 **Sign convention:** ΔΨ = mean(PSI<sub>group1</sub>) − mean(PSI<sub>group2</sub>), consistent with rMATS `IncLevelDifference`. The null distribution is built with the same group-ordering convention, so the sign is preserved and the two-tailed test compares |ΔΨ<sub>obs</sub>| against |ΔΨ<sub>null</sub>|.
 
@@ -923,12 +923,12 @@ Each analytical panel embeds collapsible `ScienceNote` widgets that cite the pri
 | Frequency logo height | `height(b,i) = f(b,i) × H_logo` | Frequency mode (no IC scaling) |
 | PPT score | Fraction of C+T in ~47 nt upstream of 3'SS | Coolidge et al. (1997) |
 | Branch-point motif | YNYURAY (Y = C/T, N = any, R = A/G) | Padgett et al. (1986) |
-| Permutation p-value | `p = (k+1)/(N+1)` with continuity correction | Phipson & Smyth (2010) |
+| Permutation p-value | `p = (r+1)/(K+1)`; r = permuted |ΔΨ| ≥ observed, K = iterations | Phipson & Smyth (2010) |
 | FDR correction | Benjamini-Hochberg step-up procedure; monotonicity via cumulative minimum from largest rank | Benjamini & Hochberg (1995) |
 | hnRNP hit-rate z-test | Two-proportion z-test + Benjamini-Hochberg FDR (q &lt; 0.05, n=95) | Agresti (2002); Benjamini &amp; Hochberg (1995) |
 | Welch t-test df | Welch-Satterthwaite approximation | Welch (1947) |
 | Welch t-test p-value | `p = 2 × P(T ≥ \|t\|)` via numerically evaluated regularized incomplete beta (Lentz's CF) | Abramowitz & Stegun (1972) |
-| Two-proportion z-test | `z = (p₁−p₂) / √[p̂(1−p̂)(1/n₁+1/n₂)]`; large-sample normal approximation | Agresti (2002) |
+| Two-proportion z-test | `z = (p̂₁−p̂₂) / √[p̂(1−p̂)(1/n₁+1/n₂)]`; large-sample normal approximation | Agresti (2002) |
 | Normal CDF | `Φ(x) = 0.5 × erfc(−x/√2)`; identity exact, precision from C-library `erfc` | — |
 | Enrichr combined score | `CS = log(p) × z` (log = natural logarithm) | Chen et al. (2013) |
 

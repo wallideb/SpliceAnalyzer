@@ -139,6 +139,8 @@ async def _fetch_features(
                     event.gene_id,
                     event.exon_start,
                     event.exon_end,
+                    event.upstream_ee,
+                    event.downstream_es,
                 )
                 if mb is not None:
                     mane_es, mane_ee = mb
@@ -336,8 +338,11 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                         # Build tuples for ALL events in the chunk (including
                         # invalid ones as placeholders) so indices align with
                         # the chunk list for both FASTA and Ensembl paths.
+                        # Include flanking exon boundaries for the fallback
+                        # strategy when overlap matching fails.
                         mane_boundary_tuples = [
-                            (ev.gene_id or "", ev.exon_start or 0, ev.exon_end or 0)
+                            (ev.gene_id or "", ev.exon_start or 0, ev.exon_end or 0,
+                             ev.upstream_ee, ev.downstream_es)
                             for ev in chunk
                         ]
                         mane_boundary_list = await asyncio.to_thread(

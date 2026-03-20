@@ -229,16 +229,10 @@ def _build_feature_row(
 ) -> dict:
     """Build a plain dict suitable for bulk INSERT into EventSpliceFeature."""
     mane_frame_class = mane.get("frame_class", "unknown") or "unknown"
-    mane_frame_region = mane.get("frame_region", "unknown") or "unknown"
-    if mane_frame_class in ("unknown", None) and feat_data.exon_size is not None:
-        # Without MANE data we cannot distinguish CDS from UTR exons.
-        # Only apply the simple exon_size % 3 heuristic when frame_region
-        # confirms the exon overlaps the CDS; otherwise keep "unknown"
-        # to avoid misclassifying non-coding exons.
-        if mane_frame_region in ("CDS", "partial"):
-            mane_frame_class = "in_frame" if feat_data.exon_size % 3 == 0 else "frameshift"
-        else:
-            mane_frame_class = "unknown"
+    # When MANE annotation is unavailable (frame_class == "unknown"), we
+    # intentionally keep "unknown" rather than guessing from exon_size % 3.
+    # The old heuristic could not distinguish CDS exons from UTR exons,
+    # leading to misclassification of non-coding exons as frameshift/in_frame.
     return dict(
         id                     = uuid.uuid4(),
         event_id               = event.id,

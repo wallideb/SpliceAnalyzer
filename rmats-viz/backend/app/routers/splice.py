@@ -47,6 +47,12 @@ from app.schemas.splice import (
     PermutationResponse,
 )
 from app.services.mane import annotate_mane, get_transcript_exons
+from app.services.mane_local import (
+    get_mane_exon_boundaries,
+    get_mane_exon_boundaries_batch,
+    is_loaded as mane_local_loaded,
+    load_mane_gff3,
+)
 from app.services.permutation import run_permutation, _make_histogram
 from app.services.sequence import (
     fasta_available, get_splice_windows, get_splice_windows_batch,
@@ -93,6 +99,7 @@ def _feat_to_response(feat: EventSpliceFeature, event: SplicingEvent) -> SpliceF
         cds_exon_length=feat.cds_exon_length,
         fasta_available=bool(feat.donor_seq),
         sequence_source=feat.sequence_source,
+        mane_exon_source=feat.mane_exon_source,
     )
 
 
@@ -112,15 +119,40 @@ _ENDPOINT_SEM = asyncio.Semaphore(8)
 async def _fetch_features(
     event: SplicingEvent,
     fa_ok: bool,
-) -> tuple[Any, dict, str | None]:
+) -> tuple[Any, dict, str | None, str | None]:
     """Pure-compute step (no DB): extract sequences + call Ensembl.
 
-    Runs under _COMPUTE_SEM so at most 5 events are processed concurrently.
-    Returns (SpliceFeatureResult, mane_dict).
+    Runs under _COMPUTE_SEM so at most 20 events are processed concurrently.
+    Returns (feat_data, mane_dict, seq_source, mane_exon_source).
     """
     async with _COMPUTE_SEM:
         windows = None
         coords_ok = event.exon_start is not None and event.exon_end is not None
+
+        # Look up MANE exon boundaries to correct potential rMATS coordinate
+        # discrepancies before extracting splice-site sequences.
+        mane_es: int | None = None
+        mane_ee: int | None = None
+        mane_exon_source: str | None = None
+        if coords_ok and event.gene_id and mane_local_loaded():
+            try:
+                mb = await asyncio.to_thread(
+                    get_mane_exon_boundaries,
+                    event.gene_id,
+                    event.exon_start,
+                    event.exon_end,
+                    event.upstream_ee,
+                    event.downstream_es,
+                )
+                if mb is not None:
+                    mane_es, mane_ee, mane_exon_source = mb
+                    if mane_es != event.exon_start or mane_ee != event.exon_end:
+                        logger.debug(
+                            "MANE boundary correction (%s) for %s: rMATS [%d, %d) → MANE [%d, %d)",
+                            mane_exon_source, event.id, event.exon_start, event.exon_end, mane_es, mane_ee,
+                        )
+            except Exception:
+                pass  # non-critical — fall back to rMATS coords
 
         # 1. Try local FASTA (fast, offline)
         if fa_ok and coords_ok:
@@ -136,6 +168,8 @@ async def _fetch_features(
                     event.upstream_ee,
                     event.downstream_es,
                     event.downstream_ee,
+                    mane_es,
+                    mane_ee,
                 )
             except Exception as exc:
                 logger.warning("FASTA extraction failed for %s: %s", event.id, exc)
@@ -153,6 +187,8 @@ async def _fetch_features(
                     event.upstream_ee,
                     event.downstream_es,
                     event.downstream_ee,
+                    mane_es,
+                    mane_ee,
                 )
                 if not windows.donor_seq:   # empty → Ensembl also failed
                     windows = None
@@ -176,7 +212,7 @@ async def _fetch_features(
             except Exception as exc:
                 logger.warning("MANE lookup failed for %s: %s", event.gene_id, exc)
 
-        return feat_data, mane, seq_source
+        return feat_data, mane, seq_source, mane_exon_source
 
 
 def _feature_conflict_set(ins: Any, row: dict) -> dict:
@@ -189,6 +225,7 @@ def _build_feature_row(
     feat_data: Any,
     mane: dict,
     seq_source: str | None = None,
+    mane_exon_source: str | None = None,
 ) -> dict:
     """Build a plain dict suitable for bulk INSERT into EventSpliceFeature."""
     mane_frame_class = mane.get("frame_class", "unknown") or "unknown"
@@ -220,6 +257,7 @@ def _build_feature_row(
         frame_class            = mane_frame_class,
         cds_exon_length        = mane.get("cds_exon_length"),
         sequence_source        = seq_source,
+        mane_exon_source       = mane_exon_source,
     )
 
 
@@ -229,9 +267,10 @@ async def _upsert_feature(
     mane: dict,
     db: AsyncSession,
     seq_source: str | None = None,
+    mane_exon_source: str | None = None,
 ) -> EventSpliceFeature:
     """Single-row upsert — used only by the per-event GET endpoint."""
-    row = _build_feature_row(event, feat_data, mane, seq_source)
+    row = _build_feature_row(event, feat_data, mane, seq_source, mane_exon_source)
     ins = pg_insert(EventSpliceFeature)
     stmt = (
         ins.values(**row)
@@ -251,8 +290,8 @@ async def _compute_one(
     fa_ok: bool,
 ) -> EventSpliceFeature:
     """Compute features for a single SE event (used by the per-event GET endpoint)."""
-    feat_data, mane, seq_source = await _fetch_features(event, fa_ok)
-    return await _upsert_feature(event, feat_data, mane, db, seq_source)
+    feat_data, mane, seq_source, mane_exon_source = await _fetch_features(event, fa_ok)
+    return await _upsert_feature(event, feat_data, mane, db, seq_source, mane_exon_source)
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +332,37 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
             for chunk_start in range(0, n_total, _COMPUTE_CHUNK):
                 chunk = list(se_events[chunk_start : chunk_start + _COMPUTE_CHUNK])
 
+                # ── Step 0: MANE exon boundary lookup (fast in-memory) ────
+                # Look up MANE exon boundaries to correct potential rMATS
+                # coordinate discrepancies before extracting sequences.
+                mane_boundary_list: list[tuple[int, int, str] | None] = []
+                try:
+                    from app.config import settings as _cfg
+                    _ensure_mane = load_mane_gff3(_cfg.MANE_GFF3) if not mane_local_loaded() else True
+                    if mane_local_loaded():
+                        # Build tuples for ALL events in the chunk (including
+                        # invalid ones as placeholders) so indices align with
+                        # the chunk list for both FASTA and Ensembl paths.
+                        # Include flanking exon boundaries for the fallback
+                        # strategy when overlap matching fails.
+                        mane_boundary_tuples = [
+                            (ev.gene_id or "", ev.exon_start or 0, ev.exon_end or 0,
+                             ev.upstream_ee, ev.downstream_es)
+                            for ev in chunk
+                        ]
+                        mane_boundary_list = await asyncio.to_thread(
+                            get_mane_exon_boundaries_batch, mane_boundary_tuples,
+                        )
+                except Exception as exc:
+                    logger.debug("MANE boundary lookup failed: %s", exc)
+
+                # Extract per-event MANE exon source from the 3-tuple results.
+                # mane_boundary_list items are (start, end, source) or None.
+                mane_source_list: list[str | None] = [
+                    mb[2] if mb is not None else None
+                    for mb in mane_boundary_list
+                ] if mane_boundary_list else [None] * len(chunk)
+
                 # ── Step 1: Mega-batch samtools (FASTA) or per-event Ensembl ──
                 if fa_ok:
                     # Build tuples for mega-batch — all four flanking coords so
@@ -311,9 +381,19 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                         ev.exon_start is not None and ev.exon_end is not None
                         for ev in chunk
                     ]
+                    # Map MANE boundaries to valid events only (strip source
+                    # for the sequence extractor which expects 2-tuples).
+                    valid_mane = (
+                        [
+                            (mane_boundary_list[i][0], mane_boundary_list[i][1])
+                            if mane_boundary_list[i] is not None else None
+                            for i, v in enumerate(valid_mask) if v
+                        ]
+                        if mane_boundary_list else None
+                    )
                     # Single samtools call for entire chunk
                     batch_windows = await asyncio.to_thread(
-                        get_splice_windows_batch, event_tuples,
+                        get_splice_windows_batch, event_tuples, None, valid_mane,
                     )
                     # Map back: valid events get their windows, others get None
                     windows_list: list = []
@@ -326,10 +406,12 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                             windows_list.append(None)
                 else:
                     # Ensembl fallback: per-event (semaphore-throttled)
-                    async def _fetch_windows(ev):
+                    async def _fetch_windows(ev, mb=None):
                         async with _COMPUTE_SEM:
                             if ev.exon_start is None or ev.exon_end is None:
                                 return None
+                            mane_es = mb[0] if mb else None
+                            mane_ee = mb[1] if mb else None
                             try:
                                 w = await asyncio.to_thread(
                                     get_splice_windows_from_ensembl,
@@ -337,12 +419,14 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                                     ev.exon_start, ev.exon_end,
                                     ev.upstream_es, ev.upstream_ee,
                                     ev.downstream_es, ev.downstream_ee,
+                                    mane_es, mane_ee,
                                 )
                                 return w if w.donor_seq else None
                             except Exception:
                                 return None
                     windows_list = await asyncio.gather(
-                        *[_fetch_windows(ev) for ev in chunk],
+                        *[_fetch_windows(ev, mane_boundary_list[i] if i < len(mane_boundary_list) else None)
+                          for i, ev in enumerate(chunk)],
                         return_exceptions=True,
                     )
                     windows_list = [
@@ -374,13 +458,14 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
 
                 # ── Step 3: DB writes (bulk upsert — 1 round-trip per chunk) ──
                 bulk_rows: list[dict] = []
-                for ev, res in zip(chunk, anno_results):
+                for idx, (ev, res) in enumerate(zip(chunk, anno_results)):
                     if isinstance(res, Exception):
                         logger.error("Feature compute failed for %s: %s", ev.id, res)
                         continue
                     try:
                         feat_data, mane, seq_source = res
-                        bulk_rows.append(_build_feature_row(ev, feat_data, mane, seq_source))
+                        mes = mane_source_list[idx] if idx < len(mane_source_list) else None
+                        bulk_rows.append(_build_feature_row(ev, feat_data, mane, seq_source, mes))
                     except Exception as exc:
                         logger.error("Feature build failed for %s: %s", ev.id, exc)
 
@@ -571,14 +656,14 @@ async def _get_splice_feature_inner(event_id: uuid.UUID) -> SpliceFeatureRespons
         return _feat_to_response(feat, _retry_event)
 
     fa_ok = fasta_available()
-    feat_data, mane, seq_source = await _fetch_features(event, fa_ok)
+    feat_data, mane, seq_source, mane_exon_source = await _fetch_features(event, fa_ok)
 
     # ── 3. Persist only if sequences were obtained.  When both FASTA and
     #    Ensembl fail (e.g. FASTA still downloading, network issue), we
     #    return a transient size-only response so the next request retries.
     if seq_source is not None:
         async with AsyncSessionLocal() as db:
-            feat = await _upsert_feature(event, feat_data, mane, db, seq_source)
+            feat = await _upsert_feature(event, feat_data, mane, db, seq_source, mane_exon_source)
             await db.commit()
         return _feat_to_response(feat, event)
 

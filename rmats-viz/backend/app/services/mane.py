@@ -33,6 +33,8 @@ import httpx
 from app.config import settings
 from app.services.mane_local import (
     annotate_from_local,
+    get_mane_exon_boundaries,
+    get_mane_exon_boundaries_batch,
     get_transcript_exons_local,
     is_loaded as mane_local_loaded,
     load_mane_gff3,

@@ -51,6 +51,7 @@ class SpliceFeatureResponse(BaseModel):
     # status
     fasta_available: bool = False
     sequence_source: str | None = None   # "fasta" | "ensembl" | None
+    mane_exon_source: str | None = None  # "overlap" | "flanking" | None
     error: str | None = None
 
     model_config = {"from_attributes": True}

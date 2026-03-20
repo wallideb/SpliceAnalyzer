@@ -273,6 +273,94 @@ def annotate_from_local(
     return result
 
 
+def get_mane_exon_boundaries(
+    gene_id: str,
+    exon_start: int,
+    exon_end: int,
+    upstream_ee: int | None = None,
+    downstream_es: int | None = None,
+) -> tuple[int, int, str] | None:
+    """Return the MANE exon boundaries that best match a given rMATS exon.
+
+    Strategy:
+    1. Maximum-overlap matching with reciprocal 50% threshold.
+    2. Flanking-based fallback: if overlap matching fails and flanking exon
+       boundaries are provided, find the MANE exon that sits between
+       upstream_ee and downstream_es (the intron boundaries defined by
+       junction reads).  This handles cases where rMATS exon coordinates
+       diverge significantly from MANE but the flanking splice sites are
+       correct.
+
+    Returns (mane_exon_start, mane_exon_end, source) in 0-based half-open
+    coords, where *source* is ``"overlap"`` or ``"flanking"``.
+    Returns None if no matching MANE exon is found.
+    """
+    data = get_mane_for_gene(gene_id)
+    if data is None:
+        return None
+
+    exons = data["exons"]
+
+    # --- Strategy 1: overlap matching ---
+    best_exon: dict | None = None
+    best_overlap = 0
+    rmats_size = exon_end - exon_start
+
+    for ex in exons:
+        overlap = max(0, min(exon_end, ex["end"]) - max(exon_start, ex["start"]))
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best_exon = ex
+
+    if best_exon is not None and best_overlap > 0:
+        mane_size = best_exon["end"] - best_exon["start"]
+        overlap_ok = True
+        if rmats_size > 0 and best_overlap / rmats_size < 0.5:
+            overlap_ok = False
+        if mane_size > 0 and best_overlap / mane_size < 0.5:
+            overlap_ok = False
+        if overlap_ok:
+            return (best_exon["start"], best_exon["end"], "overlap")
+
+    # --- Strategy 2: flanking-based fallback ---
+    # Find the MANE exon that lies between the upstream and downstream
+    # flanking exon boundaries.  These boundaries come from junction reads
+    # and are always accurate.
+    if upstream_ee is not None and downstream_es is not None:
+        candidates = [
+            ex for ex in exons
+            if ex["start"] >= upstream_ee and ex["end"] <= downstream_es
+        ]
+        if len(candidates) == 1:
+            return (candidates[0]["start"], candidates[0]["end"], "flanking")
+        if len(candidates) > 1:
+            # Multiple MANE exons between flanking sites — pick the one
+            # closest in size to the rMATS exon.
+            candidates.sort(
+                key=lambda ex: abs((ex["end"] - ex["start"]) - rmats_size)
+            )
+            return (candidates[0]["start"], candidates[0]["end"], "flanking")
+
+    return None
+
+
+def get_mane_exon_boundaries_batch(
+    events: list[tuple[str, int, int, int | None, int | None]],
+) -> list[tuple[int, int, str] | None]:
+    """Batch version of get_mane_exon_boundaries().
+
+    Parameters
+    ----------
+    events : list of (gene_id, exon_start, exon_end, upstream_ee, downstream_es)
+
+    Returns a list of (mane_start, mane_end, source) or None for each event.
+    """
+    return [
+        get_mane_exon_boundaries(gene_id, es, ee, u_ee, d_es)
+        for gene_id, es, ee, u_ee, d_es in events
+    ]
+
+
 def get_transcript_exons_local(transcript_id: str) -> list[dict]:
     """Return exon list for a transcript from local GFF3 data.
 

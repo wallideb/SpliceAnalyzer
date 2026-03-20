@@ -32,6 +32,17 @@ For strand - (positions are still genomic / + strand; all sequences RC'd after f
                         (downstream_es = LOW boundary of rMATS downstream exon = intron junction)
   dn. acceptor    chr : upstream_ee-3  .. upstream_ee+20   → RC → 23nt at 3′ flanking exon 3'SS
                         (upstream_ee = HIGH boundary of rMATS upstream exon = intron junction)
+
+MANE boundary correction
+------------------------
+rMATS exon coordinates come from the alignment annotation (GTF), which may
+differ from the MANE Select transcript boundaries.  When a MANE exon overlaps
+the rMATS skipped exon with different start/end, the MANE boundaries are used
+for the skipped-exon splice-site windows (donor, acceptor, PPT).  Flanking
+exon windows are NOT corrected because their boundaries are defined by junction
+reads (always accurate).  This fixes cases like ERCC1 exon 8 on the minus
+strand, where the rMATS exon_end differs from the MANE boundary by ~36 nt,
+causing the 3'SS acceptor sequence to be extracted at the wrong position.
 """
 
 from __future__ import annotations
@@ -264,12 +275,21 @@ def get_splice_windows(
     upstream_ee: int | None = None,
     downstream_es: int | None = None,
     downstream_ee: int | None = None,
+    mane_exon_start: int | None = None,
+    mane_exon_end: int | None = None,
 ) -> SpliceWindows:
     """Extract splice-signal windows for one SE skipped exon.
 
     All four flanking exon coordinates should be supplied (0-based BED):
       upstream_es / upstream_ee   — start/end of the upstream flanking exon
       downstream_es / downstream_ee — start/end of the downstream flanking exon
+
+    Optional MANE-corrected exon boundaries:
+      mane_exon_start / mane_exon_end — if supplied, these override the rMATS
+      exon_start / exon_end for the skipped-exon splice-site windows (donor,
+      acceptor, PPT).  This corrects cases where the rMATS annotation has
+      different exon boundaries than the MANE Select transcript, causing
+      splice-site sequences to be extracted at the wrong genomic position.
 
     The splice-site boundary used per strand:
       + strand: upstream donor at upstream_ee (high boundary)
@@ -283,6 +303,11 @@ def get_splice_windows(
     fp = fasta_path or settings.GRCH38_FASTA
     need_rc = strand == "-"
 
+    # Use MANE-corrected boundaries for the skipped exon splice sites if
+    # available; fall back to the rMATS coordinates otherwise.
+    se_start = mane_exon_start if mane_exon_start is not None else exon_start
+    se_end   = mane_exon_end   if mane_exon_end   is not None else exon_end
+
     # Build region list in a fixed order: donor, acceptor, ppt, up_donor, dn_acceptor
     # Regions are always fetched on + strand; RC applied afterwards if needed.
     # has_upstream_donor    : whether slot 3 (upstream_donor_seq) can be filled
@@ -294,9 +319,9 @@ def get_splice_windows(
         # Downstream flanking exon: acceptor (3'SS) is at the LOW boundary (downstream_es)
         has_upstream_donor      = upstream_ee is not None
         has_downstream_acceptor = downstream_es is not None
-        regions.append((chrom, exon_end - 3,    exon_end + 6))      # donor
-        regions.append((chrom, exon_start - 20, exon_start + 3))    # acceptor
-        regions.append((chrom, exon_start - 50, exon_start - 3))    # ppt
+        regions.append((chrom, se_end - 3,    se_end + 6))      # donor
+        regions.append((chrom, se_start - 20, se_start + 3))    # acceptor
+        regions.append((chrom, se_start - 50, se_start - 3))    # ppt
         regions.append(
             (chrom, upstream_ee - 3, upstream_ee + 6)
             if has_upstream_donor else (chrom, 0, 0)
@@ -316,9 +341,9 @@ def get_splice_windows(
         # (HIGH boundary of that exon).
         has_upstream_donor      = downstream_es is not None  # 5′ flanking exon (rMATS downstream)
         has_downstream_acceptor = upstream_ee is not None    # 3′ flanking exon (rMATS upstream)
-        regions.append((chrom, exon_start - 6,  exon_start + 3))    # donor
-        regions.append((chrom, exon_end - 3,    exon_end + 20))     # acceptor
-        regions.append((chrom, exon_end + 3,    exon_end + 50))     # ppt
+        regions.append((chrom, se_start - 6,  se_start + 3))    # donor
+        regions.append((chrom, se_end - 3,    se_end + 20))     # acceptor
+        regions.append((chrom, se_end + 3,    se_end + 50))     # ppt
         regions.append(
             (chrom, downstream_es - 6, downstream_es + 3)
             if has_upstream_donor else (chrom, 0, 0)
@@ -346,6 +371,7 @@ def get_splice_windows(
 def get_splice_windows_batch(
     events: list[tuple[str, str, int, int, int | None, int | None, int | None, int | None]],
     fasta_path: str | None = None,
+    mane_boundaries: list[tuple[int, int] | None] | None = None,
 ) -> list[SpliceWindows]:
     """Extract splice windows for many events in ONE samtools call.
 
@@ -354,6 +380,10 @@ def get_splice_windows_batch(
     events : list of
         (chrom, strand, exon_start, exon_end,
          upstream_es, upstream_ee, downstream_es, downstream_ee)
+    mane_boundaries : optional list of (mane_exon_start, mane_exon_end) or None
+        per event.  When provided and not None for a given event, the MANE
+        exon boundaries are used instead of the rMATS exon_start/exon_end for
+        the skipped-exon splice-site windows (donor, acceptor, PPT).
 
     The correct splice-site boundary is selected per strand (see
     get_splice_windows() docstring for the strand logic).
@@ -373,8 +403,15 @@ def get_splice_windows_batch(
     all_regions: list[tuple[str, int, int]] = []
     event_meta: list[tuple[bool, bool, bool]] = []  # (need_rc, has_upstream_donor, has_downstream_acceptor)
 
-    for chrom, strand, exon_start, exon_end, upstream_es, upstream_ee, downstream_es, downstream_ee in events:
+    for idx, (chrom, strand, exon_start, exon_end, upstream_es, upstream_ee, downstream_es, downstream_ee) in enumerate(events):
         need_rc = strand == "-"
+
+        # Use MANE-corrected boundaries for the skipped exon splice sites if
+        # available; fall back to the rMATS coordinates otherwise.
+        mb = mane_boundaries[idx] if mane_boundaries and idx < len(mane_boundaries) else None
+        se_start = mb[0] if mb is not None else exon_start
+        se_end   = mb[1] if mb is not None else exon_end
+
         if strand == "+":
             # Upstream flanking exon: donor (5'SS) is at the HIGH boundary (upstream_ee)
             # Downstream flanking exon: acceptor (3'SS) is at the LOW boundary (downstream_es)
@@ -390,9 +427,9 @@ def get_splice_windows_batch(
         event_meta.append((need_rc, has_upstream_donor, has_downstream_acceptor))
 
         if strand == "+":
-            all_regions.append((chrom, exon_end - 3,    exon_end + 6))
-            all_regions.append((chrom, exon_start - 20, exon_start + 3))
-            all_regions.append((chrom, exon_start - 50, exon_start - 3))
+            all_regions.append((chrom, se_end - 3,    se_end + 6))
+            all_regions.append((chrom, se_start - 20, se_start + 3))
+            all_regions.append((chrom, se_start - 50, se_start - 3))
             all_regions.append(
                 (chrom, upstream_ee - 3, upstream_ee + 6)
                 if has_upstream_donor else (chrom, 0, 0)
@@ -404,9 +441,9 @@ def get_splice_windows_batch(
         else:
             # Minus strand: upstream donor at downstream_es (LOW boundary of 5′ flanking exon)
             #               downstream acceptor at upstream_ee (HIGH boundary of 3′ flanking exon)
-            all_regions.append((chrom, exon_start - 6,  exon_start + 3))
-            all_regions.append((chrom, exon_end - 3,    exon_end + 20))
-            all_regions.append((chrom, exon_end + 3,    exon_end + 50))
+            all_regions.append((chrom, se_start - 6,  se_start + 3))
+            all_regions.append((chrom, se_end - 3,    se_end + 20))
+            all_regions.append((chrom, se_end + 3,    se_end + 50))
             all_regions.append(
                 (chrom, downstream_es - 6, downstream_es + 3)
                 if has_upstream_donor else (chrom, 0, 0)
@@ -480,6 +517,8 @@ def get_splice_windows_from_ensembl(
     upstream_ee: int | None = None,
     downstream_es: int | None = None,
     downstream_ee: int | None = None,
+    mane_exon_start: int | None = None,
+    mane_exon_end: int | None = None,
 ) -> SpliceWindows:
     """Identical window definitions to get_splice_windows() via Ensembl REST API.
 
@@ -487,10 +526,14 @@ def get_splice_windows_from_ensembl(
     Makes up to 5 sequential HTTP calls (donor, acceptor, PPT, upstream donor, downstream acceptor).
     See get_splice_windows() for the strand-specific boundary logic.
     """
+    # Use MANE-corrected boundaries for the skipped exon splice sites if available.
+    se_start = mane_exon_start if mane_exon_start is not None else exon_start
+    se_end   = mane_exon_end   if mane_exon_end   is not None else exon_end
+
     if strand == "+":
-        donor_seq    = _fetch_ensembl_seq(chrom, exon_end - 3,    exon_end + 6)
-        acceptor_seq = _fetch_ensembl_seq(chrom, exon_start - 20, exon_start + 3)
-        ppt_seq      = _fetch_ensembl_seq(chrom, exon_start - 50, exon_start - 3)
+        donor_seq    = _fetch_ensembl_seq(chrom, se_end - 3,    se_end + 6)
+        acceptor_seq = _fetch_ensembl_seq(chrom, se_start - 20, se_start + 3)
+        ppt_seq      = _fetch_ensembl_seq(chrom, se_start - 50, se_start - 3)
         upstream_donor_seq = (
             _fetch_ensembl_seq(chrom, upstream_ee - 3, upstream_ee + 6)
             if upstream_ee is not None else ""
@@ -503,9 +546,9 @@ def get_splice_windows_from_ensembl(
         # Minus strand: rMATS "downstream" exon (higher coords) is 5′ flanking.
         # upstream donor at downstream_es (LOW boundary of 5′ flanking exon)
         # downstream acceptor at upstream_ee (HIGH boundary of 3′ flanking exon)
-        donor_seq    = reverse_complement(_fetch_ensembl_seq(chrom, exon_start - 6, exon_start + 3))
-        acceptor_seq = reverse_complement(_fetch_ensembl_seq(chrom, exon_end - 3,   exon_end + 20))
-        ppt_seq      = reverse_complement(_fetch_ensembl_seq(chrom, exon_end + 3,   exon_end + 50))
+        donor_seq    = reverse_complement(_fetch_ensembl_seq(chrom, se_start - 6, se_start + 3))
+        acceptor_seq = reverse_complement(_fetch_ensembl_seq(chrom, se_end - 3,   se_end + 20))
+        ppt_seq      = reverse_complement(_fetch_ensembl_seq(chrom, se_end + 3,   se_end + 50))
         upstream_donor_seq = (
             reverse_complement(_fetch_ensembl_seq(chrom, downstream_es - 6, downstream_es + 3))
             if downstream_es is not None else ""

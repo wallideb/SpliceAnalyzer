@@ -8,7 +8,7 @@
  *
  * Paramètres utilisés depuis PatternAnalysisResponse :
  *  • exon_sizes.mean         → taille de l'exon fictif
- *  • upstream_intron_sizes.median / downstream_intron_sizes.median
+ *  • upstream_intron_sizes.mean / downstream_intron_sizes.mean
  *                            → tailles des introns flanquants
  *  • mean_delta_psi          → ΔΨ moyen (épaisseur + couleur de l'arc)
  *  • donor_sites.consensus   → séquence consensus 5'SS (9 nt)
@@ -85,11 +85,11 @@ export function ConsensusExonView({ data }: ConsensusExonViewProps) {
         {exon_sizes.mean !== null && (
           <StatChip label={t("consensusExon.meanExon")} value={`${Math.round(exon_sizes.mean)} nt`} />
         )}
-        {upstream_intron_sizes.median !== null && (
-          <StatChip label={t("consensusExon.upstreamMedian")} value={`${Math.round(upstream_intron_sizes.median)} nt`} />
+        {upstream_intron_sizes.mean !== null && (
+          <StatChip label={t("consensusExon.upstreamMean")} value={`${Math.round(upstream_intron_sizes.mean)} nt`} />
         )}
-        {downstream_intron_sizes.median !== null && (
-          <StatChip label={t("consensusExon.downstreamMedian")} value={`${Math.round(downstream_intron_sizes.median)} nt`} />
+        {downstream_intron_sizes.mean !== null && (
+          <StatChip label={t("consensusExon.downstreamMean")} value={`${Math.round(downstream_intron_sizes.mean)} nt`} />
         )}
         {mean_delta_psi !== null && (
           <StatChip
@@ -115,8 +115,8 @@ export function ConsensusExonView({ data }: ConsensusExonViewProps) {
 
         <ExonDiagram
           exonSize={exon_sizes.mean !== null ? Math.round(exon_sizes.mean) : null}
-          upstreamIntronSize={upstream_intron_sizes.median !== null ? Math.round(upstream_intron_sizes.median) : null}
-          downstreamIntronSize={downstream_intron_sizes.median !== null ? Math.round(downstream_intron_sizes.median) : null}
+          upstreamIntronSize={upstream_intron_sizes.mean !== null ? Math.round(upstream_intron_sizes.mean) : null}
+          downstreamIntronSize={downstream_intron_sizes.mean !== null ? Math.round(downstream_intron_sizes.mean) : null}
           incLevelDifference={mean_delta_psi}
           fdr={pseudoFdr}
           pValue={null}

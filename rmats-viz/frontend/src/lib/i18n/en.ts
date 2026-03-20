@@ -475,6 +475,8 @@ export const en = {
         "The exon-size histogram bins exon lengths in 25 nt intervals. " +
         "<b>Frame classification</b> is based on whether the CDS length of the skipped " +
         "exon is divisible by 3 (in_frame) or not (frameshift). " +
+        "Note: frameshift does not imply nonsense-mediated decay (NMD); NMD depends on " +
+        "the premature termination codon position relative to the last exon-exon junction. " +
         "The PPT score distribution shows the fraction of pyrimidine nucleotides " +
         "per event in the ~47 nt window upstream of the 3′SS (Coolidge et al., 1997). " +
         "Branch-point detection uses the YNYURAY heptamer motif (Padgett et al., 1986).",
@@ -571,15 +573,15 @@ export const en = {
     analyzed: "Analyzed",
     seEvents: "SE events",
     meanExon: "Mean exon",
-    upstreamMedian: "Upstream ↑ med.",
-    downstreamMedian: "Downstream ↓ med.",
+    upstreamMean: "Upstream ↑ mean",
+    downstreamMean: "Downstream ↓ mean",
     meanDeltaPsi: "Mean ΔΨ",
     meanPpt: "Mean PPT",
     consensusExonLabel: "Consensus fictional exon",
     noSeq: "(sequences unavailable — FASTA required)",
     frameLabelNonCoding: "Non-coding",
     sizeRange: "Sizes: {{min}}–{{max}} nt",
-    description: "The consensus fictional exon represents the mean size of {{n}} SE events · introns = median · ΔΨ = mean · sequences = IUPAC consensus of the cohort PWM.",
+    description: "The consensus fictional exon represents the mean size of {{n}} SE events · introns = mean · ΔΨ = mean · sequences = IUPAC consensus of the cohort PWM.",
   },
   exonDiagram: {
     upstreamFlankingExon: "Upstream flanking exon",

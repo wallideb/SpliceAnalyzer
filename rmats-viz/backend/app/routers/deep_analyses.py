@@ -335,7 +335,12 @@ async def get_pattern_comparison(
 # ---------------------------------------------------------------------------
 
 def _welch_t_test(vals1: list[float], vals2: list[float]) -> tuple[float | None, float | None]:
-    """Welch's t-test for unequal variances. Returns (t_stat, p_value) or (None, None)."""
+    """Welch's t-test for unequal variances. Returns (t_stat, p_value) or (None, None).
+
+    Caveat: the test assumes approximately normal sampling distributions.
+    Exon/intron sizes are typically right-skewed; p-values may be inaccurate
+    for small or heavily skewed groups (n < 30).
+    """
     n1, n2 = len(vals1), len(vals2)
     if n1 < 2 or n2 < 2:
         return None, None

@@ -101,7 +101,7 @@ The application supports all five rMATS event types:
 - **Donor (5'SS) and acceptor (3'SS) sequences** &mdash; 9 nt and 23 nt windows around splice junctions with GT-AG canonical check
 - **Polypyrimidine tract (PPT)** &mdash; Score (C+T fraction) and longest consecutive pyrimidine run in the ~47 nt upstream of the 3'SS
 - **Branch-point detection** &mdash; Rule-based YNYURAY motif search with positional scoring (0&ndash;7 scale) and distance to 3'SS
-- **Exon and intron sizing** &mdash; Skipped exon length plus upstream and downstream intron sizes
+- **Exon and intron sizing** &mdash; Skipped exon length plus upstream and downstream intron sizes (both mean and median are computed; SVG exon diagrams and PDF comparison tables display **mean** values)
 - **Aggregate pattern analysis** &mdash; Position Weight Matrices (PWM), IUPAC consensus sequences, and statistical summaries across all SE events
 - **Sequence source flexibility** &mdash; Primary extraction from local GRCh38 FASTA via `samtools faidx` (batched, chunked at 5 000 regions per call), with automatic Ensembl REST API fallback when FASTA is unavailable
 
@@ -445,9 +445,20 @@ Click the **Export PDF** button to generate a multi-page PDF report. The report 
 | Frame Breakdown | Pie charts of in-frame / frameshift / non-coding proportions per group |
 | hnRNP Enrichment | Top 20 significant motif–region associations (when deep analysis present) |
 | Pathway Enrichment | Top 5 terms per library; adjusted p-values &lt; 0.05 are **bolded and starred (★)** for quick identification (when deep analysis present) |
-| Appendix A | Full pipeline methodology |
+| Appendix A | Pipeline methodology (see below) |
 | Appendix B | Bibliographic references |
 | Appendix C | Statistical methods |
+
+The **Appendix A — Pipeline Methodology** section of the PDF covers:
+
+1. **Splicing event detection** — rMATS likelihood-ratio test, JC vs JCEC modes
+2. **Splice site annotation** — 5'SS/3'SS window extraction, GT-AG canonical check, PPT scoring, branch-point YNYURAY motif search (with the 15 nt minimum distance filter from the 3'SS)
+3. **Sequence logos** — Frequency-mode PWM rendering (no information-content scaling)
+4. **Reading frame classification** — MANE Select transcript mapping, in_frame/frameshift/non_coding classes, NMD caveat note (PTC > 50 nt upstream rule)
+5. **MANE Select annotation** — Local GFF3 lookup with Ensembl REST fallback, exon boundary correction (overlap and flanking strategies)
+6. **Deep analysis** *(when linked)* — Welch's t-test and two-proportion z-test for group comparison, permutation testing with Phipson & Smyth correction
+7. **hnRNP motif enrichment** *(when linked)* — rMAPS2-inspired framework, five genomic regions, 19 motifs, BH FDR correction
+8. **Pathway enrichment** *(when linked)* — Enrichr submission and library results
 
 > Sequence logos in the PDF use **frequency mode**: every column fills the full height and letter height is proportional to raw nucleotide frequency, matching the web app display.
 
@@ -532,7 +543,7 @@ Both metrics are reported as splice-site quality indicators and are included in 
 
 ### 6. Branch-Point Detection
 
-The branch-point adenosine is identified by scanning the PPT region for the **YNYURAY** consensus motif (Y = C/T; N = any; R = A/G; U → T in genomic DNA). The search window is the 47 nt upstream of the 3'SS. Each candidate match receives a **positional score** (0–7): one point for each degenerate position that matches the consensus nucleotide. The best match (highest score, tie-broken by proximity to 3'SS) is reported.
+The branch-point adenosine is identified by scanning the PPT region for the **YNYURAY** consensus motif (Y = C/T; N = any; R = A/G; U → T in genomic DNA). The search window is the 47 nt upstream of the 3'SS. Candidates whose motif centre is closer than **15 nt** to the 3'SS are discarded to reduce false positives (real branch points are typically 18–40 nt upstream). Each remaining candidate receives a **positional score** (0–7): one point for each degenerate position that matches the consensus nucleotide. The best match (highest score, tie-broken by proximity to 3'SS) is reported.
 
 | Output | Description |
 |--------|-------------|
@@ -556,9 +567,13 @@ The exon is classified (`frame_class`) by its relationship to the CDS:
 | `non_coding` | Exon entirely within UTR or no CDS overlap |
 | `unknown` | No MANE Select transcript found or lookup failed |
 
+> **No heuristic fallback:** When MANE annotation is unavailable, frame_class is set to `unknown` without attempting an `exon_size % 3` heuristic. Without transcript annotation, it is impossible to distinguish CDS exons from UTR exons, so applying the divisibility rule would misclassify non-coding exons as `in_frame` or `frameshift`. The conservative `unknown` label is intentional.
+
 A companion `frame_region` field records the positional context: `CDS` (fully coding), `partial` (exon spans a CDS boundary — one end in UTR), `UTR5`, `UTR3`, or `unknown`. Events with `frame_region = partial` still receive an `in_frame` or `frameshift` classification based on the coding portion of the exon length.
 
 Results are cached in a local SQLite database with WAL journal mode to support concurrent access.
+
+> **NMD caveat:** A `frameshift` classification does not imply nonsense-mediated decay (NMD). NMD depends on the position of the premature termination codon (PTC) relative to the last exon-exon junction (the "> 50 nt upstream" rule). The application displays this as an informational note in both the UI and the PDF methodology appendix — it is **not** a computed NMD prediction. Experimental validation is required to confirm NMD susceptibility.
 
 ### 8. Permutation Testing
 
@@ -689,7 +704,7 @@ The pattern comparison endpoint computes aggregate splice statistics for both th
 | Mean ΔΨ | Welch's t-test | Unequal-variance two-sample t-test |
 | PPT score distribution | Welch's t-test | |
 | Exon size distribution | Welch's t-test | |
-| Upstream/downstream intron sizes | Welch's t-test | |
+| Upstream/downstream intron sizes (mean) | Welch's t-test | Both mean and median are computed; comparison uses mean |
 | GT canonical rate | Two-proportion z-test | k=events with GT, n=events with donor seq |
 | AG canonical rate | Two-proportion z-test | |
 | Upstream donor GT rate | Two-proportion z-test | Length ≥ 9 bp guard applied |
@@ -700,6 +715,10 @@ The pattern comparison endpoint computes aggregate splice statistics for both th
 Welch's t-test and the two-tailed p-value are computed in pure Python (no NumPy/SciPy) using the Welch-Satterthwaite degrees-of-freedom formula and the numerically evaluated regularized incomplete beta function (Lentz's continued-fraction algorithm).
 
 No multiple-testing correction is applied across the pattern-comparison metrics. The panel of tests (Welch t-tests and two-proportion z-tests across ~9 metrics) is therefore exploratory; the family-wise false-positive risk is inflated at the stated per-test α, and results should be interpreted accordingly.
+
+**Skewness limitation:** Welch's t-test assumes approximately normal sampling distributions of the mean. Exon sizes and especially intron sizes are typically right-skewed (long-tailed); with small sample sizes the t-test p-values may be inaccurate. The test is reasonably robust to moderate skewness when both groups have n ≥ 30 (by the Central Limit Theorem), but for smaller or heavily skewed groups the reported p-values should be interpreted with caution. A non-parametric alternative (e.g. Mann-Whitney U) would be more appropriate for heavily skewed distributions but is not currently implemented.
+
+> **PDF footnote:** The skewness caveat is also included as a footnote in the PDF comparison table, advising caution when interpreting p-values for small or heavily skewed groups. The same warning appears in the backend docstring for the pattern-comparison endpoint.
 
 Comparison sequence logos (frequency mode) are generated independently for each group.
 
@@ -853,6 +872,67 @@ The backend exposes a versioned REST API under `/api/v1`. Full interactive docum
 |--------|----------|-------------|
 | `GET` | `/api/v1/health` | Health check (DB ping) |
 | `GET` | `/api/v1/debug/fasta` | FASTA + samtools availability check |
+
+### Example Responses
+
+**`POST /api/v1/analyses`** (multipart upload — returns created analysis):
+
+```json
+{
+  "analysis_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "status": "ready",
+  "event_count": 4523
+}
+```
+
+**`GET /api/v1/splice/feature/{event_id}`** (per-event splice features):
+
+```json
+{
+  "event_id": "evt-001",
+  "event_type": "SE",
+  "gene_symbol": "BRCA1",
+  "exon_size": 132,
+  "upstream_intron_size": 4521,
+  "downstream_intron_size": 8903,
+  "donor_seq": "AAGgtaagt",
+  "acceptor_seq": "ttttcttttcccccccccagGAA",
+  "donor_is_gt": true,
+  "acceptor_is_ag": true,
+  "ppt_score": 0.72,
+  "ppt_longest_run": 9,
+  "bp_motif_found": true,
+  "bp_distance": 28,
+  "bp_score": 6,
+  "mane_transcript_id": "ENST00000357654.9",
+  "frame_class": "in_frame",
+  "frame_region": "CDS",
+  "fasta_available": true,
+  "sequence_source": "fasta"
+}
+```
+
+**`GET /api/v1/deep-analyses/{deep_id}/pattern-comparison`** (abbreviated):
+
+```json
+{
+  "significant": {
+    "n_events": 312,
+    "exon_sizes": { "mean": 142.5, "median": 120.0 },
+    "upstream_intron_sizes": { "mean": 8934.2, "median": 4521.0 },
+    "downstream_intron_sizes": { "mean": 12045.8, "median": 6230.0 },
+    "ppt": { "mean_score": 0.74 },
+    "frame": { "in_frame": 180, "frameshift": 95, "non_coding": 37 }
+  },
+  "not_significant": { "..." : "same structure" },
+  "tests": [
+    { "metric": "ppt_score", "test": "welch_t", "t_stat": 2.41, "p_value": 0.016 },
+    { "metric": "gt_canonical", "test": "two_prop_z", "z_stat": -1.12, "p_value": 0.263 }
+  ]
+}
+```
+
+> Full response schemas are available interactively at **http://localhost:8000/docs** (Swagger UI).
 
 ---
 
@@ -1020,9 +1100,20 @@ curl http://localhost:8000/api/v1/debug/fasta
 - Ensure the FASTA is indexed: `docker compose exec backend samtools faidx /data/GRCh38.fa`
 - The application will still function without the FASTA &mdash; sequence-dependent features will be skipped
 
-**Frontend can't reach the backend**
+**Frontend can't reach the backend (CORS errors in development)**
 - The Next.js config proxies `/api` requests to `http://backend:8000` inside the Docker network
 - If running outside Docker, update `next.config.mjs` to point to your backend URL
+- If you see CORS errors in the browser console, ensure `CORS_ORIGINS` in `.env` includes your frontend URL (e.g., `["http://localhost:3000"]`); restart the backend after changes
+
+**MANE GFF3 not indexed / frame classification fails**
+- The local MANE GFF3 file (`MANE.GRCh38.ensembl_genomic.gff.gz`) requires a tabix index (`.tbi` file)
+- If the index is missing, rebuild it: `tabix -p gff /data/MANE.GRCh38.ensembl_genomic.gff.gz`
+- If the GFF3 is missing entirely, the backend downloads it automatically on first startup; ensure the container has outbound HTTPS access
+
+**Genome FASTA indexing errors (pysam / samtools)**
+- Sequence extraction requires both the FASTA file and its `.fai` index
+- If you see `[E::fai_build_core]` or samtools errors, regenerate the index: `samtools faidx /data/GRCh38.fa`
+- Ensure `samtools` is installed and accessible (it is included in the Docker image by default)
 
 **French-locale decimal parsing errors**
 - The parser automatically handles comma-as-decimal-separator (e.g., `"0,117"` &rarr; `0.117`)

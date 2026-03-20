@@ -47,6 +47,12 @@ from app.schemas.splice import (
     PermutationResponse,
 )
 from app.services.mane import annotate_mane, get_transcript_exons
+from app.services.mane_local import (
+    get_mane_exon_boundaries,
+    get_mane_exon_boundaries_batch,
+    is_loaded as mane_local_loaded,
+    load_mane_gff3,
+)
 from app.services.permutation import run_permutation, _make_histogram
 from app.services.sequence import (
     fasta_available, get_splice_windows, get_splice_windows_batch,
@@ -122,6 +128,28 @@ async def _fetch_features(
         windows = None
         coords_ok = event.exon_start is not None and event.exon_end is not None
 
+        # Look up MANE exon boundaries to correct potential rMATS coordinate
+        # discrepancies before extracting splice-site sequences.
+        mane_es: int | None = None
+        mane_ee: int | None = None
+        if coords_ok and event.gene_id and mane_local_loaded():
+            try:
+                mb = await asyncio.to_thread(
+                    get_mane_exon_boundaries,
+                    event.gene_id,
+                    event.exon_start,
+                    event.exon_end,
+                )
+                if mb is not None:
+                    mane_es, mane_ee = mb
+                    if mane_es != event.exon_start or mane_ee != event.exon_end:
+                        logger.debug(
+                            "MANE boundary correction for %s: rMATS [%d, %d) → MANE [%d, %d)",
+                            event.id, event.exon_start, event.exon_end, mane_es, mane_ee,
+                        )
+            except Exception:
+                pass  # non-critical — fall back to rMATS coords
+
         # 1. Try local FASTA (fast, offline)
         if fa_ok and coords_ok:
             try:
@@ -136,6 +164,8 @@ async def _fetch_features(
                     event.upstream_ee,
                     event.downstream_es,
                     event.downstream_ee,
+                    mane_es,
+                    mane_ee,
                 )
             except Exception as exc:
                 logger.warning("FASTA extraction failed for %s: %s", event.id, exc)
@@ -153,6 +183,8 @@ async def _fetch_features(
                     event.upstream_ee,
                     event.downstream_es,
                     event.downstream_ee,
+                    mane_es,
+                    mane_ee,
                 )
                 if not windows.donor_seq:   # empty → Ensembl also failed
                     windows = None
@@ -293,6 +325,27 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
             for chunk_start in range(0, n_total, _COMPUTE_CHUNK):
                 chunk = list(se_events[chunk_start : chunk_start + _COMPUTE_CHUNK])
 
+                # ── Step 0: MANE exon boundary lookup (fast in-memory) ────
+                # Look up MANE exon boundaries to correct potential rMATS
+                # coordinate discrepancies before extracting sequences.
+                mane_boundary_list: list[tuple[int, int] | None] = []
+                try:
+                    from app.config import settings as _cfg
+                    _ensure_mane = load_mane_gff3(_cfg.MANE_GFF3) if not mane_local_loaded() else True
+                    if mane_local_loaded():
+                        # Build tuples for ALL events in the chunk (including
+                        # invalid ones as placeholders) so indices align with
+                        # the chunk list for both FASTA and Ensembl paths.
+                        mane_boundary_tuples = [
+                            (ev.gene_id or "", ev.exon_start or 0, ev.exon_end or 0)
+                            for ev in chunk
+                        ]
+                        mane_boundary_list = await asyncio.to_thread(
+                            get_mane_exon_boundaries_batch, mane_boundary_tuples,
+                        )
+                except Exception as exc:
+                    logger.debug("MANE boundary lookup failed: %s", exc)
+
                 # ── Step 1: Mega-batch samtools (FASTA) or per-event Ensembl ──
                 if fa_ok:
                     # Build tuples for mega-batch — all four flanking coords so
@@ -311,9 +364,14 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                         ev.exon_start is not None and ev.exon_end is not None
                         for ev in chunk
                     ]
+                    # Map MANE boundaries to valid events only
+                    valid_mane = (
+                        [mane_boundary_list[i] for i, v in enumerate(valid_mask) if v]
+                        if mane_boundary_list else None
+                    )
                     # Single samtools call for entire chunk
                     batch_windows = await asyncio.to_thread(
-                        get_splice_windows_batch, event_tuples,
+                        get_splice_windows_batch, event_tuples, None, valid_mane,
                     )
                     # Map back: valid events get their windows, others get None
                     windows_list: list = []
@@ -326,10 +384,12 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                             windows_list.append(None)
                 else:
                     # Ensembl fallback: per-event (semaphore-throttled)
-                    async def _fetch_windows(ev):
+                    async def _fetch_windows(ev, mb=None):
                         async with _COMPUTE_SEM:
                             if ev.exon_start is None or ev.exon_end is None:
                                 return None
+                            mane_es = mb[0] if mb else None
+                            mane_ee = mb[1] if mb else None
                             try:
                                 w = await asyncio.to_thread(
                                     get_splice_windows_from_ensembl,
@@ -337,12 +397,14 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                                     ev.exon_start, ev.exon_end,
                                     ev.upstream_es, ev.upstream_ee,
                                     ev.downstream_es, ev.downstream_ee,
+                                    mane_es, mane_ee,
                                 )
                                 return w if w.donor_seq else None
                             except Exception:
                                 return None
                     windows_list = await asyncio.gather(
-                        *[_fetch_windows(ev) for ev in chunk],
+                        *[_fetch_windows(ev, mane_boundary_list[i] if i < len(mane_boundary_list) else None)
+                          for i, ev in enumerate(chunk)],
                         return_exceptions=True,
                     )
                     windows_list = [

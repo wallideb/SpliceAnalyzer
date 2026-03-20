@@ -273,6 +273,69 @@ def annotate_from_local(
     return result
 
 
+def get_mane_exon_boundaries(
+    gene_id: str,
+    exon_start: int,
+    exon_end: int,
+) -> tuple[int, int] | None:
+    """Return the MANE exon boundaries that best match a given rMATS exon.
+
+    Uses maximum-overlap matching to find the corresponding MANE exon.
+    Returns (mane_exon_start, mane_exon_end) in 0-based half-open coords,
+    or None if no sufficiently overlapping MANE exon is found.
+
+    This is used to correct rMATS exon coordinates for splice-site sequence
+    extraction: rMATS coordinates come from the alignment annotation (GTF)
+    which may differ from the MANE Select transcript boundaries, causing
+    sequences to be extracted at the wrong genomic position.
+    """
+    data = get_mane_for_gene(gene_id)
+    if data is None:
+        return None
+
+    exons = data["exons"]
+    best_exon: dict | None = None
+    best_overlap = 0
+    rmats_size = exon_end - exon_start
+
+    for ex in exons:
+        overlap = max(0, min(exon_end, ex["end"]) - max(exon_start, ex["start"]))
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best_exon = ex
+
+    if best_exon is None or best_overlap == 0:
+        return None
+
+    # Only use MANE boundaries if the overlap is substantial:
+    # at least 50% of BOTH exons must overlap (reciprocal overlap).
+    # This prevents matching a micro-exon to a large rMATS exon or vice versa.
+    mane_size = best_exon["end"] - best_exon["start"]
+    if rmats_size > 0 and best_overlap / rmats_size < 0.5:
+        return None
+    if mane_size > 0 and best_overlap / mane_size < 0.5:
+        return None
+
+    return (best_exon["start"], best_exon["end"])
+
+
+def get_mane_exon_boundaries_batch(
+    events: list[tuple[str, int, int]],
+) -> list[tuple[int, int] | None]:
+    """Batch version of get_mane_exon_boundaries().
+
+    Parameters
+    ----------
+    events : list of (gene_id, exon_start, exon_end)
+
+    Returns a list of (mane_start, mane_end) or None for each event.
+    """
+    return [
+        get_mane_exon_boundaries(gene_id, es, ee)
+        for gene_id, es, ee in events
+    ]
+
+
 def get_transcript_exons_local(transcript_id: str) -> list[dict]:
     """Return exon list for a transcript from local GFF3 data.
 

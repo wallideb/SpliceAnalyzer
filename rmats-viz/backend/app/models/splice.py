@@ -65,4 +65,10 @@ class EventSpliceFeature(Base):
     # Source of sequence data: "fasta" | "ensembl" | None (sizes-only, no sequences)
     sequence_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
+    # How the MANE exon boundaries were determined:
+    #   "overlap"  — reciprocal overlap ≥50% between rMATS and MANE exon
+    #   "flanking" — fallback: MANE exon identified by position between flanking exons
+    #   None       — rMATS coordinates used as-is (no MANE correction)
+    mane_exon_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     computed_at: Mapped[datetime] = mapped_column(server_default=func.now())

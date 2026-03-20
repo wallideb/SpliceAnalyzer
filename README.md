@@ -490,6 +490,23 @@ Chromosome name translation is handled automatically: rMATS uses UCSC names (`ch
 
 For minus-strand events, extracted sequences are reverse-complemented before all downstream analyses.
 
+#### MANE Exon Boundary Correction
+
+rMATS exon coordinates come from the alignment annotation (GTF), which can differ from the **MANE Select** transcript boundaries. When this happens, splice-site sequences may be extracted at the wrong genomic position — for example, the 3'SS acceptor of a minus-strand exon can be shifted by tens of nucleotides. To correct this, the pipeline looks up the corresponding MANE exon and uses its boundaries for splice-site window extraction. Two strategies are applied in order:
+
+1. **Overlap matching** — The MANE exon with the largest reciprocal overlap (≥ 50% of both the rMATS and MANE exon sizes) is selected. This is the primary strategy and works for the vast majority of events.
+
+2. **Flanking-based fallback** — When overlap matching fails (e.g. the rMATS exon coordinates diverge too far from MANE), the pipeline identifies the MANE exon that lies between the upstream and downstream flanking exon boundaries (`upstream_EE` .. `downstream_ES`). These flanking boundaries come from junction reads and are always accurate. The MANE exon contained within this interval is the consensual skipped exon. If multiple MANE exons fall in the interval, the one closest in size to the rMATS exon is chosen.
+
+Only the **skipped-exon** splice-site windows (donor, acceptor, PPT) are corrected. Flanking exon windows remain at their original coordinates because their boundaries are defined by junction reads (always accurate).
+
+The correction method used per event is tracked in the `mane_exon_source` field:
+- `"overlap"` — standard reciprocal overlap matching
+- `"flanking"` — flanking-based fallback (rMATS coordinates differ from MANE)
+- `null` — no MANE correction applied (rMATS coordinates used as-is)
+
+Events corrected via the flanking fallback are listed in the PDF report with a warning that their rMATS coordinates differed from the MANE Select transcript.
+
 ### 4. Splice Site Signals
 
 For each SE event, five sequence windows are defined around the skipped exon:

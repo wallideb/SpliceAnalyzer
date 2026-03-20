@@ -1698,6 +1698,58 @@ def _build_pdf(
     else:
         story.append(p("No SE events available.", "body"))
 
+    # ── Events with MANE flanking-based exon correction ───────────────────
+    # List events where rMATS exon coordinates differed from MANE and the
+    # consensual exon was identified via flanking exon boundaries.
+    flanking_events = sorted(
+        [
+            (ev, features.get(ev.id))
+            for ev in events
+            if ev.event_type == "SE"
+            and features.get(ev.id) is not None
+            and getattr(features.get(ev.id), "mane_exon_source", None) == "flanking"
+        ],
+        key=lambda pair: (pair[0].gene_symbol or "", pair[0].chr or "", pair[0].exon_start or 0),
+    )
+    if flanking_events:
+        story.append(sp())
+        story.append(p(
+            "<b>Note:</b> Exon coordinate correction via MANE flanking method",
+            "h3",
+        ))
+        story.append(p(
+            "The following events have skipped-exon coordinates in rMATS that differ "
+            "from the MANE Select transcript boundaries. Because the standard overlap "
+            "matching (reciprocal ≥ 50%) could not identify the correct MANE exon, "
+            "the consensual exon was selected based on its position between the upstream "
+            "and downstream flanking exon boundaries (derived from junction reads). "
+            "Splice-site sequences for these events were extracted using the MANE exon "
+            "coordinates rather than the original rMATS coordinates.",
+            "body",
+        ))
+        flk_headers = ["Gene", "Chr", "Strand", "rMATS Exon", "MANE Transcript"]
+        flk_rows = [flk_headers]
+        for ev, feat in flanking_events[:30]:  # cap at 30 to avoid page overflow
+            rmats_exon = (
+                f"{(ev.exon_start or 0):,}–{(ev.exon_end or 0):,}"
+                if ev.exon_start is not None else "—"
+            )
+            flk_rows.append([
+                ev.gene_symbol or "—",
+                ev.chr or "—",
+                ev.strand or "—",
+                rmats_exon,
+                feat.mane_transcript_id or "—",
+            ])
+        flk_tbl = _make_tbl(flk_rows, [2.8*_cm, 1.8*_cm, 1*_cm, 4.2*_cm, 4.2*_cm], S)
+        story += [flk_tbl, sp(0.2)]
+        if len(flanking_events) > 30:
+            story.append(p(
+                f"… and {len(flanking_events) - 30} more events (not shown).",
+                "small",
+            ))
+        story.append(sp())
+
     story.append(PageBreak())
 
     # ── Appendix A — Methodology ────────────────────────────────────────────
@@ -1742,10 +1794,20 @@ def _build_pdf(
         p("• <b>frameshift:</b> CDS length not divisible by 3 — likely NMD or truncated protein", "body"),
         p("• <b>non_coding:</b> exon entirely within UTR — regulatory impact", "body"),
         p("<b>5. MANE Select Annotation</b>", "h3"),
-        p("The MANE Select transcript is identified via the Ensembl REST API "
-          "(Cunningham et al., 2022 [5]). The skipped exon is mapped to transcript "
-          "coordinates to determine exon rank, CDS overlap, and frame impact. "
-          "Results are cached in a local SQLite database.", "body"),
+        p("The MANE Select transcript is identified from a local GFF3 file "
+          "(MANE.GRCh38.ensembl_genomic.gff.gz) when available, or via the Ensembl "
+          "REST API (Cunningham et al., 2022 [5]) as fallback. The skipped exon is "
+          "mapped to transcript coordinates to determine exon rank, CDS overlap, and "
+          "frame impact. Results are cached in a local SQLite database.", "body"),
+        p("<b>5b. MANE Exon Boundary Correction</b>", "h3"),
+        p("rMATS exon coordinates come from the alignment annotation (GTF) and may "
+          "differ from MANE Select transcript boundaries, causing splice-site "
+          "sequences to be extracted at incorrect genomic positions. To correct this, "
+          "the MANE exon is matched by reciprocal overlap (≥ 50%). When overlap "
+          "matching fails, a flanking-based fallback identifies the consensual "
+          "skipped exon as the MANE exon located between the upstream and downstream "
+          "flanking exon boundaries (derived from junction reads). Events corrected "
+          "via the flanking fallback are listed in the report.", "body"),
     ]
     if is_deep:
         story += [

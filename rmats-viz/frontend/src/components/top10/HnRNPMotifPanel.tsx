@@ -13,7 +13,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { Fragment, useState, useMemo } from "react";
 import { fetchJSON, BASE } from "@/lib/api/client";
 import { ScienceNote } from "@/components/ScienceNote";
 import { useT } from "@/contexts/LanguageContext";
@@ -85,13 +85,14 @@ const PROTEIN_COLORS: Record<string, string> = {
   "PTB (hnRNP I)":    "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 border-orange-200 dark:border-orange-800",
 };
 
-// Regulatory effect border colors for heatmap cells
-// Silencers (ESS/ISS) = orange frame, Enhancers (ESE/ISE) = green frame
+// Regulatory effect inset border colors for heatmap cells
+// Uses inset box-shadow so the frame stays inside the cell (no overlap)
+// Silencers (ESS/ISS) = orange-600 frame, Enhancers (ESE/ISE) = emerald-600 frame
 const EFFECT_BORDER: Record<string, string> = {
-  ESS: "ring-2 ring-orange-400 dark:ring-orange-500",
-  ISS: "ring-2 ring-orange-400 dark:ring-orange-500",
-  ESE: "ring-2 ring-emerald-400 dark:ring-emerald-500",
-  ISE: "ring-2 ring-emerald-400 dark:ring-emerald-500",
+  ESS: "shadow-[inset_0_0_0_2px_#ea580c]",
+  ISS: "shadow-[inset_0_0_0_2px_#ea580c]",
+  ESE: "shadow-[inset_0_0_0_2px_#059669]",
+  ISE: "shadow-[inset_0_0_0_2px_#059669]",
 };
 
 // ---------------------------------------------------------------------------
@@ -335,69 +336,86 @@ function HeatmapView({ data }: { data: HnRNPMotifResponse }) {
         {t("hnrnpPanel.heatmapTitle")}
       </p>
       <div className="overflow-x-auto">
-        <table className="text-[10px]">
-          <thead>
-            <tr>
-              <th className="px-2 py-1 text-left text-muted-foreground"></th>
-              {REGION_ORDER.map((r) => (
-                <th key={r} className="px-2 py-1 text-center text-muted-foreground font-medium whitespace-nowrap">
-                  {REGION_LABELS[r]}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {proteins.map((p) => (
-              <tr key={p}>
-                <td className="px-2 py-1 font-semibold text-foreground whitespace-nowrap">{p}</td>
-                {REGION_ORDER.map((r) => {
-                  const item = matrix[p][r];
-                  if (!item || item.p_adjusted === null) {
-                    return <td key={r} className="px-2 py-1 text-center text-muted-foreground/30">—</td>;
-                  }
-                  const enriched = item.sig_density > item.bg_density;
-                  const sig = item.p_adjusted < 0.05;
-                  let bgColor = "bg-slate-100 dark:bg-slate-800";
-                  if (sig && enriched) bgColor = "bg-red-200 dark:bg-red-900/40";
-                  else if (sig && !enriched) bgColor = "bg-blue-200 dark:bg-blue-900/40";
-                  const effectRing = item.regulatory_effect ? (EFFECT_BORDER[item.regulatory_effect] ?? "") : "";
-                  const effectLabel = item.regulatory_effect ?? "";
+        {/* CSS grid layout matching the PDF vector heatmap style */}
+        <div
+          className="inline-grid gap-px bg-slate-200 dark:bg-slate-700 border border-slate-200 dark:border-slate-700"
+          style={{
+            gridTemplateColumns: `minmax(100px, auto) repeat(${REGION_ORDER.length}, minmax(72px, 1fr))`,
+          }}
+        >
+          {/* Header row */}
+          <div className="bg-white dark:bg-background" />
+          {REGION_ORDER.map((r) => (
+            <div
+              key={r}
+              className="bg-white dark:bg-background px-2 py-1.5 text-center text-[9px] font-bold text-slate-600 dark:text-slate-400 leading-tight"
+            >
+              {REGION_LABELS[r]}
+            </div>
+          ))}
+
+          {/* Data rows */}
+          {proteins.map((p) => (
+            <Fragment key={p}>
+              {/* Protein label */}
+              <div
+                className="bg-white dark:bg-background px-3 py-1 flex items-center text-[10px] font-bold text-foreground whitespace-nowrap"
+              >
+                {p}
+              </div>
+              {/* Region cells */}
+              {REGION_ORDER.map((r) => {
+                const item = matrix[p][r];
+                if (!item || item.p_adjusted === null) {
                   return (
-                    <td
-                      key={r}
-                      className={`px-2 py-1 text-center rounded ${bgColor} ${effectRing}`}
-                      title={`${item.motif_name}: p_adj=${item.p_adjusted.toFixed(4)}, z=${item.z_stat?.toFixed(2)}${effectLabel ? ` (${effectLabel})` : ""}`}
+                    <div
+                      key={`${p}-${r}`}
+                      className="bg-slate-50 dark:bg-slate-800/60 flex items-center justify-center min-h-[32px] text-[10px] text-muted-foreground/30"
                     >
-                      <span className={`font-mono font-bold ${sig ? "text-foreground" : "text-muted-foreground"}`}>
-                        {item.motif_name}
-                      </span>
-                      {sig && (
-                        <span className="ml-0.5 text-[8px]">*</span>
-                      )}
-                      {effectLabel && (
-                        <span className={`block text-[7px] font-semibold leading-tight ${
-                          effectLabel === "ESS" || effectLabel === "ISS"
-                            ? "text-orange-600 dark:text-orange-400"
-                            : "text-emerald-600 dark:text-emerald-400"
-                        }`}>
-                          {effectLabel}
-                        </span>
-                      )}
-                    </td>
+                      —
+                    </div>
                   );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                }
+                const enriched = item.sig_density > item.bg_density;
+                const sig = item.p_adjusted < 0.05;
+                let bgColor = "bg-slate-100 dark:bg-slate-800";
+                if (sig && enriched) bgColor = "bg-red-200 dark:bg-red-900/40";
+                else if (sig && !enriched) bgColor = "bg-blue-200 dark:bg-blue-900/40";
+                const effectRing = item.regulatory_effect ? (EFFECT_BORDER[item.regulatory_effect] ?? "") : "";
+                const effectLabel = item.regulatory_effect ?? "";
+                return (
+                  <div
+                    key={`${p}-${r}`}
+                    className={`flex flex-col items-center justify-center min-h-[32px] px-1 py-0.5 ${bgColor} ${effectRing}`}
+                    title={`${item.motif_name}: p_adj=${item.p_adjusted.toFixed(4)}, z=${item.z_stat?.toFixed(2)}${effectLabel ? ` (${effectLabel})` : ""}`}
+                  >
+                    <span className={`font-mono font-bold text-[10px] leading-tight ${sig ? "text-foreground" : "text-muted-foreground"}`}>
+                      {item.motif_name}{sig ? "*" : ""}
+                    </span>
+                    {effectLabel && (
+                      <span className={`text-[7px] font-bold leading-none mt-0.5 ${
+                        effectLabel === "ESS" || effectLabel === "ISS"
+                          ? "text-orange-600 dark:text-orange-400"
+                          : "text-emerald-600 dark:text-emerald-400"
+                      }`}>
+                        {effectLabel}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </Fragment>
+          ))}
+        </div>
       </div>
-      <div className="flex flex-wrap items-center gap-3 mt-1.5 text-[9px] text-muted-foreground">
-        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded bg-red-200 dark:bg-red-900/40" /> {t("hnrnpPanel.enriched")}</span>
-        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded bg-blue-200 dark:bg-blue-900/40" /> {t("hnrnpPanel.depleted")}</span>
-        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded bg-slate-100 dark:bg-slate-800" /> n.s.</span>
-        <span className="ml-2 border-l border-border pl-2" />
-        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded ring-2 ring-orange-400 bg-white dark:bg-slate-800" /> {t("hnrnpPanel.silencer")}</span>
-        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded ring-2 ring-emerald-400 bg-white dark:bg-slate-800" /> {t("hnrnpPanel.enhancer")}</span>
+      {/* Legend */}
+      <div className="flex flex-wrap items-center gap-3 mt-2 text-[9px] text-muted-foreground">
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 bg-red-200 dark:bg-red-900/40" /> {t("hnrnpPanel.enriched")}</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 bg-blue-200 dark:bg-blue-900/40" /> {t("hnrnpPanel.depleted")}</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 bg-slate-100 dark:bg-slate-800" /> n.s.</span>
+        <span className="ml-1 border-l border-border pl-2" />
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 shadow-[inset_0_0_0_2px_#ea580c] bg-white dark:bg-slate-800" /> {t("hnrnpPanel.silencer")}</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 shadow-[inset_0_0_0_2px_#059669] bg-white dark:bg-slate-800" /> {t("hnrnpPanel.enhancer")}</span>
       </div>
     </div>
   );

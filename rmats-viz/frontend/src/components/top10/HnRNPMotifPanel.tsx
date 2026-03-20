@@ -36,6 +36,7 @@ interface MotifEnrichmentItem {
   p_value: number | null;
   p_adjusted: number | null;
   significant: boolean;
+  regulatory_effect: string | null; // ESE/ESS/ISE/ISS or null
 }
 
 interface HnRNPMotifResponse {
@@ -82,6 +83,15 @@ const PROTEIN_COLORS: Record<string, string> = {
   "hnRNP L":          "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200 dark:border-amber-800",
   "hnRNP M":          "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 border-teal-200 dark:border-teal-800",
   "PTB (hnRNP I)":    "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 border-orange-200 dark:border-orange-800",
+};
+
+// Regulatory effect border colors for heatmap cells
+// Silencers (ESS/ISS) = orange frame, Enhancers (ESE/ISE) = green frame
+const EFFECT_BORDER: Record<string, string> = {
+  ESS: "ring-2 ring-orange-400 dark:ring-orange-500",
+  ISS: "ring-2 ring-orange-400 dark:ring-orange-500",
+  ESE: "ring-2 ring-emerald-400 dark:ring-emerald-500",
+  ISE: "ring-2 ring-emerald-400 dark:ring-emerald-500",
 };
 
 // ---------------------------------------------------------------------------
@@ -350,17 +360,28 @@ function HeatmapView({ data }: { data: HnRNPMotifResponse }) {
                   let bgColor = "bg-slate-100 dark:bg-slate-800";
                   if (sig && enriched) bgColor = "bg-red-200 dark:bg-red-900/40";
                   else if (sig && !enriched) bgColor = "bg-blue-200 dark:bg-blue-900/40";
+                  const effectRing = item.regulatory_effect ? (EFFECT_BORDER[item.regulatory_effect] ?? "") : "";
+                  const effectLabel = item.regulatory_effect ?? "";
                   return (
                     <td
                       key={r}
-                      className={`px-2 py-1 text-center rounded ${bgColor}`}
-                      title={`${item.motif_name}: p_adj=${item.p_adjusted.toFixed(4)}, z=${item.z_stat?.toFixed(2)}`}
+                      className={`px-2 py-1 text-center rounded ${bgColor} ${effectRing}`}
+                      title={`${item.motif_name}: p_adj=${item.p_adjusted.toFixed(4)}, z=${item.z_stat?.toFixed(2)}${effectLabel ? ` (${effectLabel})` : ""}`}
                     >
                       <span className={`font-mono font-bold ${sig ? "text-foreground" : "text-muted-foreground"}`}>
                         {item.motif_name}
                       </span>
                       {sig && (
                         <span className="ml-0.5 text-[8px]">*</span>
+                      )}
+                      {effectLabel && (
+                        <span className={`block text-[7px] font-semibold leading-tight ${
+                          effectLabel === "ESS" || effectLabel === "ISS"
+                            ? "text-orange-600 dark:text-orange-400"
+                            : "text-emerald-600 dark:text-emerald-400"
+                        }`}>
+                          {effectLabel}
+                        </span>
                       )}
                     </td>
                   );
@@ -370,10 +391,13 @@ function HeatmapView({ data }: { data: HnRNPMotifResponse }) {
           </tbody>
         </table>
       </div>
-      <div className="flex items-center gap-3 mt-1.5 text-[9px] text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-3 mt-1.5 text-[9px] text-muted-foreground">
         <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded bg-red-200 dark:bg-red-900/40" /> {t("hnrnpPanel.enriched")}</span>
         <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded bg-blue-200 dark:bg-blue-900/40" /> {t("hnrnpPanel.depleted")}</span>
         <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded bg-slate-100 dark:bg-slate-800" /> n.s.</span>
+        <span className="ml-2 border-l border-border pl-2" />
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded ring-2 ring-orange-400 bg-white dark:bg-slate-800" /> {t("hnrnpPanel.silencer")}</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded ring-2 ring-emerald-400 bg-white dark:bg-slate-800" /> {t("hnrnpPanel.enhancer")}</span>
       </div>
     </div>
   );

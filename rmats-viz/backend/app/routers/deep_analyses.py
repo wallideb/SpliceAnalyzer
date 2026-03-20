@@ -682,6 +682,7 @@ class MotifEnrichmentItem(BaseModel):
     p_value: float | None = None
     p_adjusted: float | None = None
     significant: bool = False
+    regulatory_effect: str | None = None  # ESE/ESS/ISE/ISS or null
 
 
 class HnRNPMotifResponse(BaseModel):
@@ -702,7 +703,7 @@ async def get_hnrnp_motifs(
     vs non-significant SE events (rMAPS2-inspired analysis)."""
     from app.services.hnrnp_motifs import (
         SERegions, define_se_regions, compare_groups, scan_group,
-        _FIVE_SS_EXCL, _THREE_SS_EXCL,
+        _FIVE_SS_EXCL, _THREE_SS_EXCL, REGULATORY_EFFECTS,
     )
     from app.services.sequence import extract_regions_batch, reverse_complement
     from app.config import settings
@@ -862,6 +863,7 @@ async def get_hnrnp_motifs(
                 p_value=r.p_value,
                 p_adjusted=r.p_adjusted,
                 significant=r.significant,
+                regulatory_effect=REGULATORY_EFFECTS.get(r.protein, {}).get(r.region),
             )
             for r in enrichment
         ],

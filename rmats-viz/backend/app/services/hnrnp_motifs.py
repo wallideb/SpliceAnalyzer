@@ -140,6 +140,95 @@ REGION_NAMES = [
     "downstream_exon",
 ]
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Regulatory effect annotations (ESE/ESS/ISE/ISS)
+# ──────────────────────────────────────────────────────────────────────────────
+# For each protein family × region pair, the *established* regulatory effect
+# when the motif is enriched in that region.  Only assignments supported by
+# strong, replicated published evidence are included; uncertain or context-
+# dependent cases are None.
+#
+# Sources:
+#   hnRNP A1/A2 — Zhu et al., Mol Cell 2001; Damgaard et al., EMBO J 2002;
+#     Kashima et al., Nat Genet 2007 (SMN2 ISS-N1)
+#   hnRNP F/H — Martinez-Contreras et al., PLoS Biol 2006; Chen et al.,
+#     Genes Dev 1999 (β-tropomyosin ESS); Erkelenz et al., Genome Biol 2013
+#   hnRNP C — König et al., Nat Struct Mol Biol 2010 (iCLIP); Zarnack et al.,
+#     Cell 2013 (Alu exonisation)
+#   hnRNP L — House & Lynch, EMBO J 2006 (CD45 ESS); Hui et al., EMBO J 2005
+#   hnRNP M — Huelga et al., Cell Rep 2012 (CLIP-seq)
+#   PTB — Xue et al., Mol Cell 2009 (CLIP, RNA map); Wagner & Garcia-Blanco,
+#     Mol Cell Biol 2001
+#   PCBP1/E1, PCBP2/E2, hnRNP K — insufficient position-specific splicing
+#     data; primarily characterised for mRNA stability / translation.
+#
+# Format: { protein_family: { region: "ESS"|"ESE"|"ISS"|"ISE"|None } }
+REGULATORY_EFFECTS: dict[str, dict[str, str | None]] = {
+    "hnRNP A1/A2": {
+        "upstream_exon":     "ESS",
+        "upstream_intron":   "ISS",
+        "skipped_exon":      "ESS",
+        "downstream_intron": "ISS",
+        "downstream_exon":   "ESS",
+    },
+    "hnRNP E1 (PCBP1)": {
+        "upstream_exon":     None,
+        "upstream_intron":   None,
+        "skipped_exon":      None,
+        "downstream_intron": None,
+        "downstream_exon":   None,
+    },
+    "hnRNP E2 (PCBP2)": {
+        "upstream_exon":     None,
+        "upstream_intron":   None,
+        "skipped_exon":      None,
+        "downstream_intron": None,
+        "downstream_exon":   None,
+    },
+    "hnRNP F/H": {
+        "upstream_exon":     "ESS",
+        "upstream_intron":   None,
+        "skipped_exon":      "ESS",
+        "downstream_intron": "ISE",
+        "downstream_exon":   "ESS",
+    },
+    "hnRNP K": {
+        "upstream_exon":     None,
+        "upstream_intron":   None,
+        "skipped_exon":      None,
+        "downstream_intron": None,
+        "downstream_exon":   None,
+    },
+    "hnRNP C": {
+        "upstream_exon":     None,
+        "upstream_intron":   "ISE",
+        "skipped_exon":      "ESS",
+        "downstream_intron": None,
+        "downstream_exon":   None,
+    },
+    "hnRNP L": {
+        "upstream_exon":     None,
+        "upstream_intron":   None,
+        "skipped_exon":      "ESS",
+        "downstream_intron": None,
+        "downstream_exon":   None,
+    },
+    "hnRNP M": {
+        "upstream_exon":     None,
+        "upstream_intron":   None,
+        "skipped_exon":      "ESS",
+        "downstream_intron": "ISS",
+        "downstream_exon":   None,
+    },
+    "PTB (hnRNP I)": {
+        "upstream_exon":     None,
+        "upstream_intron":   "ISS",
+        "skipped_exon":      "ESS",
+        "downstream_intron": "ISS",
+        "downstream_exon":   None,
+    },
+}
+
 # Intronic exclusion zones (per rMAPS2): 6 nt at 5'SS, 20 nt at 3'SS
 _FIVE_SS_EXCL = 6
 _THREE_SS_EXCL = 20

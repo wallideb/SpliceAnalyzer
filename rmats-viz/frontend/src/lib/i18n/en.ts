@@ -680,6 +680,8 @@ export const en = {
     heatmapTitle: "Enrichment heatmap — best motif per protein × region",
     enriched: "Enriched in sig.",
     depleted: "Depleted in sig.",
+    silencer: "Silencer (ESS/ISS)",
+    enhancer: "Enhancer (ESE/ISE)",
   },
   enrichrPanel: {
     error: "Failed to load Enrichr enrichment results.",

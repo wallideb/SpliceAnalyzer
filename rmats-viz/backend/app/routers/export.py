@@ -1264,12 +1264,22 @@ def _build_pdf(
              "mean_delta_psi")
         _row("Upstream GT (5'SS)", _pct(sig.get("pct_upstream_gt")), _pct(nonsig.get("pct_upstream_gt")), "upstream_canonical_gt")
         _row("Downstream AG (3'SS)", _pct(sig.get("pct_downstream_ag")), _pct(nonsig.get("pct_downstream_ag")), "downstream_canonical_ag")
+        _row("Upstream intron (mean)",
+             f"{sig['upstream_intron_size_mean']:.0f} nt" if sig.get("upstream_intron_size_mean") is not None else "—",
+             f"{nonsig['upstream_intron_size_mean']:.0f} nt" if nonsig.get("upstream_intron_size_mean") is not None else "—",
+             "upstream_intron_size")
+        _row("Downstream intron (mean)",
+             f"{sig['downstream_intron_size_mean']:.0f} nt" if sig.get("downstream_intron_size_mean") is not None else "—",
+             f"{nonsig['downstream_intron_size_mean']:.0f} nt" if nonsig.get("downstream_intron_size_mean") is not None else "—",
+             "downstream_intron_size")
 
         cmp_tbl = _make_tbl(cmp_rows, [3.2*_cm, 3.5*_cm, 3.5*_cm, 2.8*_cm, 2.2*_cm, 1*_cm], S)
         story += [KeepTogether([
             p(f"{cmp_sec}.1 Feature Comparison", "h3"),
             cmp_tbl,
-            p("★ = p &lt; 0.05; n.s. = not significant", "small"),
+            p("★ = p &lt; 0.05; n.s. = not significant. "
+              "Welch's t-test assumes approximate normality; exon/intron size distributions "
+              "are typically right-skewed — interpret p-values with caution for small groups.", "small"),
         ]), sp()]
 
         # Cb. Comparison logos — donor
@@ -1791,7 +1801,10 @@ def _build_pdf(
         p("The skipped exon is classified by reading-frame impact using the "
           "MANE Select transcript (Morales et al., 2022 [4]) when available:", "body"),
         p("• <b>in_frame:</b> CDS length divisible by 3 — protein domain loss without frameshift", "body"),
-        p("• <b>frameshift:</b> CDS length not divisible by 3 — likely NMD or truncated protein", "body"),
+        p("• <b>frameshift:</b> CDS length not divisible by 3 — may lead to a truncated protein. "
+          "<i>Note:</i> frameshift does not imply nonsense-mediated decay (NMD); NMD depends on "
+          "the position of the premature termination codon (PTC) relative to the last exon-exon "
+          "junction (&gt;50 nt upstream rule). Experimental validation is required to confirm NMD.", "body"),
         p("• <b>non_coding:</b> exon entirely within UTR — regulatory impact", "body"),
         p("<b>5. MANE Select Annotation</b>", "h3"),
         p("The MANE Select transcript is identified from a local GFF3 file "

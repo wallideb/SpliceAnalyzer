@@ -85,8 +85,15 @@ _BP_CHECKS = [
 ]
 
 
+_BP_MIN_DISTANCE = 15  # minimum distance (nt) from motif centre to 3'SS
+
+
 def find_branch_point(seq: str) -> tuple[int, int, int]:
     """Search *seq* for the best YNYURAY match.
+
+    Candidates whose motif centre is closer than ``_BP_MIN_DISTANCE`` nt to
+    the 3'SS (end of *seq*) are discarded to reduce false positives — real
+    branch points are typically 18-40 nt upstream of the 3'SS.
 
     Returns
     -------
@@ -100,6 +107,9 @@ def find_branch_point(seq: str) -> tuple[int, int, int]:
     best_pos, best_score = -1, 0
     for i in range(n - 6):
         motif = upper[i : i + 7]
+        distance = n - (i + 3)  # distance from motif centre to 3'SS
+        if distance < _BP_MIN_DISTANCE:
+            continue  # too close to 3'SS — skip
         score = sum(fn(b) for fn, b in zip(_BP_CHECKS, motif))
         if score > best_score:
             best_score = score

@@ -532,7 +532,7 @@ Both metrics are reported as splice-site quality indicators and are included in 
 
 ### 6. Branch-Point Detection
 
-The branch-point adenosine is identified by scanning the PPT region for the **YNYURAY** consensus motif (Y = C/T; N = any; R = A/G; U → T in genomic DNA). The search window is the 47 nt upstream of the 3'SS. Each candidate match receives a **positional score** (0–7): one point for each degenerate position that matches the consensus nucleotide. The best match (highest score, tie-broken by proximity to 3'SS) is reported.
+The branch-point adenosine is identified by scanning the PPT region for the **YNYURAY** consensus motif (Y = C/T; N = any; R = A/G; U → T in genomic DNA). The search window is the 47 nt upstream of the 3'SS. Candidates whose motif centre is closer than **15 nt** to the 3'SS are discarded to reduce false positives (real branch points are typically 18–40 nt upstream). Each remaining candidate receives a **positional score** (0–7): one point for each degenerate position that matches the consensus nucleotide. The best match (highest score, tie-broken by proximity to 3'SS) is reported.
 
 | Output | Description |
 |--------|-------------|
@@ -700,6 +700,8 @@ The pattern comparison endpoint computes aggregate splice statistics for both th
 Welch's t-test and the two-tailed p-value are computed in pure Python (no NumPy/SciPy) using the Welch-Satterthwaite degrees-of-freedom formula and the numerically evaluated regularized incomplete beta function (Lentz's continued-fraction algorithm).
 
 No multiple-testing correction is applied across the pattern-comparison metrics. The panel of tests (Welch t-tests and two-proportion z-tests across ~9 metrics) is therefore exploratory; the family-wise false-positive risk is inflated at the stated per-test α, and results should be interpreted accordingly.
+
+**Skewness limitation:** Welch's t-test assumes approximately normal sampling distributions of the mean. Exon sizes and especially intron sizes are typically right-skewed (long-tailed); with small sample sizes the t-test p-values may be inaccurate. The test is reasonably robust to moderate skewness when both groups have n ≥ 30 (by the Central Limit Theorem), but for smaller or heavily skewed groups the reported p-values should be interpreted with caution. A non-parametric alternative (e.g. Mann-Whitney U) would be more appropriate for heavily skewed distributions but is not currently implemented.
 
 Comparison sequence logos (frequency mode) are generated independently for each group.
 

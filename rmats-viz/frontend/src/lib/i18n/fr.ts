@@ -479,6 +479,8 @@ export const fr: Translations = {
         "L'histogramme de taille d'exon regroupe les longueurs en intervalles de 25 nt. " +
         "La <b>classification du cadre</b> est basée sur la divisibilité par 3 de la longueur " +
         "CDS de l'exon sauté (in_frame) ou non (frameshift). " +
+        "Note : un frameshift n'implique pas le NMD (nonsense-mediated decay) ; le NMD dépend de " +
+        "la position du codon stop prématuré par rapport à la dernière jonction exon-exon. " +
         "La distribution du score PPT montre la fraction de nucléotides pyrimidiques " +
         "par événement dans la fenêtre ~47 nt en amont du 3′SS (Coolidge et al., 1997). " +
         "La détection du point de branchement utilise le motif heptamère YNYURAY (Padgett et al., 1986).",
@@ -577,8 +579,8 @@ export const fr: Translations = {
   consensusExon: {
     analyzed: "Analysés",
     meanExon: "Exon moy.",
-    upstreamMedian: "Intron ↑ méd.",
-    downstreamMedian: "Intron ↓ méd.",
+    upstreamMean: "Intron ↑ moy.",
+    downstreamMean: "Intron ↓ moy.",
     seEvents: "Évén. SE",
     meanDeltaPsi: "ΔΨ moyen",
     meanPpt: "PPT moyen",
@@ -586,7 +588,7 @@ export const fr: Translations = {
     noSeq: "(séquences non disponibles — FASTA requis)",
     frameLabelNonCoding: "Non-codant",
     sizeRange: "Tailles : {{min}}–{{max}} nt",
-    description: "L'exon fictif consensus représente la taille moyenne des {{n}} événements SE · introns = médiane · ΔΨ = moyenne · séquences = consensus IUPAC de la PWM cohorte.",
+    description: "L'exon fictif consensus représente la taille moyenne des {{n}} événements SE · introns = moyenne · ΔΨ = moyenne · séquences = consensus IUPAC de la PWM cohorte.",
   },
   exonDiagram: {
     upstreamFlankingExon: "Exon flanquant amont",

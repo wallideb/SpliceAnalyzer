@@ -687,6 +687,8 @@ export const fr: Translations = {
     heatmapTitle: "Carte de chaleur — meilleur motif par protéine × région",
     enriched: "Enrichi chez sig.",
     depleted: "Appauvri chez sig.",
+    silencer: "Silenceur (ESS/ISS)",
+    enhancer: "Activateur (ESE/ISE)",
   },
   enrichrPanel: {
     error: "Erreur lors du chargement des résultats Enrichr.",

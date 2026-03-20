@@ -468,6 +468,163 @@ def _make_tbl(rows, col_widths, S, style_fn=None):
 
 
 # ---------------------------------------------------------------------------
+# hnRNP heatmap builder (protein × region, with regulatory effect frames)
+# ---------------------------------------------------------------------------
+
+_HEATMAP_REGION_ORDER = [
+    "upstream_exon", "upstream_intron", "skipped_exon",
+    "downstream_intron", "downstream_exon",
+]
+_HEATMAP_REGION_LABELS = {
+    "upstream_exon": "Upstream\nexon",
+    "upstream_intron": "Upstream\nintron",
+    "skipped_exon": "Skipped\nexon",
+    "downstream_intron": "Downstream\nintron",
+    "downstream_exon": "Downstream\nexon",
+}
+
+
+def _build_hnrnp_heatmap(hnrnp_data: dict) -> Drawing | None:
+    """Build a vector heatmap Drawing: protein families × genomic regions.
+
+    For each protein × region cell, the most significant motif is shown.
+    Cell background encodes enrichment/depletion (red/blue/grey).
+    An orange (silencer) or green (enhancer) border frame indicates the
+    established regulatory effect when available.
+    """
+    results = hnrnp_data.get("results", [])
+    if not results:
+        return None
+
+    proteins = list(dict.fromkeys(r.get("protein", "") for r in results))
+    if not proteins:
+        return None
+
+    # Build matrix: protein → region → best motif (lowest p_adjusted)
+    matrix: dict[str, dict[str, dict | None]] = {}
+    for prot in proteins:
+        matrix[prot] = {}
+        for reg in _HEATMAP_REGION_ORDER:
+            candidates = [r for r in results if r.get("protein") == prot and r.get("region") == reg]
+            best = None
+            for c in candidates:
+                p_adj = c.get("p_adjusted")
+                if p_adj is None:
+                    continue
+                if best is None or p_adj < (best.get("p_adjusted") or 1.0):
+                    best = c
+            matrix[prot][reg] = best
+
+    # Drawing dimensions
+    cell_w = 80
+    cell_h = 28
+    label_w = 110  # protein name column width
+    header_h = 30
+    n_rows = len(proteins)
+    n_cols = len(_HEATMAP_REGION_ORDER)
+    total_w = label_w + n_cols * cell_w
+    total_h = header_h + n_rows * cell_h + 12  # +12 for top margin
+
+    d = Drawing(total_w, total_h)
+
+    # Colours
+    clr_enriched = _colors.HexColor("#fecaca")   # red-200
+    clr_depleted = _colors.HexColor("#bfdbfe")   # blue-200
+    clr_ns       = _colors.HexColor("#f1f5f9")   # slate-100
+    clr_silencer = _colors.HexColor("#ea580c")   # orange-600
+    clr_enhancer = _colors.HexColor("#059669")   # emerald-600
+    clr_grid     = _colors.HexColor("#e2e8f0")   # slate-200
+    clr_text     = _colors.HexColor("#0f172a")   # slate-900
+    clr_muted    = _colors.HexColor("#94a3b8")   # slate-400
+    clr_header   = _colors.HexColor("#475569")   # slate-600
+
+    # Column headers
+    for ci, reg in enumerate(_HEATMAP_REGION_ORDER):
+        x = label_w + ci * cell_w
+        y = total_h - header_h
+        label = _HEATMAP_REGION_LABELS[reg]
+        lines = label.split("\n")
+        for li, line in enumerate(lines):
+            d.add(String(
+                x + cell_w / 2, y + (len(lines) - 1 - li) * 8 + 2,
+                line, fontSize=6.5, fontName="Helvetica-Bold",
+                fillColor=clr_header, textAnchor="middle",
+            ))
+
+    # Rows
+    for ri, prot in enumerate(proteins):
+        y = total_h - header_h - (ri + 1) * cell_h
+
+        # Protein label
+        d.add(String(
+            label_w - 4, y + cell_h / 2 - 3,
+            prot, fontSize=7, fontName="Helvetica-Bold",
+            fillColor=clr_text, textAnchor="end",
+        ))
+
+        for ci, reg in enumerate(_HEATMAP_REGION_ORDER):
+            x = label_w + ci * cell_w
+            item = matrix[prot][reg]
+
+            if item is None or item.get("p_adjusted") is None:
+                # Empty cell
+                d.add(Rect(x, y, cell_w, cell_h, fillColor=clr_ns,
+                           strokeColor=clr_grid, strokeWidth=0.3))
+                d.add(String(x + cell_w / 2, y + cell_h / 2 - 3, "—",
+                             fontSize=7, fillColor=clr_muted, textAnchor="middle"))
+                continue
+
+            p_adj = item["p_adjusted"]
+            sig = p_adj < 0.05
+            enriched = (item.get("sig_density", 0) or 0) > (item.get("bg_density", 0) or 0)
+
+            # Cell background
+            if sig and enriched:
+                bg = clr_enriched
+            elif sig and not enriched:
+                bg = clr_depleted
+            else:
+                bg = clr_ns
+
+            d.add(Rect(x, y, cell_w, cell_h, fillColor=bg,
+                        strokeColor=clr_grid, strokeWidth=0.3))
+
+            # Regulatory effect border frame (thicker inset border)
+            effect = item.get("regulatory_effect")
+            if effect:
+                frame_clr = clr_silencer if effect in ("ESS", "ISS") else clr_enhancer
+                inset = 1.5
+                d.add(Rect(
+                    x + inset, y + inset,
+                    cell_w - 2 * inset, cell_h - 2 * inset,
+                    fillColor=None, strokeColor=frame_clr, strokeWidth=1.5,
+                ))
+
+            # Motif name text
+            motif_name = item.get("motif_name", "")
+            text_color = clr_text if sig else clr_muted
+            suffix = "*" if sig else ""
+            d.add(String(
+                x + cell_w / 2, y + cell_h / 2 + (2 if effect else -1),
+                motif_name + suffix,
+                fontSize=7, fontName="Courier-Bold",
+                fillColor=text_color, textAnchor="middle",
+            ))
+
+            # Effect label below motif name
+            if effect:
+                eff_color = clr_silencer if effect in ("ESS", "ISS") else clr_enhancer
+                d.add(String(
+                    x + cell_w / 2, y + 3,
+                    effect,
+                    fontSize=5.5, fontName="Helvetica-Bold",
+                    fillColor=eff_color, textAnchor="middle",
+                ))
+
+    return d
+
+
+# ---------------------------------------------------------------------------
 # Figure builders (reportlab Drawings — resolution-independent vector)
 # ---------------------------------------------------------------------------
 
@@ -1567,6 +1724,23 @@ def _build_pdf(
                 "body",
             ))
 
+        # ── Heatmap: protein × region (best motif per cell) ────────────────
+        story.append(sp(0.4))
+        story.append(p("Enrichment Heatmap — Best Motif per Protein × Region", "h3"))
+        heatmap_drawing = _build_hnrnp_heatmap(hnrnp_data)
+        if heatmap_drawing:
+            story.append(heatmap_drawing)
+            story.append(sp(0.15))
+            story.append(p(
+                "<font color='#dc2626'>■</font> Enriched in sig. &nbsp; "
+                "<font color='#2563eb'>■</font> Depleted in sig. &nbsp; "
+                "<font color='#94a3b8'>■</font> n.s. &nbsp;&nbsp; "
+                "<font color='#ea580c'>▬</font> Silencer (ESS/ISS) &nbsp; "
+                "<font color='#059669'>▬</font> Enhancer (ESE/ISE)",
+                "small",
+            ))
+        story.append(sp(0.3))
+
         # ── Non-significant motifs (complete search overview) ────────────────
         nonsig_motifs = [r for r in hnrnp_data.get("results", []) if not r.get("significant")]
         if nonsig_motifs:
@@ -1881,6 +2055,30 @@ def _build_pdf(
               "for statistical clarity and direct interpretability in the context of discrete "
               "regulatory zones (exonic body, proximal/distal intronic flanks), providing a "
               "complementary, region-level view of hnRNP motif associations.", "body"),
+            p("<b>8b. Regulatory Effect Annotations</b>", "h3"),
+            p("The heatmap displays the established regulatory effect (ESE, ESS, ISE, ISS) "
+              "for each protein × region pair when supported by strong published evidence. "
+              "Silencer annotations (ESS/ISS, orange frame) and enhancer annotations "
+              "(ESE/ISE, green frame) are derived from the following peer-reviewed sources:", "body"),
+            p("• <b>hnRNP A1/A2:</b> ESS in exons, ISS in introns — "
+              "Zhu et al. 2001 [16]; Damgaard et al. 2002 [17]; Kashima et al. 2007 [18]", "body"),
+            p("• <b>hnRNP F/H:</b> ESS in exons, ISE in downstream intron — "
+              "Martinez-Contreras et al. 2006 [14]; Chen et al. 1999 [19]; Erkelenz et al. 2013 [20]", "body"),
+            p("• <b>hnRNP C:</b> ESS in skipped exon, ISE in upstream intron — "
+              "König et al. 2010 [21]; Zarnack et al. 2013 [22]", "body"),
+            p("• <b>hnRNP L:</b> ESS in skipped exon — "
+              "House &amp; Lynch 2006 [23]; Hui et al. 2005 [24]", "body"),
+            p("• <b>hnRNP M:</b> ESS in skipped exon, ISS in downstream intron — "
+              "Huelga et al. 2012 [25]", "body"),
+            p("• <b>PTB (hnRNP I):</b> ESS in skipped exon, ISS in flanking introns — "
+              "Xue et al. 2009 [26]; Wagner &amp; Garcia-Blanco 2001 [27]", "body"),
+            p("• <b>PCBP1, PCBP2, hnRNP K:</b> no assignment — insufficient position-specific "
+              "splicing data; primarily characterised for mRNA stability and translational control.", "body"),
+            p("Assignments are conservative: protein × region pairs with context-dependent or "
+              "insufficiently replicated effects are left unannotated (no frame). "
+              "The general principle that hnRNPs tend to silence from exonic positions and can "
+              "enhance or silence from intronic positions depending on the protein is supported "
+              "by genome-wide RNA splicing maps (Witten &amp; Ule, 2011 [28]).", "body"),
             p("<b>9. Pathway Enrichment (Enrichr)</b>", "h3"),
             p("Unique HGNC gene symbols derived from significant splicing events are submitted to "
               "the Enrichr REST API (Ma'ayan Lab; Chen et al., 2013 [9]; Kuleshov et al., 2016 "
@@ -1897,12 +2095,17 @@ def _build_pdf(
     story.append(sp())
 
     # ── Appendix B — References ──────────────────────────────────────────────
-    # Numbering (15 entries; unused refs [2–4], [9–10], [12] from the old list removed):
+    # Numbering (28 entries):
     #  [1] Shen 2014        [2] Burge 1997       [3] Shapiro 1987
     #  [4] Morales 2022     [5] Cunningham 2022  [6] Coolidge 1997
     #  [7] Phipson 2010     [8] Hwang 2020        [9] Chen 2013
     #  [10] Kuleshov 2016   [11] Ray 2013         [12] Chkheidze 1999
     #  [13] Makeyev 2002    [14] Martinez-Contreras 2006  [15] Xie 2021
+    #  [16] Zhu 2001        [17] Damgaard 2002    [18] Kashima 2007
+    #  [19] Chen CD 1999    [20] Erkelenz 2013    [21] König 2010
+    #  [22] Zarnack 2013    [23] House 2006       [24] Hui 2005
+    #  [25] Huelga 2012     [26] Xue 2009         [27] Wagner 2001
+    #  [28] Witten 2011
     story += [
         p("Appendix B — Bibliographic References", "h2"),
         hr(),
@@ -1947,6 +2150,47 @@ def _build_pdf(
         p("[15] Xie Z, Bailey A, Kuleshov MV, Clarke DJB, Evangelista JE, Jenkins SL, "
           "Lachmann A, Wojciechowicz ML, Kropiwnicki E, Jagodnik KM, Jeon M, Ma'ayan A. "
           "<i>Gene set knowledge discovery with Enrichr.</i> Curr Protoc. 2021;1(3):e90.", "body"),
+        p("[16] Zhu J, Mayeda A, Krainer AR. <i>Exon identity established through "
+          "differential antagonism between exonic splicing silencer-bound hnRNP A1 and "
+          "enhancer-bound SR proteins.</i> Mol Cell. 2001;8(6):1351-1361.", "body"),
+        p("[17] Damgaard CK, Tange TØ, Kjems J. <i>hnRNP A1 controls HIV-1 mRNA "
+          "splicing through cooperative binding to intron and exon splicing silencers "
+          "in the context of a conserved secondary structure.</i> RNA. 2002;8(11):1401-1415.", "body"),
+        p("[18] Kashima T, Rao N, David CJ, Manley JL. <i>hnRNP A1 functions with "
+          "specificity in repression of SMN2 exon 7 splicing.</i> Hum Mol Genet. "
+          "2007;16(24):3149-3159.", "body"),
+        p("[19] Chen CD, Kobayashi R, Bhatt DM. <i>Binding of hnRNP H to an exonic "
+          "splicing silencer is involved in the regulation of alternative splicing "
+          "of the rat β-tropomyosin gene.</i> Genes Dev. 1999;13(5):593-606.", "body"),
+        p("[20] Erkelenz S, Mueller WF, Evans MS, Busch A, Schöneweis K, Hertel KJ, "
+          "Schaal H. <i>Position-dependent splicing activation and repression by SR "
+          "and hnRNP proteins rely on common mechanisms.</i> RNA. 2013;19(1):96-102.", "body"),
+        p("[21] König J, Zarnack K, Rot G, Curk T, Kayber M, Zupan B, Turner DJ, "
+          "Luscombe NM, Ule J. <i>iCLIP reveals the function of hnRNP particles in "
+          "splicing at individual nucleotide resolution.</i> Nat Struct Mol Biol. "
+          "2010;17(7):909-915.", "body"),
+        p("[22] Zarnack K, König J, Tajnik M, Martincorena I, Eustermann S, Stévant I, "
+          "Reyes A, Anders S, Luscombe NM, Ule J. <i>Direct competition between hnRNP C "
+          "and U2AF65 protects the transcriptome from the exonization of Alu elements.</i> "
+          "Cell. 2013;152(3):453-466.", "body"),
+        p("[23] House AE, Lynch KW. <i>An exonic splicing silencer represses spliceosome "
+          "assembly after ATP-dependent exon recognition.</i> Nat Struct Mol Biol. "
+          "2006;13(10):937-944.", "body"),
+        p("[24] Hui J, Hung LH, Heiner M, Schreiner S, Neumüller N, Reber G, Bindereif A. "
+          "<i>Intronic CA-repeat and CA-rich elements: a new class of regulators of "
+          "mammalian alternative splicing.</i> EMBO J. 2005;24(11):1988-1998.", "body"),
+        p("[25] Huelga SC, Vu AQ, Arnold JD, Liang TY, Liu PP, Yan BY, Donohue JP, "
+          "Shiue L, Hoon S, Brenner S, Ares M Jr, Yeo GW. <i>Integrative genome-wide "
+          "analysis reveals cooperative regulation of alternative splicing by hnRNP "
+          "proteins.</i> Cell Rep. 2012;1(2):167-178.", "body"),
+        p("[26] Xue Y, Zhou Y, Wu T, Zhu T, Ji X, Kwon YS, Zhang C, Yeo G, Black DL, "
+          "Sun H, Fu XD, Zhang Y. <i>Genome-wide analysis of PTB-RNA interactions "
+          "reveals a strategy used by the general splicing repressor to modulate exon "
+          "inclusion or skipping.</i> Mol Cell. 2009;36(6):996-1006.", "body"),
+        p("[27] Wagner EJ, Garcia-Blanco MA. <i>Polypyrimidine tract binding protein "
+          "antagonizes exon definition.</i> Mol Cell Biol. 2001;21(10):3281-3288.", "body"),
+        p("[28] Witten JT, Ule J. <i>Understanding splicing regulation through RNA "
+          "splicing maps.</i> Trends Genet. 2011;27(3):89-97.", "body"),
         sp(),
     ]
 
@@ -2126,7 +2370,7 @@ async def export_deep_analysis_pdf(
     async def _compute_hnrnp() -> dict | None:
         """Run hnRNP motif enrichment on SE events; returns plain dict or None."""
         try:
-            from app.services.hnrnp_motifs import SERegions, define_se_regions, compare_groups, scan_group
+            from app.services.hnrnp_motifs import SERegions, define_se_regions, compare_groups, scan_group, REGULATORY_EFFECTS
             from app.services.sequence import extract_regions_batch, reverse_complement
             from app.config import settings
 
@@ -2191,6 +2435,7 @@ async def export_deep_analysis_pdf(
                         "p_value": r.p_value,
                         "p_adjusted": r.p_adjusted,
                         "significant": r.significant,
+                        "regulatory_effect": REGULATORY_EFFECTS.get(r.protein, {}).get(r.region),
                     }
                     for r in enrichment
                 ],

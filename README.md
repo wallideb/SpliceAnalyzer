@@ -213,7 +213,6 @@ SpliceAnalyzer/
     │       ├── schemas/
     │       └── services/
     │           ├── parser.py            # rMATS TSV parsing + coverage filter
-    │           ├── event_selector.py    # Event ranking by FDR / ΔΨ
     │           ├── sequence.py          # samtools faidx wrapper (chunked batching)
     │           ├── splice_features.py   # GT-AG, PPT score, branch-point
     │           ├── mane.py              # MANE Select transcript + frame class

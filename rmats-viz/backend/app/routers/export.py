@@ -396,11 +396,13 @@ def _build_styles() -> dict:
             "H2", parent=base["Heading2"],
             fontSize=13, spaceBefore=12, spaceAfter=6,
             textColor=_colors.HexColor("#2563eb"),
+            keepWithNext=True,
         ),
         "h3": ParagraphStyle(
             "H3", parent=base["Heading3"],
             fontSize=10, spaceBefore=8, spaceAfter=4,
             textColor=_colors.HexColor("#475569"),
+            keepWithNext=True,
         ),
         "body": ParagraphStyle(
             "Body", parent=base["Normal"],
@@ -1725,20 +1727,22 @@ def _build_pdf(
             ))
 
         # ── Heatmap: protein × region (best motif per cell) ────────────────
-        story.append(sp(0.4))
-        story.append(p("Enrichment Heatmap — Best Motif per Protein × Region", "h3"))
         heatmap_drawing = _build_hnrnp_heatmap(hnrnp_data)
         if heatmap_drawing:
-            story.append(heatmap_drawing)
-            story.append(sp(0.15))
-            story.append(p(
-                "<font color='#dc2626'>■</font> Enriched in sig. &nbsp; "
-                "<font color='#2563eb'>■</font> Depleted in sig. &nbsp; "
-                "<font color='#94a3b8'>■</font> n.s. &nbsp;&nbsp; "
-                "<font color='#ea580c'>▬</font> Silencer (ESS/ISS) &nbsp; "
-                "<font color='#059669'>▬</font> Enhancer (ESE/ISE)",
-                "small",
-            ))
+            story.append(sp(0.4))
+            story.append(KeepTogether([
+                p("Enrichment Heatmap — Best Motif per Protein × Region", "h3"),
+                heatmap_drawing,
+                sp(0.15),
+                p(
+                    "<font color='#dc2626'>■</font> Enriched in sig. &nbsp; "
+                    "<font color='#2563eb'>■</font> Depleted in sig. &nbsp; "
+                    "<font color='#94a3b8'>■</font> n.s. &nbsp;&nbsp; "
+                    "<font color='#ea580c'>▬</font> Silencer (ESS/ISS) &nbsp; "
+                    "<font color='#059669'>▬</font> Enhancer (ESE/ISE)",
+                    "small",
+                ),
+            ]))
         story.append(sp(0.3))
 
         # ── Non-significant motifs (complete search overview) ────────────────
@@ -2106,6 +2110,7 @@ def _build_pdf(
     #  [22] Zarnack 2013    [23] House 2006       [24] Hui 2005
     #  [25] Huelga 2012     [26] Xue 2009         [27] Wagner 2001
     #  [28] Witten 2011
+    story.append(PageBreak())
     story += [
         p("Appendix B — Bibliographic References", "h2"),
         hr(),
@@ -2195,6 +2200,7 @@ def _build_pdf(
     ]
 
     # ── Appendix C — Statistical Methods ────────────────────────────────────
+    story.append(PageBreak())
     story += [
         p("Appendix C — Statistical Methods", "h2"),
         hr(),

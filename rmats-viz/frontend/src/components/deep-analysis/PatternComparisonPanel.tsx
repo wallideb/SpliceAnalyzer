@@ -82,8 +82,27 @@ export function PatternComparisonPanel({ deepId }: Props) {
   for (const t2 of tests ?? []) testMap.set(t2.feature, t2);
   const p = (key: string) => testMap.get(key);
 
+  const totalEvents = sig.n_events + nonsig.n_events;
+  const totalFeatures = sig.n_se_with_features + nonsig.n_se_with_features;
+  const featuresIncomplete = totalFeatures < totalEvents;
+
+  /** Format group label: "N events" or "N events, M with features" when incomplete */
+  const groupLabel = (g: typeof sig) =>
+    g.n_se_with_features < g.n_events
+      ? `${g.n_events.toLocaleString()} events, ${g.n_se_with_features.toLocaleString()} with features`
+      : `${g.n_events.toLocaleString()}`;
+
   return (
     <div className="space-y-6">
+      {/* ── Incomplete features warning ── */}
+      {featuresIncomplete && (
+        <div className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 p-3 text-[11px] text-amber-800 dark:text-amber-300">
+          <strong>Note:</strong> Splice features have been computed for {totalFeatures.toLocaleString()} of {totalEvents.toLocaleString()} SE events.
+          {" "}Sequence logos and splice-site statistics below are based on the {totalFeatures.toLocaleString()} events with features.
+          {" "}Re-run splice feature computation to process remaining events.
+        </div>
+      )}
+
       {/* ── 5'SS Donor logos side-by-side ── */}
       {(sig.donor_pwm || nonsig.donor_pwm) && (
         <div className="rounded-xl border border-border bg-card shadow-sm p-4 space-y-3">
@@ -93,7 +112,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <p className="text-[10px] font-semibold text-green-700 dark:text-green-400 mb-2">
-                {t("deepAnalysis.significant")} ({sig.n_se_with_features})
+                {t("deepAnalysis.significant")} ({groupLabel(sig)})
               </p>
               {sig.donor_pwm && sig.donor_pwm.length > 0 ? (
                 <>
@@ -118,7 +137,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
             </div>
             <div>
               <p className="text-[10px] font-semibold text-slate-500 mb-2">
-                {t("deepAnalysis.notSignificant")} ({nonsig.n_se_with_features})
+                {t("deepAnalysis.notSignificant")} ({groupLabel(nonsig)})
               </p>
               {nonsig.donor_pwm && nonsig.donor_pwm.length > 0 ? (
                 <>
@@ -155,7 +174,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <p className="text-[10px] font-semibold text-green-700 dark:text-green-400 mb-2">
-                {t("deepAnalysis.significant")} ({sig.n_se_with_features})
+                {t("deepAnalysis.significant")} ({groupLabel(sig)})
               </p>
               {sig.acceptor_pwm && sig.acceptor_pwm.length > 0 ? (
                 <>
@@ -180,7 +199,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
             </div>
             <div>
               <p className="text-[10px] font-semibold text-slate-500 mb-2">
-                {t("deepAnalysis.notSignificant")} ({nonsig.n_se_with_features})
+                {t("deepAnalysis.notSignificant")} ({groupLabel(nonsig)})
               </p>
               {nonsig.acceptor_pwm && nonsig.acceptor_pwm.length > 0 ? (
                 <>
@@ -217,7 +236,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <p className="text-[10px] font-semibold text-green-700 dark:text-green-400 mb-2">
-                {t("deepAnalysis.significant")} ({sig.n_se_with_features})
+                {t("deepAnalysis.significant")} ({groupLabel(sig)})
               </p>
               {sig.upstream_donor_pwm && sig.upstream_donor_pwm.length > 0 ? (
                 <>
@@ -234,7 +253,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
             </div>
             <div>
               <p className="text-[10px] font-semibold text-slate-500 mb-2">
-                {t("deepAnalysis.notSignificant")} ({nonsig.n_se_with_features})
+                {t("deepAnalysis.notSignificant")} ({groupLabel(nonsig)})
               </p>
               {nonsig.upstream_donor_pwm && nonsig.upstream_donor_pwm.length > 0 ? (
                 <>
@@ -263,7 +282,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <p className="text-[10px] font-semibold text-green-700 dark:text-green-400 mb-2">
-                {t("deepAnalysis.significant")} ({sig.n_se_with_features})
+                {t("deepAnalysis.significant")} ({groupLabel(sig)})
               </p>
               {sig.downstream_acceptor_pwm && sig.downstream_acceptor_pwm.length > 0 ? (
                 <>
@@ -280,7 +299,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
             </div>
             <div>
               <p className="text-[10px] font-semibold text-slate-500 mb-2">
-                {t("deepAnalysis.notSignificant")} ({nonsig.n_se_with_features})
+                {t("deepAnalysis.notSignificant")} ({groupLabel(nonsig)})
               </p>
               {nonsig.downstream_acceptor_pwm && nonsig.downstream_acceptor_pwm.length > 0 ? (
                 <>

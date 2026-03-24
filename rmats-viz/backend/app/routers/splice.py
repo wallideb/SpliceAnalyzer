@@ -332,6 +332,7 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
             n_total = len(se_events)
 
             for chunk_start in range(0, n_total, _COMPUTE_CHUNK):
+              try:
                 chunk = list(se_events[chunk_start : chunk_start + _COMPUTE_CHUNK])
 
                 # ── Step 0: MANE exon boundary lookup (fast in-memory) ────
@@ -436,36 +437,47 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                         for w in windows_list
                     ]
 
-                # ── Step 2: Compute features + MANE (parallel) ──────────────
-                async def _compute_and_annotate(ev, windows):
-                    feat_data = compute_features(ev, windows)
-                    seq_source = windows.source if windows is not None else None
-                    mane: dict = {}
-                    if ev.gene_id:
-                        try:
-                            mane = await asyncio.to_thread(
-                                annotate_mane, ev.gene_id,
-                                ev.chr or "", ev.strand or "+",
-                                ev.exon_start or 0, ev.exon_end or 0,
-                            )
-                        except Exception as exc:
-                            logger.warning("MANE failed for %s: %s", ev.gene_id, exc)
-                    return feat_data, mane, seq_source
+                # ── Step 2: Compute features (CPU-only, no threads) ─────────
+                feat_results: list[tuple] = []
+                for ev, w in zip(chunk, windows_list):
+                    try:
+                        feat_data = compute_features(ev, w)
+                        seq_source = w.source if w is not None else None
+                        feat_results.append((feat_data, seq_source))
+                    except Exception as exc:
+                        logger.error("Feature compute failed for %s: %s", ev.id, exc)
+                        feat_results.append(None)
 
-                anno_results = await asyncio.gather(
-                    *[_compute_and_annotate(ev, w)
-                      for ev, w in zip(chunk, windows_list)],
-                    return_exceptions=True,
-                )
+                # ── Step 2b: MANE annotation (single thread — avoids SQLite
+                #    connection exhaustion from 2000 concurrent to_thread calls)
+                def _batch_annotate_mane(events):
+                    results = []
+                    for ev in events:
+                        if ev.gene_id:
+                            try:
+                                results.append(annotate_mane(
+                                    ev.gene_id,
+                                    ev.chr or "", ev.strand or "+",
+                                    ev.exon_start or 0, ev.exon_end or 0,
+                                ))
+                            except Exception as exc:
+                                logger.warning("MANE failed for %s: %s", ev.gene_id, exc)
+                                results.append({})
+                        else:
+                            results.append({})
+                    return results
+
+                mane_results = await asyncio.to_thread(_batch_annotate_mane, chunk)
 
                 # ── Step 3: DB writes (bulk upsert — 1 round-trip per chunk) ──
                 bulk_rows: list[dict] = []
-                for idx, (ev, res) in enumerate(zip(chunk, anno_results)):
-                    if isinstance(res, Exception):
-                        logger.error("Feature compute failed for %s: %s", ev.id, res)
+                for idx, (ev, feat_res, mane) in enumerate(
+                    zip(chunk, feat_results, mane_results)
+                ):
+                    if feat_res is None:
                         continue
                     try:
-                        feat_data, mane, seq_source = res
+                        feat_data, seq_source = feat_res
                         mes = mane_source_list[idx] if idx < len(mane_source_list) else None
                         bulk_rows.append(_build_feature_row(ev, feat_data, mane, seq_source, mes))
                     except Exception as exc:
@@ -486,6 +498,12 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                 await db.commit()
                 if chunk_start % 1000 == 0:
                     logger.info("Compute progress: %d/%d", n_computed, n_total)
+              except Exception as chunk_exc:
+                logger.error(
+                    "Chunk %d–%d failed for %s: %s — continuing with next chunk",
+                    chunk_start, min(chunk_start + _COMPUTE_CHUNK, n_total),
+                    analysis_id, chunk_exc,
+                )
 
             logger.info("Background compute done: %d/%d SE events for %s", n_computed, n_total, analysis_id)
     except Exception as exc:

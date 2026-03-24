@@ -83,8 +83,8 @@ export default function DeepAnalysisDetailPage() {
     try {
       await downloadAnalysisPDF(id, deepId, sections);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      if (msg.includes("still in progress")) {
+      const status = (err as { status?: number }).status;
+      if (status === 409) {
         alert(t("analysisDetail.pdfComputeInProgress"));
       } else {
         alert(t("analysisDetail.pdfError"));

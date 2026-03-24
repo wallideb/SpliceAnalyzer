@@ -65,6 +65,7 @@ router = APIRouter(prefix="/splice", tags=["splice"])
 
 # Track which analyses currently have a background compute task running.
 # Keyed by analysis_id (UUID); value is True while the task is active.
+# NOTE: in-memory — only correct with a single uvicorn worker.
 _active_computes: dict[uuid.UUID, bool] = {}
 
 

@@ -18,6 +18,8 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
+from sqlalchemy import func as sa_func
+
 from app.database import get_db
 from app.models.analysis import Analysis
 from app.models.event import SplicingEvent
@@ -119,6 +121,47 @@ async def _load_events_and_features(
         features[feat.event_id] = feat
 
     return events, features
+
+
+async def _assert_splice_features_ready(
+    db: AsyncSession, analysis_id: uuid.UUID
+) -> None:
+    """Raise 409 Conflict if splice-feature computation is still in progress.
+
+    Compares the number of SE events to the number of computed features.
+    If no SE events exist at all the check passes (nothing to compute).
+    """
+    n_se = (await db.execute(
+        select(sa_func.count(SplicingEvent.id)).where(
+            SplicingEvent.analysis_id == analysis_id,
+            SplicingEvent.event_type == "SE",
+        )
+    )).scalar() or 0
+
+    if n_se == 0:
+        return
+
+    n_computed = (await db.execute(
+        select(sa_func.count(EventSpliceFeature.id)).where(
+            EventSpliceFeature.event_id.in_(
+                select(SplicingEvent.id).where(
+                    SplicingEvent.analysis_id == analysis_id,
+                    SplicingEvent.event_type == "SE",
+                )
+            )
+        )
+    )).scalar() or 0
+
+    if n_computed < n_se:
+        pct = round(n_computed / n_se * 100, 1)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Splice feature computation is still in progress "
+                f"({n_computed}/{n_se} events, {pct}%). "
+                f"Please wait until computation completes before generating the PDF."
+            ),
+        )
 
 
 @router.get("/{analysis_id}/deep-analysis/{deep_analysis_id}/excel")
@@ -2412,6 +2455,7 @@ async def export_analysis_pdf(
     """Generate a PDF analysis report for *analysis_id* (all events)."""
 
     selected = _parse_sections(sections)
+    await _assert_splice_features_ready(db, analysis_id)
     analysis, group1_label, group2_label = await _get_analysis_with_groups(db, analysis_id)
     events, features = await _load_events_and_features(db, analysis_id)
 
@@ -2438,6 +2482,7 @@ async def export_deep_analysis_pdf(
 ) -> StreamingResponse:
     """Generate a PDF report scoped to a deep analysis (filtered events + comparison)."""
     selected = _parse_sections(sections)
+    await _assert_splice_features_ready(db, analysis_id)
 
     from app.models.deep_analysis import DeepAnalysis, DeepAnalysisEvent
     from app.routers.deep_analyses import _compute_group_stats, _compute_stat_tests

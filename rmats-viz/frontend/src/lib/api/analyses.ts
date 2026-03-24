@@ -98,7 +98,13 @@ export async function downloadAnalysisPDF(
     url += `?sections=${encodeURIComponent(sections.join(","))}`;
   }
   const resp = await fetch(url);
-  if (!resp.ok) throw new Error("PDF export failed");
+  if (!resp.ok) {
+    if (resp.status === 409) {
+      const body = await resp.json().catch(() => null);
+      throw new Error(body?.detail ?? "Splice feature computation is still in progress. Please wait and try again.");
+    }
+    throw new Error("PDF export failed");
+  }
   const blob = await resp.blob();
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);

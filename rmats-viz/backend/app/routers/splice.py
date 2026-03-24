@@ -63,6 +63,10 @@ from app.services.splice_features import compute_features, compute_pwm, iupac_co
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/splice", tags=["splice"])
 
+# Track which analyses currently have a background compute task running.
+# Keyed by analysis_id (UUID); value is True while the task is active.
+_active_computes: dict[uuid.UUID, bool] = {}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -316,6 +320,7 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
     subprocess per chunk of 200 events ≈ 1000 regions) which is 20-50x
     faster than one subprocess per event.
     """
+    _active_computes[analysis_id] = True
     try:
         async with AsyncSessionLocal() as db:
             result = await db.execute(
@@ -512,6 +517,8 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
             logger.info("Background compute done: %d/%d SE events for %s", n_computed, n_total, analysis_id)
     except Exception as exc:
         logger.error("Background compute task crashed for %s: %s", analysis_id, exc)
+    finally:
+        _active_computes.pop(analysis_id, None)
 
 
 @router.post("/compute/{analysis_id}", response_model=ComputeJobResponse, status_code=202)
@@ -534,6 +541,16 @@ async def compute_splice_features(
     )
     if not count_res.scalar_one_or_none():
         raise HTTPException(404, "No SE events found for this analysis")
+
+    # Don't start a duplicate task if one is already running (e.g. page refresh)
+    if analysis_id in _active_computes:
+        return ComputeJobResponse(
+            analysis_id=str(analysis_id),
+            n_se_events=0,
+            n_computed=0,
+            fasta_available=fasta_available(),
+            message="Computation already in progress.",
+        )
 
     fa_ok = fasta_available()
     background_tasks.add_task(_run_compute_background, analysis_id, fa_ok)
@@ -579,11 +596,17 @@ async def get_compute_progress(
     )
     n_computed = n_computed_result.scalar() or 0
 
+    # Task is done when all events are computed OR the background task has
+    # finished (even with partial failures — otherwise the frontend polls
+    # forever waiting for n_computed to reach n_se).
+    task_running = analysis_id in _active_computes
+    done = n_computed >= n_se or (not task_running and n_computed > 0)
+
     return {
         "n_se_events": n_se,
         "n_computed": n_computed,
         "pct": round(n_computed / n_se * 100, 1) if n_se > 0 else 0,
-        "done": n_computed >= n_se,
+        "done": done,
     }
 
 

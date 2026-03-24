@@ -409,7 +409,7 @@ from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
     PageBreak, HRFlowable, KeepTogether,
 )
-from reportlab.graphics.shapes import Drawing, Rect, String, Line, Group
+from reportlab.graphics.shapes import Drawing, Rect, String, Line, Group, PolyLine, Circle
 from reportlab.graphics import renderSVG as _renderSVG
 from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.pdfbase import pdfmetrics as _pdfmetrics
@@ -1032,6 +1032,351 @@ def _fig_splice_site_consensus(
         MARGIN_L, MARGIN_B, MARGIN_L + seq_len * COL_W, MARGIN_B,
         strokeColor=_colors.HexColor("#475569"), strokeWidth=0.8,
     ))
+
+    return d
+
+
+# ---------------------------------------------------------------------------
+# Summary schematic — exon-intron diagram with significance annotations
+# ---------------------------------------------------------------------------
+
+def _fig_summary_schematic(
+    comparison: dict,
+    sig_data: dict,
+    nonsig_data: dict,
+) -> Drawing | None:
+    """Build a vector schematic of the exon-skipping architecture.
+
+    Shows upstream exon → 5'SS → intron → 3'SS → skipped exon → 5'SS →
+    intron → 3'SS → downstream exon, with consensus sequences at each
+    splice site and significance markers (★) for features that differ
+    between significant and non-significant events (p < 0.05).
+
+    Parameters
+    ----------
+    comparison : dict
+        Full comparison dict with keys "significant", "not_significant",
+        "statistical_tests".
+    sig_data, nonsig_data : dict
+        GroupPatternStats dicts for each group.
+    """
+    tests = comparison.get("statistical_tests", [])
+    test_map = {t["feature"]: t for t in tests}
+
+    # ── Layout constants ──
+    W = 520
+    H = 310
+
+    # Vertical positions
+    EXON_Y = 70
+    EXON_H = 30
+    MID_Y  = EXON_Y + EXON_H / 2
+
+    # Horizontal positions
+    M_L = 20  # left margin
+    FLANK_W = 70
+    SKIP_W  = 110
+    INTRON_W = 90
+
+    UP_X1 = M_L
+    UP_X2 = UP_X1 + FLANK_W
+    INT1_X1 = UP_X2
+    INT1_X2 = INT1_X1 + INTRON_W
+    SK_X1 = INT1_X2
+    SK_X2 = SK_X1 + SKIP_W
+    INT2_X1 = SK_X2
+    INT2_X2 = INT2_X1 + INTRON_W
+    DN_X1 = INT2_X2
+    DN_X2 = DN_X1 + FLANK_W
+
+    # Colours
+    CLR_FLANK   = _colors.HexColor("#94a3b8")
+    CLR_SKIP    = _colors.HexColor("#6366f1")
+    CLR_INTRON  = _colors.HexColor("#94a3b8")
+    CLR_SIG     = _colors.HexColor("#dc2626")  # red-600 for ★
+    CLR_NS      = _colors.HexColor("#94a3b8")
+    CLR_PPT     = _colors.HexColor("#f59e0b")
+    CLR_BP      = _colors.HexColor("#22c55e")
+    CLR_BG      = _colors.HexColor("#fafafa")
+    CLR_BORDER  = _colors.HexColor("#e2e8f0")
+    CLR_SEQ_BG  = _colors.HexColor("#f1f5f9")
+    CLR_GT_BG   = _colors.HexColor("#fef08a")  # canonical highlight
+
+    d = Drawing(W, H)
+
+    # Background
+    d.add(Rect(0, 0, W, H, fillColor=CLR_BG, strokeColor=CLR_BORDER, strokeWidth=0.5))
+
+    # Title
+    d.add(String(W / 2, H - 14, "Exon-Skipping Summary Schematic",
+                 fontSize=9, fontName="Helvetica-Bold",
+                 fillColor=_colors.HexColor("#1e3a5f"), textAnchor="middle"))
+    d.add(String(W / 2, H - 24, "Significant vs Non-Significant — Individual Feature Tests",
+                 fontSize=6.5, fontName="Helvetica-Oblique",
+                 fillColor=_colors.HexColor("#64748b"), textAnchor="middle"))
+
+    # ── Helper: significance star ──
+    def _star(feature: str) -> bool:
+        t = test_map.get(feature)
+        return t is not None and t.get("significant", False)
+
+    def _add_star(x: float, y: float, feature: str):
+        """Place a red ★ if the feature test is significant."""
+        if _star(feature):
+            d.add(String(x, y, "★", fontSize=10, fontName="Helvetica-Bold",
+                         fillColor=CLR_SIG, textAnchor="middle"))
+
+    def _add_pval(x: float, y: float, feature: str):
+        """Place the p-value below the star if significant."""
+        t = test_map.get(feature)
+        if t and t.get("significant"):
+            pv = t.get("p_value")
+            if pv is not None:
+                pv_str = f"p={pv:.2e}" if pv < 0.001 else f"p={pv:.3f}"
+                d.add(String(x, y, pv_str, fontSize=5, fontName="Helvetica",
+                             fillColor=CLR_SIG, textAnchor="middle"))
+
+    # ── Draw exons ──
+    # Upstream flanking exon
+    d.add(Rect(UP_X1, EXON_Y, FLANK_W, EXON_H,
+               fillColor=CLR_FLANK, strokeColor=None, rx=3, ry=3))
+    d.add(String((UP_X1 + UP_X2) / 2, EXON_Y + EXON_H / 2 - 4,
+                 "Upstream", fontSize=7, fontName="Helvetica-Bold",
+                 fillColor=_colors.white, textAnchor="middle"))
+    d.add(String((UP_X1 + UP_X2) / 2, EXON_Y + EXON_H / 2 + 5,
+                 "exon", fontSize=7, fontName="Helvetica-Bold",
+                 fillColor=_colors.white, textAnchor="middle"))
+
+    # Skipped exon
+    d.add(Rect(SK_X1, EXON_Y, SKIP_W, EXON_H,
+               fillColor=CLR_SKIP, strokeColor=None, rx=3, ry=3))
+    d.add(String((SK_X1 + SK_X2) / 2, EXON_Y + EXON_H / 2 - 4,
+                 "Skipped", fontSize=7, fontName="Helvetica-Bold",
+                 fillColor=_colors.white, textAnchor="middle"))
+    d.add(String((SK_X1 + SK_X2) / 2, EXON_Y + EXON_H / 2 + 5,
+                 "exon", fontSize=7, fontName="Helvetica-Bold",
+                 fillColor=_colors.white, textAnchor="middle"))
+
+    # Downstream flanking exon
+    d.add(Rect(DN_X1, EXON_Y, FLANK_W, EXON_H,
+               fillColor=CLR_FLANK, strokeColor=None, rx=3, ry=3))
+    d.add(String((DN_X1 + DN_X2) / 2, EXON_Y + EXON_H / 2 - 4,
+                 "Downstream", fontSize=6.5, fontName="Helvetica-Bold",
+                 fillColor=_colors.white, textAnchor="middle"))
+    d.add(String((DN_X1 + DN_X2) / 2, EXON_Y + EXON_H / 2 + 5,
+                 "exon", fontSize=7, fontName="Helvetica-Bold",
+                 fillColor=_colors.white, textAnchor="middle"))
+
+    # ── Draw introns (V-shaped lines) ──
+    for ix1, ix2 in [(INT1_X1, INT1_X2), (INT2_X1, INT2_X2)]:
+        mid_x = (ix1 + ix2) / 2
+        notch = 8
+        d.add(PolyLine([ix1, MID_Y, mid_x, MID_Y + notch, ix2, MID_Y],
+                        strokeColor=CLR_INTRON, strokeWidth=1.2))
+
+    # ── Draw skipping arc (dashed, above exons) ──
+    arc_y = EXON_Y + EXON_H + 4
+    arc_top = 30  # how far below exons the arc dips
+    # Bezier approximation as polyline
+    n_pts = 30
+    arc_pts = []
+    for i in range(n_pts + 1):
+        t = i / n_pts
+        x = UP_X2 + t * (DN_X1 - UP_X2)
+        # Parabolic arc below
+        y = arc_y + 4 * arc_top * t * (1 - t)
+        arc_pts.extend([x, y])
+    d.add(PolyLine(arc_pts, strokeColor=_colors.HexColor("#a78bfa"),
+                    strokeWidth=1.2, strokeDashArray=[4, 3]))
+    # Arc label
+    d.add(String((UP_X2 + DN_X1) / 2, arc_y + arc_top + 6,
+                 "exon skipping", fontSize=6, fontName="Helvetica-Oblique",
+                 fillColor=_colors.HexColor("#7c3aed"), textAnchor="middle"))
+
+    # ── Splice site sequence boxes ──
+    SEQ_BOX_H = 12
+    SEQ_FONT  = 5.5
+
+    def _draw_seq_box(x: float, y: float, consensus: str | None, label: str,
+                      canonical_pos: set[int] | None = None, width: float = 0):
+        """Draw a compact sequence box with colour-coded nucleotides."""
+        seq = consensus or ""
+        if not seq:
+            return
+        n = len(seq)
+        cell_w = max(6.5, width / n) if width else 6.5
+        box_w = n * cell_w
+        # Background
+        d.add(Rect(x, y, box_w, SEQ_BOX_H,
+                   fillColor=CLR_SEQ_BG, strokeColor=CLR_BORDER, strokeWidth=0.3))
+        # Canonical position highlights
+        if canonical_pos:
+            for cp in canonical_pos:
+                if 0 <= cp < n:
+                    d.add(Rect(x + cp * cell_w, y, cell_w, SEQ_BOX_H,
+                               fillColor=CLR_GT_BG, strokeColor=None))
+        # Nucleotides
+        for i, base in enumerate(seq):
+            clr = _LOGO_BASE_COLOR_OBJS.get(base.upper(), _colors.HexColor("#94a3b8"))
+            d.add(String(x + i * cell_w + cell_w / 2, y + 3, base.upper(),
+                         fontSize=SEQ_FONT, fontName="Courier-Bold",
+                         fillColor=clr, textAnchor="middle"))
+        # Label
+        d.add(String(x + box_w / 2, y - 8, label,
+                     fontSize=5.5, fontName="Helvetica",
+                     fillColor=_colors.HexColor("#475569"), textAnchor="middle"))
+        return box_w
+
+    # Upstream 5'SS (donor) — at the right edge of upstream exon
+    up_donor_cons = sig_data.get("upstream_donor_consensus") or nonsig_data.get("upstream_donor_consensus")
+    seq_y_above = EXON_Y + EXON_H + 2
+    seq_y_below = EXON_Y - SEQ_BOX_H - 10
+
+    if up_donor_cons:
+        bw = _draw_seq_box(UP_X2 - 20, seq_y_below, up_donor_cons,
+                           "Upstream 5'SS", canonical_pos={3, 4})
+        _add_star(UP_X2 - 20 + (bw or 0) / 2, seq_y_below - 16, "upstream_canonical_gt")
+        _add_pval(UP_X2 - 20 + (bw or 0) / 2, seq_y_below - 23, "upstream_canonical_gt")
+
+    # Skipped exon 3'SS (acceptor) — at the left edge of skipped exon
+    sk_acc_cons = sig_data.get("acceptor_consensus") or nonsig_data.get("acceptor_consensus")
+    if sk_acc_cons:
+        # Acceptor is 23 nt — use compact rendering
+        acc_cell_w = 5.0
+        acc_w = len(sk_acc_cons) * acc_cell_w
+        acc_x = SK_X1 - acc_w / 2
+        bw = _draw_seq_box(acc_x, seq_y_below, sk_acc_cons,
+                           "Skipped exon 3'SS", canonical_pos={18, 19},
+                           width=acc_w)
+        _add_star(acc_x + acc_w / 2, seq_y_below - 16, "canonical_ag")
+        _add_pval(acc_x + acc_w / 2, seq_y_below - 23, "canonical_ag")
+
+    # Skipped exon 5'SS (donor) — at the right edge of skipped exon
+    sk_don_cons = sig_data.get("donor_consensus") or nonsig_data.get("donor_consensus")
+    if sk_don_cons:
+        don_x = SK_X2 - 10
+        bw = _draw_seq_box(don_x, seq_y_below, sk_don_cons,
+                           "Skipped exon 5'SS", canonical_pos={3, 4})
+        _add_star(don_x + (bw or 0) / 2, seq_y_below - 16, "canonical_gt")
+        _add_pval(don_x + (bw or 0) / 2, seq_y_below - 23, "canonical_gt")
+
+    # Downstream 3'SS (acceptor) — at the left edge of downstream exon
+    dn_acc_cons = sig_data.get("downstream_acceptor_consensus") or nonsig_data.get("downstream_acceptor_consensus")
+    if dn_acc_cons:
+        acc_cell_w = 5.0
+        acc_w = len(dn_acc_cons) * acc_cell_w
+        acc_x = DN_X1 - acc_w / 2 + 10
+        bw = _draw_seq_box(acc_x, seq_y_below, dn_acc_cons,
+                           "Downstream 3'SS", canonical_pos={18, 19},
+                           width=acc_w)
+        _add_star(acc_x + acc_w / 2, seq_y_below - 16, "downstream_canonical_ag")
+        _add_pval(acc_x + acc_w / 2, seq_y_below - 23, "downstream_canonical_ag")
+
+    # ── Annotation markers on/near exons ──
+    # Exon size ★ (on skipped exon)
+    _add_star((SK_X1 + SK_X2) / 2, EXON_Y + EXON_H + 16, "exon_size")
+
+    # ── PPT bar (between upstream exon and skipped exon, below intron) ──
+    PPT_Y = 165
+    PPT_H = 7
+    ppt_x1 = INT1_X1 + 10
+    ppt_x2 = INT1_X2 - 5
+    ppt_w  = ppt_x2 - ppt_x1
+
+    # PPT background bar
+    d.add(Rect(ppt_x1, PPT_Y, ppt_w, PPT_H,
+               fillColor=_colors.HexColor("#e2e8f0"), strokeColor=CLR_BORDER, strokeWidth=0.3))
+
+    # PPT fill (mean score of significant group)
+    ppt_score = sig_data.get("ppt_mean_score")
+    if ppt_score is not None:
+        fill_w = ppt_score * ppt_w
+        d.add(Rect(ppt_x1, PPT_Y, fill_w, PPT_H,
+                   fillColor=CLR_PPT, strokeColor=None))
+
+    # PPT label
+    ppt_label = f"PPT score: {ppt_score * 100:.0f}%" if ppt_score is not None else "PPT"
+    d.add(String(ppt_x1 + ppt_w / 2, PPT_Y + PPT_H + 4,
+                 ppt_label, fontSize=5.5, fontName="Helvetica",
+                 fillColor=_colors.HexColor("#92400e"), textAnchor="middle"))
+    d.add(String(ppt_x1 + ppt_w / 2, PPT_Y - 8,
+                 "Polypyrimidine tract", fontSize=5, fontName="Helvetica-Oblique",
+                 fillColor=_colors.HexColor("#64748b"), textAnchor="middle"))
+
+    # PPT significance markers
+    ppt_star_x = ppt_x1 + ppt_w + 8
+    ppt_star_y = PPT_Y + 1
+    for feat, dy in [("ppt_score", 0), ("ppt_t_content", -10), ("ppt_c_content", -20)]:
+        if _star(feat):
+            label = {"ppt_score": "PPT score", "ppt_t_content": "T content", "ppt_c_content": "C content"}[feat]
+            d.add(String(ppt_star_x, ppt_star_y + dy, f"★ {label}",
+                         fontSize=5, fontName="Helvetica-Bold",
+                         fillColor=CLR_SIG, textAnchor="start"))
+
+    # ── Branch point circle ──
+    bp_pct = sig_data.get("bp_found_pct")
+    bp_x = ppt_x1 + ppt_w * 0.38  # ~38% along PPT bar
+    bp_cy = PPT_Y + PPT_H / 2
+    bp_clr = CLR_BP if (bp_pct is not None and bp_pct > 50) else _colors.HexColor("#94a3b8")
+    d.add(Circle(bp_x, bp_cy, 3, fillColor=bp_clr, strokeColor=_colors.white, strokeWidth=0.5))
+    bp_label = f"BP {bp_pct:.0f}%" if bp_pct is not None else "BP"
+    d.add(String(bp_x, PPT_Y + PPT_H + 12, bp_label,
+                 fontSize=5, fontName="Helvetica", fillColor=bp_clr, textAnchor="middle"))
+    _add_star(bp_x + 14, PPT_Y + PPT_H + 11, "bp_found")
+
+    # ── Frame badge (below skipped exon) ──
+    FRAME_Y = 158
+    sig_n = max(sig_data.get("n_se_with_features", 1), 1)
+    nonsig_n = max(nonsig_data.get("n_se_with_features", 1), 1)
+    sig_if_pct = sig_data.get("frame_in_frame", 0) / sig_n * 100
+    nonsig_if_pct = nonsig_data.get("frame_in_frame", 0) / nonsig_n * 100
+    frame_str = f"In-frame: {sig_if_pct:.0f}% (sig) vs {nonsig_if_pct:.0f}% (non-sig)"
+    d.add(Rect((SK_X1 + SK_X2) / 2 - 65, FRAME_Y, 130, 12,
+               fillColor=_colors.HexColor("#1e293b"), strokeColor=None, rx=3, ry=3))
+    d.add(String((SK_X1 + SK_X2) / 2, FRAME_Y + 3, frame_str,
+                 fontSize=5.5, fontName="Helvetica-Bold",
+                 fillColor=_colors.HexColor("#86efac"), textAnchor="middle"))
+    _add_star((SK_X1 + SK_X2) / 2 + 72, FRAME_Y + 2, "in_frame_pct")
+
+    # ── Intron size labels ──
+    for ix1, ix2, feat, data_key in [
+        (INT1_X1, INT1_X2, "upstream_intron_size", "upstream_intron_size_mean"),
+        (INT2_X1, INT2_X2, "downstream_intron_size", "downstream_intron_size_mean"),
+    ]:
+        mid_x = (ix1 + ix2) / 2
+        sz = sig_data.get(data_key)
+        label = f"{sz:,.0f} nt" if sz is not None else "? nt"
+        d.add(String(mid_x, EXON_Y + EXON_H + 16, label,
+                     fontSize=5.5, fontName="Helvetica",
+                     fillColor=_colors.HexColor("#64748b"), textAnchor="middle"))
+        _add_star(mid_x + 20, EXON_Y + EXON_H + 15, feat)
+
+    # ── Mean ΔΨ label ──
+    dpsi = sig_data.get("mean_delta_psi")
+    if dpsi is not None:
+        dpsi_str = f"Mean ΔΨ: {dpsi:+.3f}"
+        d.add(String(W / 2, EXON_Y - 38, dpsi_str,
+                     fontSize=6.5, fontName="Helvetica-Bold",
+                     fillColor=_colors.HexColor("#1e3a5f"), textAnchor="middle"))
+        _add_star(W / 2 + 38, EXON_Y - 39, "mean_delta_psi")
+
+    # ── Legend ──
+    LEG_Y = 18
+    leg_items = [
+        (CLR_SIG, "★", "Significant difference (p < 0.05)"),
+        (CLR_FLANK, "■", "Flanking exon"),
+        (CLR_SKIP, "■", "Skipped exon"),
+        (_colors.HexColor("#a78bfa"), "---", "Skipping arc"),
+        (CLR_PPT, "■", "PPT score"),
+        (CLR_BP, "●", "Branch point"),
+    ]
+    leg_x = 20
+    for clr, symbol, label in leg_items:
+        d.add(String(leg_x, LEG_Y, symbol, fontSize=6, fontName="Helvetica-Bold",
+                     fillColor=clr, textAnchor="start"))
+        d.add(String(leg_x + 10, LEG_Y, label, fontSize=5.5, fontName="Helvetica",
+                     fillColor=_colors.HexColor("#475569"), textAnchor="start"))
+        leg_x += 8 + _pdfmetrics.stringWidth(label, "Helvetica", 5.5) + 14
 
     return d
 
@@ -2002,6 +2347,35 @@ def _build_pdf(
                     "small",
                 ))
             story.append(sp())
+
+    # ── Summary Schematic (deep analysis only, after all data sections) ────
+    if comparison:
+        story.append(PageBreak())
+        story.append(p(f"{section_n}. Summary Schematic", "h2"))
+        section_n += 1
+        _schem = _fig_summary_schematic(
+            comparison,
+            comparison["significant"],
+            comparison["not_significant"],
+        )
+        if _schem:
+            _save_svg(_schem, f"sec{section_n - 1:02d}_summary_schematic")
+            story.append(KeepTogether([
+                _schem,
+                sp(0.15),
+                caption(
+                    "Summary schematic of the exon-skipping architecture with consensus "
+                    "splice-site sequences. Red stars (★) indicate features for which a "
+                    "statistically significant difference (p &lt; 0.05) was observed between "
+                    "significant and non-significant events. Each feature was tested "
+                    "individually (Welch's t-test for continuous variables; two-proportion "
+                    "z-test for categorical variables). This figure is a schematic overview "
+                    "of all parameters compared independently and does not presume any "
+                    "correlation or causal link between significant differences — no "
+                    "multiparametric or correlation test was performed."
+                ),
+            ]))
+        story.append(sp())
 
     story.append(PageBreak())
 

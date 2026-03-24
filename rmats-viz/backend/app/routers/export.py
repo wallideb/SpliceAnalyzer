@@ -22,6 +22,7 @@ from app.database import get_db
 from app.models.analysis import Analysis
 from app.models.event import SplicingEvent
 from app.models.splice import EventSpliceFeature
+from app.services.splice_features import ppt_t_content as _ppt_t_content, ppt_c_content as _ppt_c_content
 from app.services.panelapp import get_panels_for_gene
 from app.services.gene_ontology import get_go_terms
 from app.services.stringdb import get_interaction
@@ -1191,6 +1192,8 @@ def _build_pdf(
             n_dn_ag = sum(1 for f in subset_features.values() if f.downstream_acceptor_is_ag is True)
             n_dn_seq = sum(1 for f in subset_features.values() if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23)
             ppt_vals = [f.ppt_score for f in subset_features.values() if f.ppt_score is not None]
+            ppt_t_vals = [_ppt_t_content(f.ppt_seq) for f in subset_features.values() if f.ppt_seq]
+            ppt_c_vals = [_ppt_c_content(f.ppt_seq) for f in subset_features.values() if f.ppt_seq]
             exsz_vals = [f.exon_size for f in subset_features.values() if f.exon_size is not None]
 
             story.append(p("SE Splice Feature Statistics:", "h3"))
@@ -1209,6 +1212,10 @@ def _build_pdf(
                  f"{_statistics.mean(exsz_vals):.0f} / {_statistics.median(exsz_vals):.0f} nt" if exsz_vals else "—"],
                 ["Mean PPT score",
                  f"{_statistics.mean(ppt_vals) * 100:.1f}% pyrimidine content" if ppt_vals else "—"],
+                ["Mean PPT T content",
+                 f"{_statistics.mean(ppt_t_vals) * 100:.1f}%" if ppt_t_vals else "—"],
+                ["Mean PPT C content",
+                 f"{_statistics.mean(ppt_c_vals) * 100:.1f}%" if ppt_c_vals else "—"],
             ], [9 * _cm, 7 * _cm], S)
             story += [stat_tbl, sp()]
 
@@ -1414,6 +1421,10 @@ def _build_pdf(
         _row("Canonical AG", _pct(sig.get("pct_canonical_ag")), _pct(nonsig.get("pct_canonical_ag")), "canonical_ag")
         _row("Mean PPT score", _pct(sig["ppt_mean_score"] * 100 if sig.get("ppt_mean_score") is not None else None),
              _pct(nonsig["ppt_mean_score"] * 100 if nonsig.get("ppt_mean_score") is not None else None), "ppt_score")
+        _row("PPT T content", _pct(sig["ppt_mean_t_content"] * 100 if sig.get("ppt_mean_t_content") is not None else None),
+             _pct(nonsig["ppt_mean_t_content"] * 100 if nonsig.get("ppt_mean_t_content") is not None else None), "ppt_t_content")
+        _row("PPT C content", _pct(sig["ppt_mean_c_content"] * 100 if sig.get("ppt_mean_c_content") is not None else None),
+             _pct(nonsig["ppt_mean_c_content"] * 100 if nonsig.get("ppt_mean_c_content") is not None else None), "ppt_c_content")
         _row("In-frame %", _pct(sig["frame_in_frame"] / max(sig["n_se_with_features"], 1) * 100 if sig["n_se_with_features"] else None),
              _pct(nonsig["frame_in_frame"] / max(nonsig["n_se_with_features"], 1) * 100 if nonsig["n_se_with_features"] else None), "in_frame_pct")
         _row("Branch point found", _pct(sig.get("bp_found_pct")), _pct(nonsig.get("bp_found_pct")), "bp_found")
@@ -2006,7 +2017,7 @@ def _build_pdf(
             p(f"Events are classified as <b>significant</b> (FDR ≤ {deep_analysis.fdr_threshold}, "
               f"|ΔΨ| ≥ {deep_analysis.delta_psi_min}) or <b>non-significant</b> (all others). "
               "Splice features are compared between the two groups using:", "body"),
-            p("• <b>Welch's t-test</b> (unequal variances, two-tailed): mean ΔΨ, exon size, PPT score", "body"),
+            p("• <b>Welch's t-test</b> (unequal variances, two-tailed): mean ΔΨ, exon size, PPT score, PPT T content, PPT C content", "body"),
             p("• <b>Two-proportion z-test</b> (two-tailed): canonical GT/AG rates (skipped exon "
               "and flanking exons), in-frame proportion, branch-point detection rate", "body"),
             p("Welch-Satterthwaite degrees of freedom are used for the t-distribution. "
@@ -2224,6 +2235,8 @@ def _build_pdf(
         p("<b>C.3 PPT Score</b>", "h3"),
         p("The polypyrimidine tract (PPT) score is the fraction of pyrimidine "
           "nucleotides (C, T) in the ~47 nt window upstream of the acceptor site. "
+          "Individual T content and C content are also reported as the fraction of "
+          "thymine and cytosine bases respectively in the same window. "
           "The branch point is detected by matching the YNYURAY motif within the "
           "PPT window (Coolidge et al., 1997).", "body"),
     ]
@@ -2233,7 +2246,7 @@ def _build_pdf(
             p("Events are split into significant and non-significant groups. "
               "The following two-tailed tests compare splice features:", "body"),
             p("• <b>Welch's t-test</b>: for continuous features (mean ΔΨ, exon size, "
-              "PPT score). Uses Welch-Satterthwaite approximation for degrees of freedom:", "body"),
+              "PPT score, PPT T content, PPT C content). Uses Welch-Satterthwaite approximation for degrees of freedom:", "body"),
             p("&nbsp;&nbsp;&nbsp;df = (s<sub>1</sub><super>2</super>/n<sub>1</sub> + s<sub>2</sub><super>2</super>/n<sub>2</sub>)<super>2</super> "
               "/ [(s<sub>1</sub><super>2</super>/n<sub>1</sub>)<super>2</super>/(n<sub>1</sub>-1) "
               "+ (s<sub>2</sub><super>2</super>/n<sub>2</sub>)<super>2</super>/(n<sub>2</sub>-1)]", "code"),

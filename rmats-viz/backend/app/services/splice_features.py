@@ -57,6 +57,22 @@ def ppt_score(seq: str) -> float:
     return sum(1 for c in upper if c in "CT") / len(upper)
 
 
+def ppt_t_content(seq: str) -> float:
+    """Fraction of T (thymine) in *seq*."""
+    if not seq:
+        return 0.0
+    upper = seq.upper()
+    return sum(1 for c in upper if c == "T") / len(upper)
+
+
+def ppt_c_content(seq: str) -> float:
+    """Fraction of C (cytosine) in *seq*."""
+    if not seq:
+        return 0.0
+    upper = seq.upper()
+    return sum(1 for c in upper if c == "C") / len(upper)
+
+
 def longest_y_run(seq: str) -> int:
     """Length of the longest consecutive C/T run."""
     best = cur = 0
@@ -145,6 +161,8 @@ class SpliceFeatureResult:
     downstream_acceptor_is_ag: bool | None = None
     # PPT
     ppt_score: float | None = None
+    ppt_t_content: float | None = None
+    ppt_c_content: float | None = None
     ppt_longest_run: int | None = None
     # branch-point
     bp_motif_found: bool = False
@@ -248,6 +266,8 @@ def compute_features(
     # PPT
     if windows.ppt_seq:
         res.ppt_score = round(ppt_score(windows.ppt_seq), 4)
+        res.ppt_t_content = round(ppt_t_content(windows.ppt_seq), 4)
+        res.ppt_c_content = round(ppt_c_content(windows.ppt_seq), 4)
         res.ppt_longest_run = longest_y_run(windows.ppt_seq)
 
     # Branch-point

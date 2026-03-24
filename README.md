@@ -442,7 +442,7 @@ Click the **Export PDF** button to generate a multi-page PDF report. The report 
 | Significant Events | Per-event table with splice features, GT-AG rate, frame class, PSI values |
 | Comparison Logos | Frequency-mode donor and acceptor logos: significant vs. non-significant (when deep analysis present) |
 | Frame Breakdown | Pie charts of in-frame / frameshift / non-coding proportions per group |
-| hnRNP Enrichment | Top 20 significant motif–region associations (when deep analysis present) |
+| hnRNP Enrichment | Top 30 significant motif–region associations (when deep analysis present) |
 | Pathway Enrichment | Top 5 terms per library; adjusted p-values &lt; 0.05 are **bolded and starred (★)** for quick identification (when deep analysis present) |
 | Appendix A | Pipeline methodology (see below) |
 | Appendix B | Bibliographic references |
@@ -631,7 +631,7 @@ Minus-strand events are reverse-complemented before scanning.
 
 #### Motif catalogue
 
-19 consensus motifs for 8 hnRNP protein families (RNA U → DNA T for genomic scanning):
+19 consensus motifs for 9 hnRNP protein families (RNA U → DNA T for genomic scanning):
 
 | Protein | Motifs | Basis |
 |---------|--------|-------|

@@ -1180,7 +1180,7 @@ def _build_pdf(
             "MANE transcript, PPT regions, branch point). "
             + ("Events are filtered by the deep analysis thresholds above. "
                if is_deep else "")
-            + "All figures are vector graphics suitable for publication.",
+            + "All figures are vector graphics.",
             "body",
         ),
         PageBreak(),
@@ -1762,7 +1762,7 @@ def _build_pdf(
             }
             hnrnp_headers = ["Protein", "Motif", "Region", "Sig %", "Bg %", "z", "p (adj)"]
             hnrnp_rows = [hnrnp_headers]
-            for r in sig_motifs_sorted[:20]:  # top 20
+            for r in sig_motifs_sorted[:30]:  # top 30
                 sig_pct = f"{r['sig_hit_count'] / r['sig_total'] * 100:.1f}%" if r.get("sig_total") else "—"
                 bg_pct = f"{r['bg_hit_count'] / r['bg_total'] * 100:.1f}%" if r.get("bg_total") else "—"
                 p_adj = r.get("p_adjusted")
@@ -1780,7 +1780,7 @@ def _build_pdf(
             hnrnp_tbl = _make_tbl(hnrnp_rows, [3.0*_cm, 1.8*_cm, 3.5*_cm, 1.8*_cm, 1.8*_cm, 1.5*_cm, 2.0*_cm], S)
             story += [hnrnp_tbl, sp(0.2)]
             story.append(p(
-                f"Showing {min(len(sig_motifs_sorted), 20)} of {len(sig_motifs)} significant motif-region "
+                f"Showing {min(len(sig_motifs_sorted), 30)} of {len(sig_motifs)} significant motif-region "
                 "associations (BH FDR q &lt; 0.05). "
                 "Sig % / Bg % = percentage of events with at least one motif hit.",
                 "small",

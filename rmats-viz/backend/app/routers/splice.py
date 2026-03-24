@@ -23,6 +23,7 @@ import logging
 import statistics
 import uuid
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -62,6 +63,11 @@ from app.services.splice_features import compute_features, compute_pwm, iupac_co
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/splice", tags=["splice"])
+
+# Track which analyses currently have a background compute task running.
+# Keyed by analysis_id (UUID); value is True while the task is active.
+# NOTE: in-memory — only correct with a single uvicorn worker.
+_active_computes: dict[uuid.UUID, bool] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -332,186 +338,189 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
             n_total = len(se_events)
 
             for chunk_start in range(0, n_total, _COMPUTE_CHUNK):
-              try:
-                chunk = list(se_events[chunk_start : chunk_start + _COMPUTE_CHUNK])
-
-                # ── Step 0: MANE exon boundary lookup (fast in-memory) ────
-                # Look up MANE exon boundaries to correct potential rMATS
-                # coordinate discrepancies before extracting sequences.
-                mane_boundary_list: list[tuple[int, int, str] | None] = []
                 try:
-                    from app.config import settings as _cfg
-                    _ensure_mane = load_mane_gff3(_cfg.MANE_GFF3) if not mane_local_loaded() else True
-                    if mane_local_loaded():
-                        # Build tuples for ALL events in the chunk (including
-                        # invalid ones as placeholders) so indices align with
-                        # the chunk list for both FASTA and Ensembl paths.
-                        # Include flanking exon boundaries for the fallback
-                        # strategy when overlap matching fails.
-                        mane_boundary_tuples = [
-                            (ev.gene_id or "", ev.exon_start or 0, ev.exon_end or 0,
-                             ev.upstream_ee, ev.downstream_es)
+                    chunk = list(se_events[chunk_start : chunk_start + _COMPUTE_CHUNK])
+
+                    # ── Step 0: MANE exon boundary lookup (fast in-memory) ────
+                    # Look up MANE exon boundaries to correct potential rMATS
+                    # coordinate discrepancies before extracting sequences.
+                    mane_boundary_list: list[tuple[int, int, str] | None] = []
+                    try:
+                        from app.config import settings as _cfg
+                        _ensure_mane = load_mane_gff3(_cfg.MANE_GFF3) if not mane_local_loaded() else True
+                        if mane_local_loaded():
+                            # Build tuples for ALL events in the chunk (including
+                            # invalid ones as placeholders) so indices align with
+                            # the chunk list for both FASTA and Ensembl paths.
+                            # Include flanking exon boundaries for the fallback
+                            # strategy when overlap matching fails.
+                            mane_boundary_tuples = [
+                                (ev.gene_id or "", ev.exon_start or 0, ev.exon_end or 0,
+                                 ev.upstream_ee, ev.downstream_es)
+                                for ev in chunk
+                            ]
+                            mane_boundary_list = await asyncio.to_thread(
+                                get_mane_exon_boundaries_batch, mane_boundary_tuples,
+                            )
+                    except Exception as exc:
+                        logger.debug("MANE boundary lookup failed: %s", exc)
+
+                    # Extract per-event MANE exon source from the 3-tuple results.
+                    # mane_boundary_list items are (start, end, source) or None.
+                    mane_source_list: list[str | None] = [
+                        mb[2] if mb is not None else None
+                        for mb in mane_boundary_list
+                    ] if mane_boundary_list else [None] * len(chunk)
+
+                    # ── Step 1: Mega-batch samtools (FASTA) or per-event Ensembl ──
+                    if fa_ok:
+                        # Build tuples for mega-batch — all four flanking coords so
+                        # the correct splice-site boundary is used per strand.
+                        event_tuples = [
+                            (
+                                ev.chr or "", ev.strand or "+",
+                                ev.exon_start, ev.exon_end,
+                                ev.upstream_es, ev.upstream_ee,
+                                ev.downstream_es, ev.downstream_ee,
+                            )
+                            for ev in chunk
+                            if ev.exon_start is not None and ev.exon_end is not None
+                        ]
+                        valid_mask = [
+                            ev.exon_start is not None and ev.exon_end is not None
                             for ev in chunk
                         ]
-                        mane_boundary_list = await asyncio.to_thread(
-                            get_mane_exon_boundaries_batch, mane_boundary_tuples,
+                        # Map MANE boundaries to valid events only (strip source
+                        # for the sequence extractor which expects 2-tuples).
+                        valid_mane = (
+                            [
+                                (mane_boundary_list[i][0], mane_boundary_list[i][1])
+                                if mane_boundary_list[i] is not None else None
+                                for i, v in enumerate(valid_mask) if v
+                            ]
+                            if mane_boundary_list else None
                         )
-                except Exception as exc:
-                    logger.debug("MANE boundary lookup failed: %s", exc)
-
-                # Extract per-event MANE exon source from the 3-tuple results.
-                # mane_boundary_list items are (start, end, source) or None.
-                mane_source_list: list[str | None] = [
-                    mb[2] if mb is not None else None
-                    for mb in mane_boundary_list
-                ] if mane_boundary_list else [None] * len(chunk)
-
-                # ── Step 1: Mega-batch samtools (FASTA) or per-event Ensembl ──
-                if fa_ok:
-                    # Build tuples for mega-batch — all four flanking coords so
-                    # the correct splice-site boundary is used per strand.
-                    event_tuples = [
-                        (
-                            ev.chr or "", ev.strand or "+",
-                            ev.exon_start, ev.exon_end,
-                            ev.upstream_es, ev.upstream_ee,
-                            ev.downstream_es, ev.downstream_ee,
+                        # Single samtools call for entire chunk
+                        batch_windows = await asyncio.to_thread(
+                            get_splice_windows_batch, event_tuples, None, valid_mane,
                         )
-                        for ev in chunk
-                        if ev.exon_start is not None and ev.exon_end is not None
-                    ]
-                    valid_mask = [
-                        ev.exon_start is not None and ev.exon_end is not None
-                        for ev in chunk
-                    ]
-                    # Map MANE boundaries to valid events only (strip source
-                    # for the sequence extractor which expects 2-tuples).
-                    valid_mane = (
-                        [
-                            (mane_boundary_list[i][0], mane_boundary_list[i][1])
-                            if mane_boundary_list[i] is not None else None
-                            for i, v in enumerate(valid_mask) if v
+                        # Map back: valid events get their windows, others get None
+                        windows_list: list = []
+                        wi = 0
+                        for is_valid in valid_mask:
+                            if is_valid:
+                                windows_list.append(batch_windows[wi])
+                                wi += 1
+                            else:
+                                windows_list.append(None)
+                    else:
+                        # Ensembl fallback: per-event (semaphore-throttled)
+                        async def _fetch_windows(ev, mb=None):
+                            async with _COMPUTE_SEM:
+                                if ev.exon_start is None or ev.exon_end is None:
+                                    return None
+                                mane_es = mb[0] if mb else None
+                                mane_ee = mb[1] if mb else None
+                                try:
+                                    w = await asyncio.to_thread(
+                                        get_splice_windows_from_ensembl,
+                                        ev.chr or "", ev.strand or "+",
+                                        ev.exon_start, ev.exon_end,
+                                        ev.upstream_es, ev.upstream_ee,
+                                        ev.downstream_es, ev.downstream_ee,
+                                        mane_es, mane_ee,
+                                    )
+                                    return w if w.donor_seq else None
+                                except Exception:
+                                    return None
+                        windows_list = await asyncio.gather(
+                            *[_fetch_windows(ev, mane_boundary_list[i] if i < len(mane_boundary_list) else None)
+                              for i, ev in enumerate(chunk)],
+                            return_exceptions=True,
+                        )
+                        windows_list = [
+                            None if isinstance(w, Exception) else w
+                            for w in windows_list
                         ]
-                        if mane_boundary_list else None
-                    )
-                    # Single samtools call for entire chunk
-                    batch_windows = await asyncio.to_thread(
-                        get_splice_windows_batch, event_tuples, None, valid_mane,
-                    )
-                    # Map back: valid events get their windows, others get None
-                    windows_list: list = []
-                    wi = 0
-                    for is_valid in valid_mask:
-                        if is_valid:
-                            windows_list.append(batch_windows[wi])
-                            wi += 1
-                        else:
-                            windows_list.append(None)
-                else:
-                    # Ensembl fallback: per-event (semaphore-throttled)
-                    async def _fetch_windows(ev, mb=None):
-                        async with _COMPUTE_SEM:
-                            if ev.exon_start is None or ev.exon_end is None:
-                                return None
-                            mane_es = mb[0] if mb else None
-                            mane_ee = mb[1] if mb else None
-                            try:
-                                w = await asyncio.to_thread(
-                                    get_splice_windows_from_ensembl,
-                                    ev.chr or "", ev.strand or "+",
-                                    ev.exon_start, ev.exon_end,
-                                    ev.upstream_es, ev.upstream_ee,
-                                    ev.downstream_es, ev.downstream_ee,
-                                    mane_es, mane_ee,
-                                )
-                                return w if w.donor_seq else None
-                            except Exception:
-                                return None
-                    windows_list = await asyncio.gather(
-                        *[_fetch_windows(ev, mane_boundary_list[i] if i < len(mane_boundary_list) else None)
-                          for i, ev in enumerate(chunk)],
-                        return_exceptions=True,
-                    )
-                    windows_list = [
-                        None if isinstance(w, Exception) else w
-                        for w in windows_list
-                    ]
 
-                # ── Step 2: Compute features (CPU-only, no threads) ─────────
-                feat_results: list[tuple] = []
-                for ev, w in zip(chunk, windows_list):
-                    try:
-                        feat_data = compute_features(ev, w)
-                        seq_source = w.source if w is not None else None
-                        feat_results.append((feat_data, seq_source))
-                    except Exception as exc:
-                        logger.error("Feature compute failed for %s: %s", ev.id, exc)
-                        feat_results.append(None)
+                    # ── Step 2: Compute features (CPU-only, no threads) ─────────
+                    feat_results: list[tuple] = []
+                    for ev, w in zip(chunk, windows_list):
+                        try:
+                            feat_data = compute_features(ev, w)
+                            seq_source = w.source if w is not None else None
+                            feat_results.append((feat_data, seq_source))
+                        except Exception as exc:
+                            logger.error("Feature compute failed for %s: %s", ev.id, exc)
+                            feat_results.append(None)
 
-                # ── Step 2b: MANE annotation (single thread — avoids SQLite
-                #    connection exhaustion from 2000 concurrent to_thread calls)
-                def _batch_annotate_mane(events):
-                    results = []
-                    for ev in events:
-                        if ev.gene_id:
-                            try:
-                                results.append(annotate_mane(
-                                    ev.gene_id,
-                                    ev.chr or "", ev.strand or "+",
-                                    ev.exon_start or 0, ev.exon_end or 0,
-                                ))
-                            except Exception as exc:
-                                logger.warning("MANE failed for %s: %s", ev.gene_id, exc)
-                                results.append({})
-                        else:
-                            results.append({})
-                    return results
-
-                mane_results = await asyncio.to_thread(_batch_annotate_mane, chunk)
-
-                # ── Step 3: DB writes (bulk upsert — 1 round-trip per chunk) ──
-                bulk_rows: list[dict] = []
-                for idx, (ev, feat_res, mane) in enumerate(
-                    zip(chunk, feat_results, mane_results)
-                ):
-                    if feat_res is None:
-                        continue
-                    try:
-                        feat_data, seq_source = feat_res
-                        mes = mane_source_list[idx] if idx < len(mane_source_list) else None
-                        bulk_rows.append(_build_feature_row(ev, feat_data, mane, seq_source, mes))
-                    except Exception as exc:
-                        logger.error("Feature build failed for %s: %s", ev.id, exc)
-
-                if bulk_rows:
-                    # Sub-batch to stay under asyncpg's 32 767-parameter limit.
-                    for i in range(0, len(bulk_rows), _DB_WRITE_BATCH):
-                        sub = bulk_rows[i : i + _DB_WRITE_BATCH]
-                        ins = pg_insert(EventSpliceFeature)
-                        await db.execute(
-                            ins.values(sub).on_conflict_do_update(
-                                index_elements=["event_id"],
-                                set_=_feature_conflict_set(ins, sub[0]),
+                    # ── Step 2b: MANE annotation (bounded thread pool — 8 workers
+                    #    to parallelize Ensembl REST calls without exhausting SQLite
+                    #    connections like the old 2000-thread approach did)
+                    def _annotate_one(ev):
+                        if not ev.gene_id:
+                            return {}
+                        try:
+                            return annotate_mane(
+                                ev.gene_id,
+                                ev.chr or "", ev.strand or "+",
+                                ev.exon_start or 0, ev.exon_end or 0,
                             )
-                        )
-                    n_computed += len(bulk_rows)
-                await db.commit()
-                if chunk_start % 1000 == 0:
-                    logger.info("Compute progress: %d/%d", n_computed, n_total)
-              except Exception as chunk_exc:
-                logger.error(
-                    "Chunk %d–%d failed for %s: %s — continuing with next chunk",
-                    chunk_start, min(chunk_start + _COMPUTE_CHUNK, n_total),
-                    analysis_id, chunk_exc,
-                )
-                try:
-                    await db.rollback()
-                except Exception:
-                    pass  # best-effort — session may already be clean
+                        except Exception as exc:
+                            logger.warning("MANE failed for %s: %s", ev.gene_id, exc)
+                            return {}
+
+                    def _batch_annotate_mane(events):
+                        with ThreadPoolExecutor(max_workers=8) as pool:
+                            return list(pool.map(_annotate_one, events))
+
+                    mane_results = await asyncio.to_thread(_batch_annotate_mane, chunk)
+
+                    # ── Step 3: DB writes (bulk upsert — 1 round-trip per chunk) ──
+                    bulk_rows: list[dict] = []
+                    for idx, (ev, feat_res, mane) in enumerate(
+                        zip(chunk, feat_results, mane_results)
+                    ):
+                        if feat_res is None:
+                            continue
+                        try:
+                            feat_data, seq_source = feat_res
+                            mes = mane_source_list[idx] if idx < len(mane_source_list) else None
+                            bulk_rows.append(_build_feature_row(ev, feat_data, mane, seq_source, mes))
+                        except Exception as exc:
+                            logger.error("Feature build failed for %s: %s", ev.id, exc)
+
+                    if bulk_rows:
+                        # Sub-batch to stay under asyncpg's 32 767-parameter limit.
+                        for i in range(0, len(bulk_rows), _DB_WRITE_BATCH):
+                            sub = bulk_rows[i : i + _DB_WRITE_BATCH]
+                            ins = pg_insert(EventSpliceFeature)
+                            await db.execute(
+                                ins.values(sub).on_conflict_do_update(
+                                    index_elements=["event_id"],
+                                    set_=_feature_conflict_set(ins, sub[0]),
+                                )
+                            )
+                        n_computed += len(bulk_rows)
+                    await db.commit()
+                    if chunk_start % 1000 == 0:
+                        logger.info("Compute progress: %d/%d", n_computed, n_total)
+                except Exception as chunk_exc:
+                    logger.error(
+                        "Chunk %d–%d failed for %s: %s — continuing with next chunk",
+                        chunk_start, min(chunk_start + _COMPUTE_CHUNK, n_total),
+                        analysis_id, chunk_exc,
+                    )
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass  # best-effort — session may already be clean
 
             logger.info("Background compute done: %d/%d SE events for %s", n_computed, n_total, analysis_id)
     except Exception as exc:
         logger.error("Background compute task crashed for %s: %s", analysis_id, exc)
+    finally:
+        _active_computes.pop(analysis_id, None)
 
 
 @router.post("/compute/{analysis_id}", response_model=ComputeJobResponse, status_code=202)
@@ -535,7 +544,18 @@ async def compute_splice_features(
     if not count_res.scalar_one_or_none():
         raise HTTPException(404, "No SE events found for this analysis")
 
+    # Don't start a duplicate task if one is already running (e.g. page refresh)
+    if analysis_id in _active_computes:
+        return ComputeJobResponse(
+            analysis_id=str(analysis_id),
+            n_se_events=0,
+            n_computed=0,
+            fasta_available=fasta_available(),
+            message="Computation already in progress.",
+        )
+
     fa_ok = fasta_available()
+    _active_computes[analysis_id] = True  # register before add_task to avoid race
     background_tasks.add_task(_run_compute_background, analysis_id, fa_ok)
 
     return ComputeJobResponse(
@@ -579,11 +599,17 @@ async def get_compute_progress(
     )
     n_computed = n_computed_result.scalar() or 0
 
+    # Task is done when all events are computed OR the background task has
+    # finished (even with partial failures or total crash — otherwise the
+    # frontend polls forever waiting for n_computed to reach n_se).
+    task_running = analysis_id in _active_computes
+    done = n_computed >= n_se or not task_running
+
     return {
         "n_se_events": n_se,
         "n_computed": n_computed,
         "pct": round(n_computed / n_se * 100, 1) if n_se > 0 else 0,
-        "done": n_computed >= n_se,
+        "done": done,
     }
 
 

@@ -77,6 +77,7 @@ export const fr: Translations = {
     deepAnalysis: "Analyse approfondie",
     excelError: "Erreur lors de l'export Excel. Veuillez réessayer.",
     pdfError: "Erreur lors de la génération du PDF. Veuillez réessayer.",
+    pdfComputeInProgress: "Le calcul des features de splicing est encore en cours. Le PDF sera disponible une fois terminé.",
     pdfModal: {
       title: "Export du rapport PDF",
       description: "Sélectionnez les sections à inclure dans le rapport PDF généré. Les sections désélectionnées et leurs calculs associés seront ignorés.",

@@ -76,6 +76,7 @@ export const en = {
     deepAnalysis: "Deep Analysis",
     excelError: "Error during Excel export. Please try again.",
     pdfError: "Error generating PDF. Please try again.",
+    pdfComputeInProgress: "Splice feature computation is still running. The PDF will be available once it completes.",
     pdfModal: {
       title: "Export PDF Report",
       description: "Select which sections to include in the generated PDF report. Unselected sections and their associated computations will be skipped.",

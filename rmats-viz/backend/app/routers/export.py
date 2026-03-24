@@ -128,9 +128,12 @@ async def _assert_splice_features_ready(
 ) -> None:
     """Raise 409 Conflict if splice-feature computation is still in progress.
 
-    Compares the number of SE events to the number of computed features.
-    If no SE events exist at all the check passes (nothing to compute).
+    Checks whether a background compute task is actively running for this
+    analysis.  If the task has finished (even with partial failures), the
+    check passes so users aren't blocked from exporting what was computed.
     """
+    from app.routers.splice import _active_computes
+
     n_se = (await db.execute(
         select(sa_func.count(SplicingEvent.id)).where(
             SplicingEvent.analysis_id == analysis_id,
@@ -152,7 +155,9 @@ async def _assert_splice_features_ready(
         )
     )).scalar() or 0
 
-    if n_computed < n_se:
+    # Allow export if the background task has finished (even partially)
+    task_running = analysis_id in _active_computes
+    if n_computed < n_se and task_running:
         pct = round(n_computed / n_se * 100, 1)
         raise HTTPException(
             status_code=409,

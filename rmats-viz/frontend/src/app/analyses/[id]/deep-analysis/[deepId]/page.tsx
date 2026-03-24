@@ -82,8 +82,13 @@ export default function DeepAnalysisDetailPage() {
     setShowPdfModal(false);
     try {
       await downloadAnalysisPDF(id, deepId, sections);
-    } catch {
-      alert(t("analysisDetail.pdfError"));
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      if (status === 409) {
+        alert(t("analysisDetail.pdfComputeInProgress"));
+      } else {
+        alert(t("analysisDetail.pdfError"));
+      }
     } finally {
       setIsExportingPDF(false);
     }

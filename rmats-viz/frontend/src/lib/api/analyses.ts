@@ -20,6 +20,9 @@ import { BASE, fetchJSON } from "./client";
 // Types
 // ---------------------------------------------------------------------------
 
+/** Error with an HTTP status code attached (e.g. 409 from PDF export). */
+interface ApiError extends Error { status?: number; }
+
 export interface UploadPayload {
   name: string;
   group1_label: string;
@@ -101,7 +104,9 @@ export async function downloadAnalysisPDF(
   if (!resp.ok) {
     if (resp.status === 409) {
       const body = await resp.json().catch(() => null);
-      throw new Error(body?.detail ?? "Splice feature computation is still in progress. Please wait and try again.");
+      const err = new Error(body?.detail ?? "Splice feature computation is still in progress.");
+      (err as ApiError).status = 409;
+      throw err;
     }
     throw new Error("PDF export failed");
   }

@@ -504,6 +504,10 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                     chunk_start, min(chunk_start + _COMPUTE_CHUNK, n_total),
                     analysis_id, chunk_exc,
                 )
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass  # best-effort — session may already be clean
 
             logger.info("Background compute done: %d/%d SE events for %s", n_computed, n_total, analysis_id)
     except Exception as exc:

@@ -23,6 +23,7 @@ import logging
 import statistics
 import uuid
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -453,24 +454,25 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                             logger.error("Feature compute failed for %s: %s", ev.id, exc)
                             feat_results.append(None)
 
-                    # ── Step 2b: MANE annotation (single thread — avoids SQLite
-                    #    connection exhaustion from 2000 concurrent to_thread calls)
+                    # ── Step 2b: MANE annotation (bounded thread pool — 8 workers
+                    #    to parallelize Ensembl REST calls without exhausting SQLite
+                    #    connections like the old 2000-thread approach did)
+                    def _annotate_one(ev):
+                        if not ev.gene_id:
+                            return {}
+                        try:
+                            return annotate_mane(
+                                ev.gene_id,
+                                ev.chr or "", ev.strand or "+",
+                                ev.exon_start or 0, ev.exon_end or 0,
+                            )
+                        except Exception as exc:
+                            logger.warning("MANE failed for %s: %s", ev.gene_id, exc)
+                            return {}
+
                     def _batch_annotate_mane(events):
-                        results = []
-                        for ev in events:
-                            if ev.gene_id:
-                                try:
-                                    results.append(annotate_mane(
-                                        ev.gene_id,
-                                        ev.chr or "", ev.strand or "+",
-                                        ev.exon_start or 0, ev.exon_end or 0,
-                                    ))
-                                except Exception as exc:
-                                    logger.warning("MANE failed for %s: %s", ev.gene_id, exc)
-                                    results.append({})
-                            else:
-                                results.append({})
-                        return results
+                        with ThreadPoolExecutor(max_workers=8) as pool:
+                            return list(pool.map(_annotate_one, events))
 
                     mane_results = await asyncio.to_thread(_batch_annotate_mane, chunk)
 

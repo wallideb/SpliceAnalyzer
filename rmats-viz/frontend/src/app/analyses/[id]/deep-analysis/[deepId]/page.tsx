@@ -18,6 +18,7 @@ import { getDeepAnalysis, getDeepAnalysisEvents } from "@/lib/api/deep-analyses"
 import { computeSpliceFeatures } from "@/lib/api/splice";
 import { useT } from "@/contexts/LanguageContext";
 import { ExcelExportModal, type ExcelColumnGroup } from "@/components/ExcelExportModal";
+import { PdfExportModal, type PdfSection } from "@/components/PdfExportModal";
 import { Top10View } from "@/components/events/Top10View";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
 import { PermutationPanel } from "@/components/top10/PermutationPanel";
@@ -75,10 +76,12 @@ export default function DeepAnalysisDetailPage() {
   const group2 = analysis?.sample_groups.find((g) => g.group_index === 2);
 
   const [isExportingPDF, setIsExportingPDF] = useState(false);
-  const handleExportPDF = useCallback(async () => {
+  const [showPdfModal, setShowPdfModal] = useState(false);
+  const handleExportPDF = useCallback(async (sections: PdfSection[] = []) => {
     setIsExportingPDF(true);
+    setShowPdfModal(false);
     try {
-      await downloadAnalysisPDF(id, deepId);
+      await downloadAnalysisPDF(id, deepId, sections);
     } catch {
       alert(t("analysisDetail.pdfError"));
     } finally {
@@ -158,7 +161,7 @@ export default function DeepAnalysisDetailPage() {
             {isExportingExcel ? "Excel…" : t("analysisDetail.excel")}
           </button>
           <button
-            onClick={handleExportPDF}
+            onClick={() => setShowPdfModal(true)}
             disabled={isExportingPDF}
             className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg disabled:opacity-50 transition-colors"
           >
@@ -260,6 +263,15 @@ export default function DeepAnalysisDetailPage() {
         onClose={() => setShowExcelModal(false)}
         onDownload={handleExportExcel}
         isDownloading={isExportingExcel}
+      />
+
+      {/* PDF export modal */}
+      <PdfExportModal
+        isOpen={showPdfModal}
+        onClose={() => setShowPdfModal(false)}
+        onDownload={handleExportPDF}
+        isDownloading={isExportingPDF}
+        isDeepAnalysis
       />
     </div>
   );

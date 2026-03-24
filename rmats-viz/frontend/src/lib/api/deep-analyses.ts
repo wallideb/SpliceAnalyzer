@@ -100,6 +100,8 @@ export interface GroupPatternStats {
   pct_canonical_gt: number | null;
   pct_canonical_ag: number | null;
   ppt_mean_score: number | null;
+  ppt_mean_t_content: number | null;
+  ppt_mean_c_content: number | null;
   frame_in_frame: number;
   frame_frameshift: number;
   frame_non_coding: number;

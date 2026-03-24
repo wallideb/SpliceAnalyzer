@@ -35,7 +35,7 @@ from app.schemas.deep_analysis import (
     DeepAnalysisResponse,
 )
 from app.schemas.event import SplicingEventResponse
-from app.services.splice_features import compute_pwm, iupac_consensus
+from app.services.splice_features import compute_pwm, iupac_consensus, ppt_t_content, ppt_c_content
 
 logger = logging.getLogger(__name__)
 
@@ -238,6 +238,8 @@ class GroupPatternStats(BaseModel):
     pct_canonical_gt: float | None = None
     pct_canonical_ag: float | None = None
     ppt_mean_score: float | None = None
+    ppt_mean_t_content: float | None = None
+    ppt_mean_c_content: float | None = None
     frame_in_frame: int = 0
     frame_frameshift: int = 0
     frame_non_coding: int = 0
@@ -506,6 +508,24 @@ def _compute_stat_tests(
         statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
     ))
 
+    # 3b. PPT T content — Welch's t-test
+    ppt_t_sig = [ppt_t_content(f.ppt_seq) for f in sig_feats if f.ppt_seq]
+    ppt_t_ns = [ppt_t_content(f.ppt_seq) for f in nonsig_feats if f.ppt_seq]
+    t_stat, p_val = _welch_t_test(ppt_t_sig, ppt_t_ns)
+    results.append(StatTestResult(
+        feature="ppt_t_content", test_name="Welch's t-test",
+        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
+    ))
+
+    # 3c. PPT C content — Welch's t-test
+    ppt_c_sig = [ppt_c_content(f.ppt_seq) for f in sig_feats if f.ppt_seq]
+    ppt_c_ns = [ppt_c_content(f.ppt_seq) for f in nonsig_feats if f.ppt_seq]
+    t_stat, p_val = _welch_t_test(ppt_c_sig, ppt_c_ns)
+    results.append(StatTestResult(
+        feature="ppt_c_content", test_name="Welch's t-test",
+        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
+    ))
+
     # 4. Canonical GT (5'SS) — proportion z-test
     sig_with_seq = [f for f in sig_feats if f.donor_seq and len(f.donor_seq) >= 9]
     ns_with_seq = [f for f in nonsig_feats if f.donor_seq and len(f.donor_seq) >= 9]
@@ -619,6 +639,8 @@ def _compute_group_stats(
 
     # PPT
     ppt_scores = [f.ppt_score for f in feats_with_seq if f.ppt_score is not None]
+    ppt_t_vals = [ppt_t_content(f.ppt_seq) for f in feats_with_seq if f.ppt_seq]
+    ppt_c_vals = [ppt_c_content(f.ppt_seq) for f in feats_with_seq if f.ppt_seq]
 
     # Frame
     fc = Counter(f.frame_class or "unknown" for f in feats)
@@ -642,6 +664,8 @@ def _compute_group_stats(
         pct_canonical_gt=round(n_gt / len(donor_9) * 100, 1) if donor_9 else None,
         pct_canonical_ag=round(n_ag / len(acc_23) * 100, 1) if acc_23 else None,
         ppt_mean_score=round(statistics.mean(ppt_scores), 3) if ppt_scores else None,
+        ppt_mean_t_content=round(statistics.mean(ppt_t_vals), 3) if ppt_t_vals else None,
+        ppt_mean_c_content=round(statistics.mean(ppt_c_vals), 3) if ppt_c_vals else None,
         frame_in_frame=fc.get("in_frame", 0),
         frame_frameshift=fc.get("frameshift", 0),
         frame_non_coding=fc.get("non_coding", 0),

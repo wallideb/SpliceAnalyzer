@@ -22,6 +22,7 @@ from app.database import get_db
 from app.models.analysis import Analysis
 from app.models.event import SplicingEvent
 from app.models.splice import EventSpliceFeature
+from app.services.splice_features import ppt_t_content as _ppt_t_content, ppt_c_content as _ppt_c_content
 from app.services.panelapp import get_panels_for_gene
 from app.services.gene_ontology import get_go_terms
 from app.services.stringdb import get_interaction
@@ -1001,6 +1002,7 @@ def _build_pdf(
     hnrnp_data: dict | None = None,
     enrichr_data: dict | None = None,
     svg_dir: str | None = None,
+    selected_sections: set[str] | None = None,
 ) -> bytes:
     """Build PDF report.
 
@@ -1025,6 +1027,9 @@ def _build_pdf(
         Result from Enrichr pathway enrichment.
         Keys: n_genes_submitted, terms (list of EnrichrTermItem dicts).
     """
+    if selected_sections is None:
+        selected_sections = {"a", "b", "c", "d", "e", "f", "top_events"}
+
     # Thread-local figure counter: avoids data races when multiple PDF
     # requests are served concurrently via asyncio.to_thread.
     _fig_count: list[int] = [0]
@@ -1191,6 +1196,8 @@ def _build_pdf(
             n_dn_ag = sum(1 for f in subset_features.values() if f.downstream_acceptor_is_ag is True)
             n_dn_seq = sum(1 for f in subset_features.values() if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23)
             ppt_vals = [f.ppt_score for f in subset_features.values() if f.ppt_score is not None]
+            ppt_t_vals = [_ppt_t_content(f.ppt_seq) for f in subset_features.values() if f.ppt_seq]
+            ppt_c_vals = [_ppt_c_content(f.ppt_seq) for f in subset_features.values() if f.ppt_seq]
             exsz_vals = [f.exon_size for f in subset_features.values() if f.exon_size is not None]
 
             story.append(p("SE Splice Feature Statistics:", "h3"))
@@ -1209,6 +1216,10 @@ def _build_pdf(
                  f"{_statistics.mean(exsz_vals):.0f} / {_statistics.median(exsz_vals):.0f} nt" if exsz_vals else "—"],
                 ["Mean PPT score",
                  f"{_statistics.mean(ppt_vals) * 100:.1f}% pyrimidine content" if ppt_vals else "—"],
+                ["Mean PPT T content",
+                 f"{_statistics.mean(ppt_t_vals) * 100:.1f}%" if ppt_t_vals else "—"],
+                ["Mean PPT C content",
+                 f"{_statistics.mean(ppt_c_vals) * 100:.1f}%" if ppt_c_vals else "—"],
             ], [9 * _cm, 7 * _cm], S)
             story += [stat_tbl, sp()]
 
@@ -1353,10 +1364,12 @@ def _build_pdf(
         return section_num + 1
 
     # ── Section A: Global Analysis Summary ─────────────────────────────────
-    section_n = _add_stats_and_figures(features, events, 1, "Global Analysis Summary")
+    section_n = 1
+    if "a" in selected_sections:
+        section_n = _add_stats_and_figures(features, events, section_n, "Global Analysis Summary")
 
     # ── Section B: Significant Events (deep analysis only) ─────────────────
-    if is_deep and sig_map:
+    if "b" in selected_sections and is_deep and sig_map:
         story.append(PageBreak())
         sig_feat_dict = {eid: f for eid, f in features.items() if sig_map.get(eid)}
         sig_evts = [e for e in events if sig_map.get(e.id)]
@@ -1366,7 +1379,7 @@ def _build_pdf(
         )
 
     # ── Section C: Comparison (deep analysis only) ─────────────────────────
-    if comparison:
+    if "c" in selected_sections and comparison:
         story.append(PageBreak())
         cmp_sec = section_n
         story.append(p(f"{cmp_sec}. Significant vs Non-Significant Comparison", "h2"))
@@ -1414,6 +1427,10 @@ def _build_pdf(
         _row("Canonical AG", _pct(sig.get("pct_canonical_ag")), _pct(nonsig.get("pct_canonical_ag")), "canonical_ag")
         _row("Mean PPT score", _pct(sig["ppt_mean_score"] * 100 if sig.get("ppt_mean_score") is not None else None),
              _pct(nonsig["ppt_mean_score"] * 100 if nonsig.get("ppt_mean_score") is not None else None), "ppt_score")
+        _row("PPT T content", _pct(sig["ppt_mean_t_content"] * 100 if sig.get("ppt_mean_t_content") is not None else None),
+             _pct(nonsig["ppt_mean_t_content"] * 100 if nonsig.get("ppt_mean_t_content") is not None else None), "ppt_t_content")
+        _row("PPT C content", _pct(sig["ppt_mean_c_content"] * 100 if sig.get("ppt_mean_c_content") is not None else None),
+             _pct(nonsig["ppt_mean_c_content"] * 100 if nonsig.get("ppt_mean_c_content") is not None else None), "ppt_c_content")
         _row("In-frame %", _pct(sig["frame_in_frame"] / max(sig["n_se_with_features"], 1) * 100 if sig["n_se_with_features"] else None),
              _pct(nonsig["frame_in_frame"] / max(nonsig["n_se_with_features"], 1) * 100 if nonsig["n_se_with_features"] else None), "in_frame_pct")
         _row("Branch point found", _pct(sig.get("bp_found_pct")), _pct(nonsig.get("bp_found_pct")), "bp_found")
@@ -1622,7 +1639,7 @@ def _build_pdf(
         story += [KeepTogether(_block), sp()]
 
     # ── Section D: Permutation Test (deep analysis only) ──────────────────
-    if permutation_table:
+    if "d" in selected_sections and permutation_table:
         story.append(PageBreak())
         perm_sec = section_n
         story.append(p(f"{perm_sec}. Permutation Test — ΔΨ Significance", "h2"))
@@ -1659,7 +1676,7 @@ def _build_pdf(
         story.append(sp())
 
     # ── Section E: hnRNP Motif Enrichment (deep analysis only) ─────────────
-    if hnrnp_data:
+    if "e" in selected_sections and hnrnp_data:
         story.append(PageBreak())
         hnrnp_sec = section_n
         section_n += 1
@@ -1792,7 +1809,7 @@ def _build_pdf(
         story.append(sp())
 
     # ── Section F: Enrichr Pathway Enrichment (deep analysis only) ─────────
-    if enrichr_data and enrichr_data.get("terms"):
+    if "f" in selected_sections and enrichr_data and enrichr_data.get("terms"):
         story.append(PageBreak())
         enr_sec = section_n
         section_n += 1
@@ -1849,177 +1866,217 @@ def _build_pdf(
         story.append(sp())
 
     # ── Top SE events ──────────────────────────────────────────────────────
-    story.append(PageBreak())
-    _top_title = "Top Significant SE Events (ranked by FDR, |ΔΨ|)" if is_deep else "Top SE Events (ranked by FDR, |ΔΨ|)"
-    story.append(p(f"{section_n}. {_top_title}", "h2"))
-    top_se = sorted(
-        [
-            e for e in events
-            if e.event_type == "SE" and e.fdr is not None
-            and (not is_deep or sig_map is None or sig_map.get(e.id, False))
-        ],
-        key=lambda e: (e.fdr if e.fdr is not None else 1.0, -(abs(e.inc_level_difference or 0))),
-    )[:20]
+    if "top_events" in selected_sections:
+        story.append(PageBreak())
+        _top_title = "Top Significant SE Events (ranked by FDR, |ΔΨ|)" if is_deep else "Top SE Events (ranked by FDR, |ΔΨ|)"
+        story.append(p(f"{section_n}. {_top_title}", "h2"))
+        section_n += 1
+        top_se = sorted(
+            [
+                e for e in events
+                if e.event_type == "SE" and e.fdr is not None
+                and (not is_deep or sig_map is None or sig_map.get(e.id, False))
+            ],
+            key=lambda e: (e.fdr if e.fdr is not None else 1.0, -(abs(e.inc_level_difference or 0))),
+        )[:20]
 
-    if top_se:
-        top_headers = ["Gene", "Chr", "Strand", "Exon\nSize", "FDR", "ΔΨ", "GT-AG", "Frame"]
-        top_rows = [top_headers]
-        for ev in top_se:
-            feat = features.get(ev.id)
-            gt_ag = "—"
-            if feat:
-                gt = "GT" if feat.donor_is_gt else "!GT"
-                ag = "AG" if feat.acceptor_is_ag else "!AG"
-                gt_ag = f"{gt}/{ag}"
-            top_rows.append([
-                ev.gene_symbol or "—",
-                ev.chr or "—",
-                ev.strand or "—",
-                str(feat.exon_size) + " nt" if feat and feat.exon_size else "—",
-                f"{ev.fdr:.2e}" if ev.fdr is not None else "—",
-                f"{ev.inc_level_difference:+.3f}" if ev.inc_level_difference is not None else "—",
-                gt_ag,
-                feat.frame_class or "—" if feat else "—",
-            ])
-        top_tbl = _make_tbl(top_rows, [2.8*_cm, 1.8*_cm, 1*_cm, 1.8*_cm, 2.2*_cm, 1.8*_cm, 1.8*_cm, 2*_cm], S)
-        story += [top_tbl, sp()]
-    else:
-        story.append(p("No SE events available.", "body"))
+        if top_se:
+            top_headers = ["Gene", "Chr", "Strand", "Exon\nSize", "FDR", "ΔΨ", "GT-AG", "Frame"]
+            top_rows = [top_headers]
+            for ev in top_se:
+                feat = features.get(ev.id)
+                gt_ag = "—"
+                if feat:
+                    gt = "GT" if feat.donor_is_gt else "!GT"
+                    ag = "AG" if feat.acceptor_is_ag else "!AG"
+                    gt_ag = f"{gt}/{ag}"
+                top_rows.append([
+                    ev.gene_symbol or "—",
+                    ev.chr or "—",
+                    ev.strand or "—",
+                    str(feat.exon_size) + " nt" if feat and feat.exon_size else "—",
+                    f"{ev.fdr:.2e}" if ev.fdr is not None else "—",
+                    f"{ev.inc_level_difference:+.3f}" if ev.inc_level_difference is not None else "—",
+                    gt_ag,
+                    feat.frame_class or "—" if feat else "—",
+                ])
+            top_tbl = _make_tbl(top_rows, [2.8*_cm, 1.8*_cm, 1*_cm, 1.8*_cm, 2.2*_cm, 1.8*_cm, 1.8*_cm, 2*_cm], S)
+            story += [top_tbl, sp()]
+        else:
+            story.append(p("No SE events available.", "body"))
 
-    # ── Events with MANE flanking-based exon correction ───────────────────
-    # List events where rMATS exon coordinates differed from MANE and the
-    # consensual exon was identified via flanking exon boundaries.
-    flanking_events = sorted(
-        [
-            (ev, features.get(ev.id))
-            for ev in events
-            if ev.event_type == "SE"
-            and features.get(ev.id) is not None
-            and getattr(features.get(ev.id), "mane_exon_source", None) == "flanking"
-        ],
-        key=lambda pair: (pair[0].gene_symbol or "", pair[0].chr or "", pair[0].exon_start or 0),
-    )
-    if flanking_events:
-        story.append(sp())
-        story.append(p(
-            "<b>Note:</b> Exon coordinate correction via MANE flanking method",
-            "h3",
-        ))
-        story.append(p(
-            "The following events have skipped-exon coordinates in rMATS that differ "
-            "from the MANE Select transcript boundaries. Because the standard overlap "
-            "matching (reciprocal ≥ 50%) could not identify the correct MANE exon, "
-            "the consensual exon was selected based on its position between the upstream "
-            "and downstream flanking exon boundaries (derived from junction reads). "
-            "Splice-site sequences for these events were extracted using the MANE exon "
-            "coordinates rather than the original rMATS coordinates.",
-            "body",
-        ))
-        flk_headers = ["Gene", "Chr", "Strand", "rMATS Exon", "MANE Transcript"]
-        flk_rows = [flk_headers]
-        for ev, feat in flanking_events[:30]:  # cap at 30 to avoid page overflow
-            rmats_exon = (
-                f"{(ev.exon_start or 0):,}–{(ev.exon_end or 0):,}"
-                if ev.exon_start is not None else "—"
-            )
-            flk_rows.append([
-                ev.gene_symbol or "—",
-                ev.chr or "—",
-                ev.strand or "—",
-                rmats_exon,
-                feat.mane_transcript_id or "—",
-            ])
-        flk_tbl = _make_tbl(flk_rows, [2.8*_cm, 1.8*_cm, 1*_cm, 4.2*_cm, 4.2*_cm], S)
-        story += [flk_tbl, sp(0.2)]
-        if len(flanking_events) > 30:
+        # ── Events with MANE flanking-based exon correction ───────────────────
+        flanking_events = sorted(
+            [
+                (ev, features.get(ev.id))
+                for ev in events
+                if ev.event_type == "SE"
+                and features.get(ev.id) is not None
+                and getattr(features.get(ev.id), "mane_exon_source", None) == "flanking"
+            ],
+            key=lambda pair: (pair[0].gene_symbol or "", pair[0].chr or "", pair[0].exon_start or 0),
+        )
+        if flanking_events:
+            story.append(sp())
             story.append(p(
-                f"… and {len(flanking_events) - 30} more events (not shown).",
-                "small",
+                "<b>Note:</b> Exon coordinate correction via MANE flanking method",
+                "h3",
             ))
-        story.append(sp())
+            story.append(p(
+                "The following events have skipped-exon coordinates in rMATS that differ "
+                "from the MANE Select transcript boundaries. Because the standard overlap "
+                "matching (reciprocal ≥ 50%) could not identify the correct MANE exon, "
+                "the consensual exon was selected based on its position between the upstream "
+                "and downstream flanking exon boundaries (derived from junction reads). "
+                "Splice-site sequences for these events were extracted using the MANE exon "
+                "coordinates rather than the original rMATS coordinates.",
+                "body",
+            ))
+            flk_headers = ["Gene", "Chr", "Strand", "rMATS Exon", "MANE Transcript"]
+            flk_rows = [flk_headers]
+            for ev, feat in flanking_events[:30]:  # cap at 30 to avoid page overflow
+                rmats_exon = (
+                    f"{(ev.exon_start or 0):,}–{(ev.exon_end or 0):,}"
+                    if ev.exon_start is not None else "—"
+                )
+                flk_rows.append([
+                    ev.gene_symbol or "—",
+                    ev.chr or "—",
+                    ev.strand or "—",
+                    rmats_exon,
+                    feat.mane_transcript_id or "—",
+                ])
+            flk_tbl = _make_tbl(flk_rows, [2.8*_cm, 1.8*_cm, 1*_cm, 4.2*_cm, 4.2*_cm], S)
+            story += [flk_tbl, sp(0.2)]
+            if len(flanking_events) > 30:
+                story.append(p(
+                    f"… and {len(flanking_events) - 30} more events (not shown).",
+                    "small",
+                ))
+            story.append(sp())
 
     story.append(PageBreak())
 
     # ── Appendix A — Methodology ────────────────────────────────────────────
+    # Subsections 1-5: always include if section A or B selected
+    # Subsection 6 (Deep Analysis): include if section C selected
+    # Subsection 7 (Permutation): include if section D selected
+    # Subsection 8 (hnRNP): include if section E selected
+    # Subsection 9 (Enrichr): include if section F selected
+    _app_a_n = [0]  # dynamic counter for appendix A subsections
+
+    def _next_app_a() -> int:
+        _app_a_n[0] += 1
+        return _app_a_n[0]
+
     story += [
         p("Appendix A — Pipeline Methodology", "h2"),
         hr(),
-        p("<b>1. Splicing Event Detection — rMATS</b>", "h3"),
-        p("Alternative splicing events (SE, RI, A3SS, A5SS, MXE) are detected by "
-          "<b>rMATS</b> (Shen et al., 2014 [1]) from aligned RNA-seq data. rMATS uses a "
-          "likelihood-ratio test to assess whether the difference in mean ΔΨ between groups "
-          "exceeds a user-defined threshold, while modelling replicate variability in a "
-          "hierarchical framework. Junction and exon-body read counts are combined in the "
-          "JCEC model, while JC mode uses junction reads only. "
-          "Output files used here are junction counts (<i>.MATS.JC.txt</i>).", "body"),
-        p("<b>2. Splice Site Annotation</b>", "h3"),
-        p("For each SE event, rMATS-Viz extracts flanking genomic sequences from "
-          "the GRCh38 (hg38) reference genome indexed with <b>samtools faidx</b>:", "body"),
-        p("• <b>5'SS donor (skipped exon):</b> 3 nt exon + 6 nt intron (9 nt window)", "body"),
-        p("• <b>3'SS acceptor (skipped exon):</b> 20 nt intron + 3 nt exon (23 nt window)", "body"),
-        p("• <b>5'SS donor (upstream flanking exon):</b> 3 nt exon + 6 nt intron (9 nt window)", "body"),
-        p("• <b>3'SS acceptor (downstream flanking exon):</b> 20 nt intron + 3 nt exon (23 nt window)", "body"),
-        p("• <b>PPT:</b> ~47 nt upstream of the skipped exon acceptor site", "body"),
-        p("The canonical GT-AG splice site rule (Shapiro &amp; Senapathy, 1987 [3]; "
-          "Burge &amp; Karlin, 1997 [2]) is verified at the first two intronic positions "
-          "of the 5'SS (GT at +1/+2) and last two of the 3'SS (AG at -2/-1). "
-          "The PPT score is the fraction of pyrimidine nucleotides (C, T) in the PPT "
-          "window. The branch point is searched by matching the YNYURAY motif "
-          "(Coolidge et al., 1997 [6]).", "body"),
-        p("<b>3. Sequence Logos</b>", "h3"),
-        p("Position weight matrices (PWMs) are computed from all extracted "
-          "sequences per group. Logos are displayed in <b>frequency mode</b>: "
-          "every column fills the full logo height, and the height of each letter "
-          "is proportional to the raw nucleotide frequency f(b,i) at that position. "
-          "No information-content (bits) scaling is applied, making each column "
-          "directly comparable across positions regardless of conservation level. "
-          "Canonical splice-site positions (GT at +1/+2 for donor; AG at -2/-1 for "
-          "acceptor) are highlighted in yellow.", "body"),
-        p("<b>4. Reading Frame Classification</b>", "h3"),
-        p("The skipped exon is classified by reading-frame impact using the "
-          "MANE Select transcript (Morales et al., 2022 [4]) when available:", "body"),
-        p("• <b>in_frame:</b> CDS length divisible by 3 — protein domain loss without frameshift", "body"),
-        p("• <b>frameshift:</b> CDS length not divisible by 3 — may lead to a truncated protein. "
-          "<i>Note:</i> frameshift does not imply nonsense-mediated decay (NMD); NMD depends on "
-          "the position of the premature termination codon (PTC) relative to the last exon-exon "
-          "junction (&gt;50 nt upstream rule). Experimental validation is required to confirm NMD.", "body"),
-        p("• <b>non_coding:</b> exon entirely within UTR — regulatory impact", "body"),
-        p("<b>5. MANE Select Annotation</b>", "h3"),
-        p("The MANE Select transcript is identified from a local GFF3 file "
-          "(MANE.GRCh38.ensembl_genomic.gff.gz) when available, or via the Ensembl "
-          "REST API (Cunningham et al., 2022 [5]) as fallback. The skipped exon is "
-          "mapped to transcript coordinates to determine exon rank, CDS overlap, and "
-          "frame impact. Results are cached in a local SQLite database.", "body"),
-        p("<b>5b. MANE Exon Boundary Correction</b>", "h3"),
-        p("rMATS exon coordinates come from the alignment annotation (GTF) and may "
-          "differ from MANE Select transcript boundaries, causing splice-site "
-          "sequences to be extracted at incorrect genomic positions. To correct this, "
-          "the MANE exon is matched by reciprocal overlap (≥ 50%). When overlap "
-          "matching fails, a flanking-based fallback identifies the consensual "
-          "skipped exon as the MANE exon located between the upstream and downstream "
-          "flanking exon boundaries (derived from junction reads). Events corrected "
-          "via the flanking fallback are listed in the report.", "body"),
     ]
-    if is_deep:
+
+    if {"a", "b"} & selected_sections:
+        _n = _next_app_a()
         story += [
-            p("<b>6. Deep Analysis</b>", "h3"),
+            p(f"<b>{_n}. Splicing Event Detection — rMATS</b>", "h3"),
+            p("Alternative splicing events (SE, RI, A3SS, A5SS, MXE) are detected by "
+              "<b>rMATS</b> (Shen et al., 2014 [1]) from aligned RNA-seq data. rMATS uses a "
+              "likelihood-ratio test to assess whether the difference in mean ΔΨ between groups "
+              "exceeds a user-defined threshold, while modelling replicate variability in a "
+              "hierarchical framework. Junction and exon-body read counts are combined in the "
+              "JCEC model, while JC mode uses junction reads only. "
+              "Output files used here are junction counts (<i>.MATS.JC.txt</i>).", "body"),
+        ]
+        _n = _next_app_a()
+        story += [
+            p(f"<b>{_n}. Splice Site Annotation</b>", "h3"),
+            p("For each SE event, rMATS-Viz extracts flanking genomic sequences from "
+              "the GRCh38 (hg38) reference genome indexed with <b>samtools faidx</b>:", "body"),
+            p("• <b>5'SS donor (skipped exon):</b> 3 nt exon + 6 nt intron (9 nt window)", "body"),
+            p("• <b>3'SS acceptor (skipped exon):</b> 20 nt intron + 3 nt exon (23 nt window)", "body"),
+            p("• <b>5'SS donor (upstream flanking exon):</b> 3 nt exon + 6 nt intron (9 nt window)", "body"),
+            p("• <b>3'SS acceptor (downstream flanking exon):</b> 20 nt intron + 3 nt exon (23 nt window)", "body"),
+            p("• <b>PPT:</b> ~47 nt upstream of the skipped exon acceptor site", "body"),
+            p("The canonical GT-AG splice site rule (Shapiro &amp; Senapathy, 1987 [3]; "
+              "Burge &amp; Karlin, 1997 [2]) is verified at the first two intronic positions "
+              "of the 5'SS (GT at +1/+2) and last two of the 3'SS (AG at -2/-1). "
+              "The PPT score is the fraction of pyrimidine nucleotides (C, T) in the PPT "
+              "window. The branch point is searched by matching the YNYURAY motif "
+              "(Coolidge et al., 1997 [6]).", "body"),
+        ]
+        _n = _next_app_a()
+        story += [
+            p(f"<b>{_n}. Sequence Logos</b>", "h3"),
+            p("Position weight matrices (PWMs) are computed from all extracted "
+              "sequences per group. Logos are displayed in <b>frequency mode</b>: "
+              "every column fills the full logo height, and the height of each letter "
+              "is proportional to the raw nucleotide frequency f(b,i) at that position. "
+              "No information-content (bits) scaling is applied, making each column "
+              "directly comparable across positions regardless of conservation level. "
+              "Canonical splice-site positions (GT at +1/+2 for donor; AG at -2/-1 for "
+              "acceptor) are highlighted in yellow.", "body"),
+        ]
+        _n = _next_app_a()
+        story += [
+            p(f"<b>{_n}. Reading Frame Classification</b>", "h3"),
+            p("The skipped exon is classified by reading-frame impact using the "
+              "MANE Select transcript (Morales et al., 2022 [4]) when available:", "body"),
+            p("• <b>in_frame:</b> CDS length divisible by 3 — protein domain loss without frameshift", "body"),
+            p("• <b>frameshift:</b> CDS length not divisible by 3 — may lead to a truncated protein. "
+              "<i>Note:</i> frameshift does not imply nonsense-mediated decay (NMD); NMD depends on "
+              "the position of the premature termination codon (PTC) relative to the last exon-exon "
+              "junction (&gt;50 nt upstream rule). Experimental validation is required to confirm NMD.", "body"),
+            p("• <b>non_coding:</b> exon entirely within UTR — regulatory impact", "body"),
+        ]
+        _n = _next_app_a()
+        story += [
+            p(f"<b>{_n}. MANE Select Annotation</b>", "h3"),
+            p("The MANE Select transcript is identified from a local GFF3 file "
+              "(MANE.GRCh38.ensembl_genomic.gff.gz) when available, or via the Ensembl "
+              "REST API (Cunningham et al., 2022 [5]) as fallback. The skipped exon is "
+              "mapped to transcript coordinates to determine exon rank, CDS overlap, and "
+              "frame impact. Results are cached in a local SQLite database.", "body"),
+            p(f"<b>{_n}b. MANE Exon Boundary Correction</b>", "h3"),
+            p("rMATS exon coordinates come from the alignment annotation (GTF) and may "
+              "differ from MANE Select transcript boundaries, causing splice-site "
+              "sequences to be extracted at incorrect genomic positions. To correct this, "
+              "the MANE exon is matched by reciprocal overlap (≥ 50%). When overlap "
+              "matching fails, a flanking-based fallback identifies the consensual "
+              "skipped exon as the MANE exon located between the upstream and downstream "
+              "flanking exon boundaries (derived from junction reads). Events corrected "
+              "via the flanking fallback are listed in the report.", "body"),
+        ]
+
+    if is_deep and "c" in selected_sections:
+        _n = _next_app_a()
+        story += [
+            p(f"<b>{_n}. Deep Analysis</b>", "h3"),
             p(f"Events are classified as <b>significant</b> (FDR ≤ {deep_analysis.fdr_threshold}, "
               f"|ΔΨ| ≥ {deep_analysis.delta_psi_min}) or <b>non-significant</b> (all others). "
               "Splice features are compared between the two groups using:", "body"),
-            p("• <b>Welch's t-test</b> (unequal variances, two-tailed): mean ΔΨ, exon size, PPT score", "body"),
+            p("• <b>Welch's t-test</b> (unequal variances, two-tailed): mean ΔΨ, exon size, PPT score, PPT T content, PPT C content", "body"),
             p("• <b>Two-proportion z-test</b> (two-tailed): canonical GT/AG rates (skipped exon "
               "and flanking exons), in-frame proportion, branch-point detection rate", "body"),
             p("Welch-Satterthwaite degrees of freedom are used for the t-distribution. "
               "No multiple-testing correction is applied within the comparison (9 tests); "
               "the user should interpret results in light of the number of comparisons.", "body"),
-            p("<b>7. Permutation Test</b>", "h3"),
+        ]
+
+    if is_deep and "d" in selected_sections:
+        _n = _next_app_a()
+        story += [
+            p(f"<b>{_n}. Permutation Test</b>", "h3"),
             p("For each significant SE event, sample labels are randomly permuted (keeping "
               "group sizes fixed) to build a null distribution of ΔΨ. The empirical two-tailed "
               "p-value is p = (r + 1) / (K + 1), where r is the number of permuted |ΔΨ| values "
               "≥ the observed |ΔΨ| and K is the number of iterations; the +1 correction avoids "
               "p = 0 (Phipson &amp; Smyth, 2010 [7]). The test is run at multiple iteration "
               "counts (50, 100, 250, 500) to assess convergence.", "body"),
-            p("<b>8. hnRNP Motif Enrichment Analysis</b>", "h3"),
+        ]
+
+    if is_deep and "e" in selected_sections:
+        _n = _next_app_a()
+        story += [
+            p(f"<b>{_n}. hnRNP Motif Enrichment Analysis</b>", "h3"),
             p("RNA-binding protein (RBP) motif enrichment is computed in a rMAPS2-inspired "
               "framework (Hwang et al., 2020 [8]). For each SE event five flanking regions are "
               "extracted from GRCh38 (samtools faidx): upstream exon (up to 250 nt), upstream "
@@ -2059,7 +2116,7 @@ def _build_pdf(
               "for statistical clarity and direct interpretability in the context of discrete "
               "regulatory zones (exonic body, proximal/distal intronic flanks), providing a "
               "complementary, region-level view of hnRNP motif associations.", "body"),
-            p("<b>8b. Regulatory Effect Annotations</b>", "h3"),
+            p(f"<b>{_n}b. Regulatory Effect Annotations</b>", "h3"),
             p("The heatmap displays the established regulatory effect (ESE, ESS, ISE, ISS) "
               "for each protein × region pair when supported by strong published evidence. "
               "Silencer annotations (ESS/ISS, orange frame) and enhancer annotations "
@@ -2083,7 +2140,12 @@ def _build_pdf(
               "The general principle that hnRNPs tend to silence from exonic positions and can "
               "enhance or silence from intronic positions depending on the protein is supported "
               "by genome-wide RNA splicing maps (Witten &amp; Ule, 2011 [28]).", "body"),
-            p("<b>9. Pathway Enrichment (Enrichr)</b>", "h3"),
+        ]
+
+    if is_deep and "f" in selected_sections:
+        _n = _next_app_a()
+        story += [
+            p(f"<b>{_n}. Pathway Enrichment (Enrichr)</b>", "h3"),
             p("Unique HGNC gene symbols derived from significant splicing events are submitted to "
               "the Enrichr REST API (Ma'ayan Lab; Chen et al., 2013 [9]; Kuleshov et al., 2016 "
               "[10]; Xie et al., 2021 [15]) via a POST request to <i>/addList</i>. Enrichment is retrieved for five "
@@ -2096,6 +2158,7 @@ def _build_pdf(
               "The top 10 terms per library by adjusted p-value are "
               "retained and displayed in this report.", "body"),
         ]
+
     story.append(sp())
 
     # ── Appendix B — References ──────────────────────────────────────────────
@@ -2200,40 +2263,67 @@ def _build_pdf(
     ]
 
     # ── Appendix C — Statistical Methods ────────────────────────────────────
+    # Same mapping logic as Appendix A:
+    # C.1-C.3: always include if section A or B selected
+    # C.4 (Deep Analysis tests): include if section C selected
+    # C.5 (Permutation): include if section D selected
+    # C.6 (hnRNP): include if section E selected
+    # C.7 (Enrichr): include if section F selected
+    _app_c_n = [0]
+
+    def _next_app_c() -> int:
+        _app_c_n[0] += 1
+        return _app_c_n[0]
+
     story.append(PageBreak())
     story += [
         p("Appendix C — Statistical Methods", "h2"),
         hr(),
-        p("<b>C.1 Splicing Event Statistics (rMATS)</b>", "h3"),
-        p("rMATS computes for each event:", "body"),
-        p("• <b>ΔΨ (delta-PSI)</b>: ΔΨ = PSI<sub>sample1</sub> − PSI<sub>sample2</sub>, "
-          "where PSI is the percent spliced in. Range: [−1, +1].", "body"),
-        p("• <b>p-value</b>: rMATS uses a likelihood-ratio test to assess whether "
-          "the difference in mean PSI between groups exceeds a user-defined threshold c, "
-          "while modelling replicate variability in a hierarchical framework.", "body"),
-        p("• <b>FDR</b>: Benjamini-Hochberg correction across all events.", "body"),
-        p("<b>C.2 Sequence Logos</b>", "h3"),
-        p("Logos are rendered in <b>frequency mode</b>: every column fills the full "
-          "logo height and the height of each letter at position i is:", "body"),
-        p("&nbsp;&nbsp;&nbsp;height(b,i) = f(b,i) × H<sub>logo</sub>", "code"),
-        p("where f(b,i) is the raw nucleotide frequency of base b at position i "
-          "and H<sub>logo</sub> is the fixed column height. No information-content "
-          "(bits) scaling or small-sample correction is applied. This makes every "
-          "column directly comparable and matches the frequency view in the web "
-          "application. Base colours: A = green, C = blue, G = orange, T = red.", "body"),
-        p("<b>C.3 PPT Score</b>", "h3"),
-        p("The polypyrimidine tract (PPT) score is the fraction of pyrimidine "
-          "nucleotides (C, T) in the ~47 nt window upstream of the acceptor site. "
-          "The branch point is detected by matching the YNYURAY motif within the "
-          "PPT window (Coolidge et al., 1997).", "body"),
     ]
-    if is_deep:
+
+    if {"a", "b"} & selected_sections:
+        _cn = _next_app_c()
         story += [
-            p("<b>C.4 Deep Analysis Statistical Tests</b>", "h3"),
+            p(f"<b>C.{_cn} Splicing Event Statistics (rMATS)</b>", "h3"),
+            p("rMATS computes for each event:", "body"),
+            p("• <b>ΔΨ (delta-PSI)</b>: ΔΨ = PSI<sub>sample1</sub> − PSI<sub>sample2</sub>, "
+              "where PSI is the percent spliced in. Range: [−1, +1].", "body"),
+            p("• <b>p-value</b>: rMATS uses a likelihood-ratio test to assess whether "
+              "the difference in mean PSI between groups exceeds a user-defined threshold c, "
+              "while modelling replicate variability in a hierarchical framework.", "body"),
+            p("• <b>FDR</b>: Benjamini-Hochberg correction across all events.", "body"),
+        ]
+        _cn = _next_app_c()
+        story += [
+            p(f"<b>C.{_cn} Sequence Logos</b>", "h3"),
+            p("Logos are rendered in <b>frequency mode</b>: every column fills the full "
+              "logo height and the height of each letter at position i is:", "body"),
+            p("&nbsp;&nbsp;&nbsp;height(b,i) = f(b,i) × H<sub>logo</sub>", "code"),
+            p("where f(b,i) is the raw nucleotide frequency of base b at position i "
+              "and H<sub>logo</sub> is the fixed column height. No information-content "
+              "(bits) scaling or small-sample correction is applied. This makes every "
+              "column directly comparable and matches the frequency view in the web "
+              "application. Base colours: A = green, C = blue, G = orange, T = red.", "body"),
+        ]
+        _cn = _next_app_c()
+        story += [
+            p(f"<b>C.{_cn} PPT Score</b>", "h3"),
+            p("The polypyrimidine tract (PPT) score is the fraction of pyrimidine "
+              "nucleotides (C, T) in the ~47 nt window upstream of the acceptor site. "
+              "Individual T content and C content are also reported as the fraction of "
+              "thymine and cytosine bases respectively in the same window. "
+              "The branch point is detected by matching the YNYURAY motif within the "
+              "PPT window (Coolidge et al., 1997).", "body"),
+        ]
+
+    if is_deep and "c" in selected_sections:
+        _cn = _next_app_c()
+        story += [
+            p(f"<b>C.{_cn} Deep Analysis Statistical Tests</b>", "h3"),
             p("Events are split into significant and non-significant groups. "
               "The following two-tailed tests compare splice features:", "body"),
             p("• <b>Welch's t-test</b>: for continuous features (mean ΔΨ, exon size, "
-              "PPT score). Uses Welch-Satterthwaite approximation for degrees of freedom:", "body"),
+              "PPT score, PPT T content, PPT C content). Uses Welch-Satterthwaite approximation for degrees of freedom:", "body"),
             p("&nbsp;&nbsp;&nbsp;df = (s<sub>1</sub><super>2</super>/n<sub>1</sub> + s<sub>2</sub><super>2</super>/n<sub>2</sub>)<super>2</super> "
               "/ [(s<sub>1</sub><super>2</super>/n<sub>1</sub>)<super>2</super>/(n<sub>1</sub>-1) "
               "+ (s<sub>2</sub><super>2</super>/n<sub>2</sub>)<super>2</super>/(n<sub>2</sub>-1)]", "code"),
@@ -2251,13 +2341,23 @@ def _build_pdf(
               "No multiple-testing correction is applied across this metric panel; "
               "results should be treated as exploratory with inflated family-wise "
               "false-positive risk across the full set of tests.", "body"),
-            p("<b>C.5 Permutation Test</b>", "h3"),
+        ]
+
+    if is_deep and "d" in selected_sections:
+        _cn = _next_app_c()
+        story += [
+            p(f"<b>C.{_cn} Permutation Test</b>", "h3"),
             p("For each significant SE event, sample-label permutation generates a null ΔΨ "
               "distribution.  The empirical p-value is: p = (r + 1) / (K + 1), where r is "
               "the number of permuted |ΔΨ| ≥ observed |ΔΨ| and K is the number of iterations.  "
               "The +1 correction avoids p = 0 (Phipson &amp; Smyth, 2010 [7]).  "
               "The test is run at 50, 100, 250 and 500 iterations to demonstrate convergence.", "body"),
-            p("<b>C.6 hnRNP Motif Enrichment — Two-Proportion z-Test</b>", "h3"),
+        ]
+
+    if is_deep and "e" in selected_sections:
+        _cn = _next_app_c()
+        story += [
+            p(f"<b>C.{_cn} hnRNP Motif Enrichment — Two-Proportion z-Test</b>", "h3"),
             p("For each motif m in region r, let p^<sub>1</sub> = x<sub>1</sub> / n<sub>1</sub> "
               "and p^<sub>2</sub> = x<sub>2</sub> / n<sub>2</sub> be the hit rates "
               "in the significant and background groups respectively. "
@@ -2273,7 +2373,12 @@ def _build_pdf(
               "using the Benjamini-Hochberg FDR procedure as a discovery-oriented screen (q &lt; 0.05). "
               "This large-sample approximation is applied only when group sizes are sufficient "
               "for stable proportion estimates; groups with fewer than 5 events are skipped.", "body"),
-            p("<b>C.7 Enrichr Combined Score</b>", "h3"),
+        ]
+
+    if is_deep and "f" in selected_sections:
+        _cn = _next_app_c()
+        story += [
+            p(f"<b>C.{_cn} Enrichr Combined Score</b>", "h3"),
             p("The Enrichr combined score (Chen et al., 2013 [9]) is defined as:", "body"),
             p("&nbsp;&nbsp;&nbsp;CS = log(p) × z", "code"),
             p("where log is the natural logarithm, p is the unadjusted Fisher's exact test "
@@ -2281,23 +2386,39 @@ def _build_pdf(
               "Enrichr's deviation-from-expected-rank z-score. Adjusted p-values are reported "
               "separately by Enrichr within each library.", "body"),
         ]
+
     story.append(sp())
 
     doc.build(story)
     return buf.getvalue()
 
 
+_ALL_SECTIONS = {"a", "b", "c", "d", "e", "f", "top_events"}
+
+
+def _parse_sections(sections_param: str | None) -> set[str]:
+    """Parse comma-separated section keys into a set.  Returns all sections if None."""
+    if not sections_param:
+        return set(_ALL_SECTIONS)
+    return {s.strip().lower() for s in sections_param.split(",") if s.strip().lower() in _ALL_SECTIONS}
+
+
 @router.get("/{analysis_id}/pdf")
 async def export_analysis_pdf(
     analysis_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    sections: str | None = None,
 ) -> StreamingResponse:
     """Generate a PDF analysis report for *analysis_id* (all events)."""
 
+    selected = _parse_sections(sections)
     analysis, group1_label, group2_label = await _get_analysis_with_groups(db, analysis_id)
     events, features = await _load_events_and_features(db, analysis_id)
 
-    pdf_bytes = await asyncio.to_thread(_build_pdf, analysis, events, features, group1_label, group2_label)
+    pdf_bytes = await asyncio.to_thread(
+        _build_pdf, analysis, events, features, group1_label, group2_label,
+        selected_sections=selected,
+    )
 
     return StreamingResponse(
         BytesIO(pdf_bytes),
@@ -2313,8 +2434,11 @@ async def export_deep_analysis_pdf(
     analysis_id: uuid.UUID,
     deep_analysis_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    sections: str | None = None,
 ) -> StreamingResponse:
     """Generate a PDF report scoped to a deep analysis (filtered events + comparison)."""
+    selected = _parse_sections(sections)
+
     from app.models.deep_analysis import DeepAnalysis, DeepAnalysisEvent
     from app.routers.deep_analyses import _compute_group_stats, _compute_stat_tests
 
@@ -2360,17 +2484,18 @@ async def export_deep_analysis_pdf(
     sig_events = [e for e in events if e.event_type == "SE" and sig_map.get(e.id)]
     nonsig_events = [e for e in events if e.event_type == "SE" and not sig_map.get(e.id)]
 
-    stat_tests = _compute_stat_tests(sig_events, sig_feats, nonsig_events, nonsig_feats)
-
-    comparison = {
-        "significant": _compute_group_stats(sig_events, sig_feats).model_dump(),
-        "not_significant": _compute_group_stats(nonsig_events, nonsig_feats).model_dump(),
-        "statistical_tests": [
-            {"feature": t.feature, "test_name": t.test_name,
-             "statistic": t.statistic, "p_value": t.p_value, "significant": t.significant}
-            for t in stat_tests
-        ],
-    }
+    comparison = None
+    if "c" in selected:
+        stat_tests = _compute_stat_tests(sig_events, sig_feats, nonsig_events, nonsig_feats)
+        comparison = {
+            "significant": _compute_group_stats(sig_events, sig_feats).model_dump(),
+            "not_significant": _compute_group_stats(nonsig_events, nonsig_feats).model_dump(),
+            "statistical_tests": [
+                {"feature": t.feature, "test_name": t.test_name,
+                 "statistic": t.statistic, "p_value": t.p_value, "significant": t.significant}
+                for t in stat_tests
+            ],
+        }
 
     # ── hnRNP motif enrichment ────────────────────────────────────────────
     async def _compute_hnrnp() -> dict | None:
@@ -2517,12 +2642,26 @@ async def export_deep_analysis_pdf(
             "pct_p01": perm_res.pct_p01,
         }]
 
-    # Run all three analyses concurrently
-    permutation_table, hnrnp_data, enrichr_data = await asyncio.gather(
-        _compute_permutation(),
-        _compute_hnrnp(),
-        _compute_enrichr(),
-    )
+    # Run expensive analyses concurrently — only when their section is selected
+    tasks: list = []
+    task_keys: list[str] = []
+
+    if "d" in selected:
+        tasks.append(_compute_permutation())
+        task_keys.append("d")
+    if "e" in selected:
+        tasks.append(_compute_hnrnp())
+        task_keys.append("e")
+    if "f" in selected:
+        tasks.append(_compute_enrichr())
+        task_keys.append("f")
+
+    results = await asyncio.gather(*tasks) if tasks else []
+    result_map = dict(zip(task_keys, results))
+
+    permutation_table = result_map.get("d") or []
+    hnrnp_data = result_map.get("e")
+    enrichr_data = result_map.get("f")
 
     svg_dir = os.path.join("/data", "svg_exports", str(deep_analysis_id))
 
@@ -2531,7 +2670,7 @@ async def export_deep_analysis_pdf(
         deep_analysis=deep, comparison=comparison,
         sig_map=sig_map, permutation_table=permutation_table,
         hnrnp_data=hnrnp_data, enrichr_data=enrichr_data,
-        svg_dir=svg_dir,
+        svg_dir=svg_dir, selected_sections=selected,
     )
 
     return StreamingResponse(

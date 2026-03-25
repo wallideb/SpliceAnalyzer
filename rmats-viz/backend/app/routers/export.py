@@ -1111,7 +1111,7 @@ def _fig_summary_schematic(
     d.add(String(W / 2, H - 14, "Exon-Skipping Summary Schematic",
                  fontSize=9, fontName="Helvetica-Bold",
                  fillColor=_colors.HexColor("#1e3a5f"), textAnchor="middle"))
-    d.add(String(W / 2, H - 24, "Significant vs Non-Significant — Individual Feature Tests",
+    d.add(String(W / 2, H - 24, "Significant Events — Splice Feature Summary",
                  fontSize=6.5, fontName="Helvetica-Oblique",
                  fillColor=_colors.HexColor("#64748b"), textAnchor="middle"))
 
@@ -1331,16 +1331,14 @@ def _fig_summary_schematic(
     # ── Frame badge (below skipped exon) ──
     FRAME_Y = 158
     sig_n = max(sig_data.get("n_se_with_features", 1), 1)
-    nonsig_n = max(nonsig_data.get("n_se_with_features", 1), 1)
     sig_if_pct = sig_data.get("frame_in_frame", 0) / sig_n * 100
-    nonsig_if_pct = nonsig_data.get("frame_in_frame", 0) / nonsig_n * 100
-    frame_str = f"In-frame: {sig_if_pct:.0f}% (sig) vs {nonsig_if_pct:.0f}% (non-sig)"
-    d.add(Rect((SK_X1 + SK_X2) / 2 - 65, FRAME_Y, 130, 12,
+    frame_str = f"In-frame: {sig_if_pct:.0f}%"
+    d.add(Rect((SK_X1 + SK_X2) / 2 - 35, FRAME_Y, 70, 12,
                fillColor=_colors.HexColor("#1e293b"), strokeColor=None, rx=3, ry=3))
     d.add(String((SK_X1 + SK_X2) / 2, FRAME_Y + 3, frame_str,
                  fontSize=5.5, fontName="Helvetica-Bold",
                  fillColor=_colors.HexColor("#86efac"), textAnchor="middle"))
-    _add_star((SK_X1 + SK_X2) / 2 + 72, FRAME_Y + 2, "in_frame_pct")
+    _add_star((SK_X1 + SK_X2) / 2 + 42, FRAME_Y + 2, "in_frame_pct")
 
     # ── Intron size labels ──
     for ix1, ix2, feat, data_key in [

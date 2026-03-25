@@ -1044,6 +1044,8 @@ def _fig_summary_schematic(
     comparison: dict,
     sig_data: dict,
     nonsig_data: dict,
+    *,
+    group1_label: str = "Group 1",
 ) -> Drawing | None:
     """Build a vector schematic of the exon-skipping architecture.
 
@@ -1108,12 +1110,10 @@ def _fig_summary_schematic(
     d.add(Rect(0, 0, W, H, fillColor=CLR_BG, strokeColor=CLR_BORDER, strokeWidth=0.5))
 
     # Title
-    d.add(String(W / 2, H - 14, "Exon-Skipping Summary Schematic",
-                 fontSize=9, fontName="Helvetica-Bold",
+    d.add(String(W / 2, H - 14,
+                 f"Skipped-exon splice features in significant events — {group1_label}",
+                 fontSize=8, fontName="Helvetica-Bold",
                  fillColor=_colors.HexColor("#1e3a5f"), textAnchor="middle"))
-    d.add(String(W / 2, H - 24, "Significant Events — Splice Feature Summary",
-                 fontSize=6.5, fontName="Helvetica-Oblique",
-                 fillColor=_colors.HexColor("#64748b"), textAnchor="middle"))
 
     # ── Helper: significance star ──
     def _star(feature: str) -> bool:
@@ -2359,6 +2359,7 @@ def _build_pdf(
             comparison,
             comparison["significant"],
             comparison["not_significant"],
+            group1_label=group1_label,
         )
         if _schem:
             _save_svg(_schem, f"sec{section_n - 1:02d}_summary_schematic")
@@ -2366,15 +2367,15 @@ def _build_pdf(
                 _schem,
                 sp(0.15),
                 caption(
-                    "Summary schematic of the exon-skipping architecture with consensus "
-                    "splice-site sequences. Red stars (★) indicate features for which a "
-                    "statistically significant difference (p &lt; 0.05) was observed between "
-                    "significant and non-significant events. Each feature was tested "
-                    "individually (Welch's t-test for continuous variables; two-proportion "
-                    "z-test for categorical variables). This figure is a schematic overview "
-                    "of all parameters compared independently and does not presume any "
-                    "correlation or causal link between significant differences — no "
-                    "multiparametric or correlation test was performed."
+                    f"Schematic representation of skipped-exon features in significant events "
+                    f"identified in {group1_label} subjects. Consensus splice-site sequences, "
+                    f"PPT score, reading frame, and branch-point detection rate are shown. "
+                    f"Red stars (★) indicate features for which a statistically significant "
+                    f"difference (p &lt; 0.05) was found compared to background events "
+                    f"(non-significant exon-skipping events, filtered by FDR and ΔΨ thresholds). "
+                    f"Each feature was tested individually (Welch's t-test for continuous "
+                    f"variables; two-proportion z-test for categorical variables). "
+                    f"No correlation between features and no multiparametric test was performed."
                 ),
             ]))
         story.append(sp())

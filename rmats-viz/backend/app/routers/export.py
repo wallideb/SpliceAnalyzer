@@ -409,7 +409,7 @@ from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
     PageBreak, HRFlowable, KeepTogether,
 )
-from reportlab.graphics.shapes import Drawing, Rect, String, Line, Group, PolyLine, Circle
+from reportlab.graphics.shapes import Drawing, Rect, String, Line, Group, PolyLine
 from reportlab.graphics import renderSVG as _renderSVG
 from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.pdfbase import pdfmetrics as _pdfmetrics
@@ -1313,16 +1313,20 @@ def _fig_summary_schematic(
                          fontSize=5, fontName="Helvetica-Bold",
                          fillColor=CLR_SIG, textAnchor="start"))
 
-    # ── Branch point circle ──
+    # ── Branch point text annotation (below PPT bar, no circle) ──
     bp_pct = sig_data.get("bp_found_pct")
-    bp_x = ppt_x1 + ppt_w * 0.38  # ~38% along PPT bar
-    bp_cy = PPT_Y + PPT_H / 2
-    bp_clr = CLR_BP if (bp_pct is not None and bp_pct > 50) else _colors.HexColor("#94a3b8")
-    d.add(Circle(bp_x, bp_cy, 3, fillColor=bp_clr, strokeColor=_colors.white, strokeWidth=0.5))
-    bp_label = f"BP {bp_pct:.0f}%" if bp_pct is not None else "BP"
-    d.add(String(bp_x, PPT_Y + PPT_H + 12, bp_label,
-                 fontSize=5, fontName="Helvetica", fillColor=bp_clr, textAnchor="middle"))
-    _add_star(bp_x + 14, PPT_Y + PPT_H + 11, "bp_found")
+    bp_test = test_map.get("bp_found")
+    bp_is_sig = bp_test is not None and bp_test.get("significant", False)
+    bp_pval = bp_test.get("p_value") if bp_test else None
+    if bp_pct is not None:
+        if bp_is_sig and bp_pval is not None:
+            bp_label = f"BP found: {bp_pct:.0f}% ★ (p={bp_pval:.2e})"
+        else:
+            bp_label = f"BP found: {bp_pct:.0f}% (ns)"
+        bp_clr = CLR_BP if bp_is_sig else _colors.HexColor("#64748b")
+        bp_text_x = ppt_x1 + ppt_w / 2
+        d.add(String(bp_text_x, PPT_Y + PPT_H + 12, bp_label,
+                     fontSize=5, fontName="Helvetica", fillColor=bp_clr, textAnchor="middle"))
 
     # ── Frame badge (below skipped exon) ──
     FRAME_Y = 158
@@ -1368,7 +1372,7 @@ def _fig_summary_schematic(
         (CLR_SKIP, "■", "Skipped exon"),
         (_colors.HexColor("#a78bfa"), "---", "Skipping arc"),
         (CLR_PPT, "■", "PPT score"),
-        (CLR_BP, "●", "Branch point"),
+        (CLR_BP, "BP", "Branch point (YNYURAY) detection rate"),
     ]
     leg_x = 20
     for clr, symbol, label in leg_items:

@@ -1234,13 +1234,22 @@ def _fig_summary_schematic(
                      fillColor=_colors.HexColor("#475569"), textAnchor="middle"))
         return box_w
 
-    # Row Y positions for the 4 sequence boxes (below exons, well spaced)
-    # Row 1: upstream 5'SS + skipped 3'SS (donors/acceptors of intron 1)
-    # Row 2: skipped 5'SS + downstream 3'SS (donors/acceptors of intron 2)
-    SEQ_ROW1_Y = EXON_Y - SEQ_BOX_H - 16
-    SEQ_ROW2_Y = SEQ_ROW1_Y - SEQ_BOX_H - 28
+    # ── Frame badge (directly under the skipped exon) ──
+    FRAME_Y = EXON_Y - 20
+    FRAME_X = (SK_X1 + SK_X2) / 2
+    sig_n = max(sig_data.get("n_se_with_features", 1), 1)
+    sig_if_pct = sig_data.get("frame_in_frame", 0) / sig_n * 100
+    frame_str = f"In-frame: {sig_if_pct:.0f}%"
+    d.add(Rect(FRAME_X - 40, FRAME_Y, 80, 14,
+               fillColor=_colors.HexColor("#1e293b"), strokeColor=None, rx=3, ry=3))
+    d.add(String(FRAME_X, FRAME_Y + 3, frame_str,
+                 fontSize=6, fontName="Helvetica-Bold",
+                 fillColor=_colors.HexColor("#86efac"), textAnchor="middle"))
+    _add_star_pval(FRAME_X + 48, FRAME_Y + 2, "in_frame_pct", anchor="start")
 
-    # --- Row 1: Upstream 5'SS (donor) centred on UP_X2 junction ---
+    # ── Row 1: Upstream 5'SS + Skipped 3'SS (below frame badge) ──
+    SEQ_ROW1_Y = FRAME_Y - SEQ_BOX_H - 16
+
     up_donor_cons = sig_data.get("upstream_donor_consensus") or nonsig_data.get("upstream_donor_consensus")
     if up_donor_cons:
         n = len(up_donor_cons)
@@ -1251,7 +1260,6 @@ def _fig_summary_schematic(
                       "Upstream 5'SS (donor)", canonical_pos={3, 4})
         _add_star_pval(box_x + bw + 6, SEQ_ROW1_Y + 2, "upstream_canonical_gt", anchor="start")
 
-    # --- Row 1: Skipped exon 3'SS (acceptor) centred on SK_X1 junction ---
     sk_acc_cons = sig_data.get("acceptor_consensus") or nonsig_data.get("acceptor_consensus")
     if sk_acc_cons:
         n = len(sk_acc_cons)
@@ -1263,7 +1271,9 @@ def _fig_summary_schematic(
                       width=acc_w)
         _add_star_pval(acc_x + acc_w + 6, SEQ_ROW1_Y + 2, "canonical_ag", anchor="start")
 
-    # --- Row 2: Skipped exon 5'SS (donor) centred on SK_X2 junction ---
+    # ── Row 2: Skipped 5'SS + Downstream 3'SS ──
+    SEQ_ROW2_Y = SEQ_ROW1_Y - SEQ_BOX_H - 28
+
     sk_don_cons = sig_data.get("donor_consensus") or nonsig_data.get("donor_consensus")
     if sk_don_cons:
         n = len(sk_don_cons)
@@ -1274,7 +1284,6 @@ def _fig_summary_schematic(
                       "Skipped exon 5'SS (donor)", canonical_pos={3, 4})
         _add_star_pval(don_x + bw + 6, SEQ_ROW2_Y + 2, "canonical_gt", anchor="start")
 
-    # --- Row 2: Downstream 3'SS (acceptor) centred on DN_X1 junction ---
     dn_acc_cons = sig_data.get("downstream_acceptor_consensus") or nonsig_data.get("downstream_acceptor_consensus")
     if dn_acc_cons:
         n = len(dn_acc_cons)
@@ -1302,7 +1311,7 @@ def _fig_summary_schematic(
         d.add(PolyLine([DN_X1, EXON_Y, DN_X1, SEQ_ROW2_Y + SEQ_BOX_H],
                         strokeColor=CONN_CLR, strokeWidth=0.6, strokeDashArray=DASH))
 
-    # ── PPT bar (in the upstream intron area, below sequences) ──
+    # ── PPT bar (below sequences, left side) ──
     PPT_Y = SEQ_ROW2_Y - 38
     PPT_H = 8
     ppt_left = M_L
@@ -1322,20 +1331,37 @@ def _fig_summary_schematic(
     d.add(String(ppt_left + ppt_w / 2, PPT_Y + PPT_H + 5,
                  ppt_label, fontSize=6, fontName="Helvetica",
                  fillColor=_colors.HexColor("#92400e"), textAnchor="middle"))
-    d.add(String(ppt_left + ppt_w / 2, PPT_Y - 9,
+
+    # T content and C content directly below the PPT bar
+    ppt_center_x = ppt_left + ppt_w / 2
+    ppt_t = sig_data.get("ppt_mean_t_content")
+    ppt_c = sig_data.get("ppt_mean_c_content")
+    tc_y = PPT_Y - 10
+    tc_parts: list[str] = []
+    if ppt_t is not None:
+        tc_parts.append(f"T: {ppt_t * 100:.0f}%")
+    if ppt_c is not None:
+        tc_parts.append(f"C: {ppt_c * 100:.0f}%")
+    if tc_parts:
+        d.add(String(ppt_center_x, tc_y, "  |  ".join(tc_parts),
+                     fontSize=5.5, fontName="Helvetica",
+                     fillColor=_colors.HexColor("#64748b"), textAnchor="middle"))
+    # T/C significance stars next to each metric
+    tc_star_y = tc_y - 10
+    tc_feats = [("ppt_score", "PPT score"), ("ppt_t_content", "T content"), ("ppt_c_content", "C content")]
+    sig_tc = [(f, lbl) for f, lbl in tc_feats if _star(f)]
+    if sig_tc:
+        star_str = "  ".join(f"★ {lbl}" for _, lbl in sig_tc)
+        d.add(String(ppt_center_x, tc_star_y, star_str,
+                     fontSize=5.5, fontName="Helvetica-Bold",
+                     fillColor=CLR_SIG, textAnchor="middle"))
+
+    d.add(String(ppt_center_x, tc_star_y - 10 if sig_tc else tc_y - 10,
                  "Polypyrimidine tract", fontSize=5.5, fontName="Helvetica-Oblique",
                  fillColor=_colors.HexColor("#64748b"), textAnchor="middle"))
 
-    # PPT significance markers (right of PPT bar)
-    ppt_star_x = ppt_left + ppt_w + 10
-    for feat, dy in [("ppt_score", 0), ("ppt_t_content", -10), ("ppt_c_content", -20)]:
-        if _star(feat):
-            label = {"ppt_score": "PPT score", "ppt_t_content": "T content", "ppt_c_content": "C content"}[feat]
-            d.add(String(ppt_star_x, PPT_Y + dy, f"★ {label}",
-                         fontSize=5.5, fontName="Helvetica-Bold",
-                         fillColor=CLR_SIG, textAnchor="start"))
-
-    # ── Branch point text annotation (below PPT bar) ──
+    # ── Branch point text annotation (below PPT section) ──
+    bp_y = tc_star_y - 20 if sig_tc else tc_y - 20
     bp_pct = sig_data.get("bp_found_pct")
     bp_test = test_map.get("bp_found")
     bp_is_sig = bp_test is not None and bp_test.get("significant", False)
@@ -1346,21 +1372,8 @@ def _fig_summary_schematic(
         else:
             bp_label = f"BP found: {bp_pct:.0f}% (ns)"
         bp_clr = CLR_BP if bp_is_sig else _colors.HexColor("#64748b")
-        d.add(String(ppt_left + ppt_w / 2, PPT_Y + PPT_H + 15, bp_label,
+        d.add(String(ppt_center_x, bp_y, bp_label,
                      fontSize=5.5, fontName="Helvetica", fillColor=bp_clr, textAnchor="middle"))
-
-    # ── Frame badge (right half, same vertical area as PPT) ──
-    FRAME_X = (SK_X1 + SK_X2) / 2
-    FRAME_Y = PPT_Y
-    sig_n = max(sig_data.get("n_se_with_features", 1), 1)
-    sig_if_pct = sig_data.get("frame_in_frame", 0) / sig_n * 100
-    frame_str = f"In-frame: {sig_if_pct:.0f}%"
-    d.add(Rect(FRAME_X - 40, FRAME_Y, 80, 14,
-               fillColor=_colors.HexColor("#1e293b"), strokeColor=None, rx=3, ry=3))
-    d.add(String(FRAME_X, FRAME_Y + 3, frame_str,
-                 fontSize=6, fontName="Helvetica-Bold",
-                 fillColor=_colors.HexColor("#86efac"), textAnchor="middle"))
-    _add_star_pval(FRAME_X + 48, FRAME_Y + 2, "in_frame_pct", anchor="start")
 
     # ── Mean ΔΨ label (top area, below title) ──
     dpsi = sig_data.get("mean_delta_psi")
@@ -2379,7 +2392,6 @@ def _build_pdf(
         # Switch to landscape for the schematic
         story.append(NextPageTemplate("landscape"))
         story.append(PageBreak())
-        story.append(p(f"{section_n}. Summary Schematic", "h2"))
         section_n += 1
         _schem = _fig_summary_schematic(
             comparison,
@@ -2390,6 +2402,8 @@ def _build_pdf(
         if _schem:
             _save_svg(_schem, f"sec{section_n - 1:02d}_summary_schematic")
             story.append(KeepTogether([
+                p(f"{section_n - 1}. Summary Schematic", "h2"),
+                sp(0.15),
                 _schem,
                 sp(0.15),
                 caption(

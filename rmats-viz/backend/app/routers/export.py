@@ -1067,7 +1067,7 @@ def _fig_summary_schematic(
 
     # ── Layout constants ──
     W = 680
-    H = 420
+    H = 400
 
     # Vertical zones (top-down):
     #   title          H-14
@@ -1269,7 +1269,7 @@ def _fig_summary_schematic(
         _draw_seq_box(acc_x, SEQ_ROW1_Y, sk_acc_cons,
                       "Skipped exon 3'SS (acceptor)", canonical_pos={18, 19},
                       width=acc_w)
-        _add_star_pval(acc_x + acc_w + 6, SEQ_ROW1_Y + 2, "canonical_ag", anchor="start")
+        _add_star_pval(acc_x + acc_w / 2, SEQ_ROW1_Y - 12, "canonical_ag")
 
     # ── Row 2: Skipped 5'SS + Downstream 3'SS ──
     SEQ_ROW2_Y = SEQ_ROW1_Y - SEQ_BOX_H - 28
@@ -1383,24 +1383,6 @@ def _fig_summary_schematic(
                      fontSize=7, fontName="Helvetica-Bold",
                      fillColor=_colors.HexColor("#1e3a5f"), textAnchor="middle"))
         _add_star_pval(W / 2 + 45, H - 37, "mean_delta_psi")
-
-    # ── Legend (bottom) ──
-    LEG_Y = 16
-    leg_items = [
-        (CLR_SIG, "★", "Significant (p < 0.05)"),
-        (CLR_FLANK, "■", "Flanking exon"),
-        (CLR_SKIP, "■", "Skipped exon"),
-        (_colors.HexColor("#a78bfa"), "---", "Skipping arc"),
-        (CLR_PPT, "■", "PPT score"),
-        (CLR_BP, "BP", "Branch point"),
-    ]
-    leg_x = 20
-    for clr, symbol, label in leg_items:
-        d.add(String(leg_x, LEG_Y, symbol, fontSize=6, fontName="Helvetica-Bold",
-                     fillColor=clr, textAnchor="start"))
-        d.add(String(leg_x + 12, LEG_Y, label, fontSize=6, fontName="Helvetica",
-                     fillColor=_colors.HexColor("#475569"), textAnchor="start"))
-        leg_x += 12 + _pdfmetrics.stringWidth(label, "Helvetica", 6) + 16
 
     return d
 
@@ -2401,11 +2383,28 @@ def _build_pdf(
         )
         if _schem:
             _save_svg(_schem, f"sec{section_n - 1:02d}_summary_schematic")
+            _legend_html = (
+                '<font size="6">'
+                '<font color="#dc2626"><b>★</b></font> Significant (p &lt; 0.05) &nbsp;&nbsp; '
+                '<font color="#94a3b8"><b>■</b></font> Flanking exon &nbsp;&nbsp; '
+                '<font color="#6366f1"><b>■</b></font> Skipped exon &nbsp;&nbsp; '
+                '<font color="#a78bfa"><b>---</b></font> Skipping arc &nbsp;&nbsp; '
+                '<font color="#f59e0b"><b>■</b></font> PPT score &nbsp;&nbsp; '
+                '<font color="#22c55e"><b>BP</b></font> Branch point'
+                '</font>'
+            )
+            _legend_style = ParagraphStyle(
+                "SchematicLegend", parent=S["small"],
+                fontSize=6, leading=8, alignment=TA_CENTER,
+                textColor=_colors.HexColor("#475569"),
+            )
             story.append(KeepTogether([
                 p(f"{section_n - 1}. Summary Schematic", "h2"),
                 sp(0.15),
                 _schem,
-                sp(0.15),
+                sp(0.1),
+                Paragraph(_legend_html, _legend_style),
+                sp(0.1),
                 caption(
                     f"Schematic representation of skipped-exon features in significant events "
                     f"identified in {group1_label} subjects. Consensus splice-site sequences, "

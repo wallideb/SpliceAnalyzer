@@ -361,7 +361,12 @@ def _welch_t_test(vals1: list[float], vals2: list[float]) -> tuple[float | None,
         return None, None
     t_stat = (m1 - m2) / math.sqrt(se2)
     # Two-tailed p-value: 2 * P(T ≥ |t|)
-    p = min(1.0, 2.0 * _t_upper_tail(abs(t_stat), df))
+    try:
+        p = min(1.0, 2.0 * _t_upper_tail(abs(t_stat), df))
+    except ArithmeticError:
+        # Regularized beta continued fraction did not converge —
+        # return t-stat without a p-value rather than crashing.
+        return t_stat, None
     return t_stat, p
 
 

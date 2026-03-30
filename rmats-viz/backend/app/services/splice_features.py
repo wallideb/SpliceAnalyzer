@@ -255,13 +255,13 @@ def compute_features(
     d = windows.donor_seq.upper()
     a = windows.acceptor_seq.upper()
     res.donor_is_gt    = (len(d) >= 5 and d[3:5] == "GT")
-    res.acceptor_is_ag = (len(a) >= 21 and a[18:20] == "AG")
+    res.acceptor_is_ag = (len(a) >= 23 and a[18:20] == "AG")
 
     # Flanking exon GT-AG
     ud = windows.upstream_donor_seq.upper()
     da = windows.downstream_acceptor_seq.upper()
     res.upstream_donor_is_gt       = (len(ud) >= 5 and ud[3:5] == "GT") if ud else None
-    res.downstream_acceptor_is_ag  = (len(da) >= 21 and da[18:20] == "AG") if da else None
+    res.downstream_acceptor_is_ag  = (len(da) >= 23 and da[18:20] == "AG") if da else None
 
     # PPT
     if windows.ppt_seq:

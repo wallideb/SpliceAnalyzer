@@ -644,7 +644,7 @@ function GeneSymbolWithTooltip({
 
 /** Returns a direction badge for SE exon-skipping events based on ΔΨ sign.
  *  Always names the group that has MORE skipping so the label reads
- *  "↑ Exon skipping in patients" (en) / "↑ Saut chez patients" (fr).
+ *  "↑ Exon skipping in subjects" (en) / "↑ Saut chez sujets" (fr).
  */
 function SEDirectionBadge({
   delta,
@@ -661,7 +661,7 @@ function SEDirectionBadge({
 }) {
   if (eventType !== "SE" || delta === null || delta === undefined || delta === 0) return null;
   const moreSkippingLabel = delta < 0 ? group1Label : group2Label;
-  // ΔΨ < 0 → more skipping in group 1 (patients) → RED
+  // ΔΨ < 0 → more skipping in group 1 (subjects) → RED
   // ΔΨ > 0 → more skipping in group 2 (controls) → BLUE
   const colorClasses = delta < 0
     ? "text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800"

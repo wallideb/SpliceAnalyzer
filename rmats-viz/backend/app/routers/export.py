@@ -1057,8 +1057,9 @@ def _fig_summary_schematic(
 
     # Vertical zones (top→bottom in ReportLab coords, 0=bottom):
     #   H-18   title
-    #   H-40   mean ΔΨ
-    #   ~310   arc top
+    #   ~343   "exon skipping" label (above arc)
+    #   ~335   arc top
+    #   ~315   mean ΔΨ (under arc, above exon)
     #   270    intron labels
     #   EXON_Y exon row (height EXON_H)
     #   ~200   frame badge
@@ -1134,15 +1135,6 @@ def _fig_summary_schematic(
             d.add(String(x, y - 10, pv_str, fontSize=6, fontName="Helvetica",
                          fillColor=CLR_SIG, textAnchor=anchor))
 
-    # ── Mean ΔΨ (below title bar) ──
-    dpsi = sig_data.get("mean_delta_psi")
-    if dpsi is not None:
-        dpsi_str = f"Mean ΔΨ: {dpsi:+.3f}"
-        d.add(String(W / 2, H - 42, dpsi_str,
-                     fontSize=8, fontName="Helvetica-Bold",
-                     fillColor=_colors.HexColor("#1e3a5f"), textAnchor="middle"))
-        _add_star_pval(W / 2 + 52, H - 43, "mean_delta_psi")
-
     # ── Exons (rounded rectangles with shadow effect) ──
     for ex1, ex2, ew, label_top, label_bot, clr, fs in [
         (UP_X1, UP_X2, FLANK_W, "Upstream", "exon", CLR_FLANK, 8),
@@ -1197,6 +1189,16 @@ def _fig_summary_schematic(
     d.add(String((UP_X2 + DN_X1) / 2, arc_base + arc_height + 8,
                  "exon skipping", fontSize=8, fontName="Helvetica-Oblique",
                  fillColor=_colors.HexColor("#7c3aed"), textAnchor="middle"))
+
+    # ── Mean ΔΨ (just under the arc, above skipped exon) ──
+    dpsi = sig_data.get("mean_delta_psi")
+    if dpsi is not None:
+        dpsi_y = arc_base + arc_height - 20
+        dpsi_str = f"Mean ΔΨ: {dpsi:+.3f}"
+        d.add(String(W / 2, dpsi_y, dpsi_str,
+                     fontSize=8, fontName="Helvetica-Bold",
+                     fillColor=_colors.HexColor("#1e3a5f"), textAnchor="middle"))
+        _add_star_pval(W / 2 + 52, dpsi_y - 1, "mean_delta_psi")
 
     # ── Exon size ★ ──
     _add_star_pval((SK_X1 + SK_X2) / 2, EXON_Y + EXON_H + 18, "exon_size")
@@ -2428,6 +2430,27 @@ def _build_pdf(
     story += [
         p("Appendix A — Pipeline Methodology", "h2"),
         hr(),
+    ]
+
+    # ── Introductory paragraph: raw file preprocessing ──
+    _n = _next_app_a()
+    story += [
+        p(f"<b>{_n}. Input Preprocessing — Coverage Filtering &amp; Deduplication</b>", "h3"),
+        p("Upon import, each rMATS output file (<i>.MATS.JC.txt</i>) undergoes three "
+          "successive preprocessing steps before any downstream analysis:", "body"),
+        p("• <b>Coverage filtering:</b> For each event, the mean per-replicate "
+          "junction coverage (IJC + SJC) is computed in both sample groups. Events "
+          "whose mean coverage falls below <b>10 reads</b> in either group are "
+          "discarded to ensure reliable Ψ estimates.", "body"),
+        p("• <b>Exact deduplication:</b> Events sharing identical genomic coordinates "
+          "(event type, gene, chromosome, strand, exon and flanking-exon boundaries) "
+          "are collapsed. The representative event is selected by lowest FDR, then by "
+          "highest |ΔΨ|.", "body"),
+        p("• <b>Overlap-based deduplication:</b> Within each gene and strand, events "
+          "whose exon boundaries lie within <b>50 bp</b> of a more-significant event "
+          "are removed, retaining only the most significant event per cluster.", "body"),
+        p("These steps reduce redundancy and low-confidence calls, yielding a curated "
+          "set of splicing events that is used throughout the rest of the pipeline.", "body"),
     ]
 
     if {"a", "b"} & selected_sections:

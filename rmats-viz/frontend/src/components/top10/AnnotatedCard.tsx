@@ -45,7 +45,7 @@ interface AnnotatedCardProps {
   mutatedGenes: GeneEntry[];
   /** Analysis UUID — needed by SpliceView to trigger bulk feature computation. */
   analysisId?: string;
-  /** Group labels (e.g. "Patients" / "Contrôles") for direction-of-effect badges. */
+  /** Group labels (e.g. "Subjects" / "Contrôles") for direction-of-effect badges. */
   group1Label?: string;
   group2Label?: string;
   /** 1-based display rank for sorting feedback. */

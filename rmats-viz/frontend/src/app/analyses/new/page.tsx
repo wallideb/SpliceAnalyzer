@@ -13,7 +13,7 @@ export default function NewAnalysisPage() {
   const t = useT();
   const [name, setName] = useState("");
   const [files, setFiles] = useState<File[]>([]);
-  const [group1Label, setGroup1Label] = useState("Patients");
+  const [group1Label, setGroup1Label] = useState("Subjects");
   const [group2Label, setGroup2Label] = useState("Controls");
   const [mutatedGenes, setMutatedGenes] = useState<GeneEntry[]>([]);
   const [loading, setLoading] = useState(false);

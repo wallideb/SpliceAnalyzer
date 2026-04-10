@@ -57,7 +57,7 @@ interface Top10ViewProps {
   activeModules?: Set<string>;
   /** Analysis UUID — passed to AnnotatedCard (splice view) and MotifPatternPanel. */
   analysisId?: string;
-  /** Group labels for direction-of-effect badges (e.g. "Patients" / "Contrôles"). */
+  /** Group labels for direction-of-effect badges (e.g. "Subjects" / "Contrôles"). */
   group1Label?: string;
   group2Label?: string;
   /** Deep analysis ID — restricts MotifPatternPanel to significant events. */

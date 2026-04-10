@@ -100,7 +100,7 @@ async def _do_delete(analysis_id: uuid.UUID) -> None:
 @router.post("", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
 async def create_analysis(
     name: str = Form(...),
-    group1_label: str = Form("Patients"),
+    group1_label: str = Form("Subjects"),
     group2_label: str = Form("Controls"),
     group1_samples: str = Form("[]"),
     group2_samples: str = Form("[]"),

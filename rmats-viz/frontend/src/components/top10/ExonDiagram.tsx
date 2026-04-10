@@ -302,7 +302,7 @@ export function ExonDiagram({
   const [hoveredEl, setHoveredEl] = useState<"donor" | "acceptor" | "ppt" | "bp" | "upDonor" | "dnAcceptor" | null>(null);
 
   const delta    = incLevelDifference ?? 0;
-  // ΔΨ < 0 → more exon skipping in group 1 (patients) → RED
+  // ΔΨ < 0 → more exon skipping in group 1 (subjects) → RED
   // ΔΨ > 0 → more exon skipping in group 2 (controls) → BLUE
   const arcColor = delta < 0 ? COLOR_RED : COLOR_BLUE;
   const arcWidth = Math.max(2, Math.min(6, 2 + Math.abs(delta) * 6));

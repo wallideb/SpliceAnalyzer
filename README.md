@@ -451,14 +451,15 @@ Click the **Export PDF** button to open the **section selector modal**, which le
 
 The **Appendix A — Pipeline Methodology** section of the PDF covers:
 
-1. **Splicing event detection** — rMATS likelihood-ratio test, JC vs JCEC modes
-2. **Splice site annotation** — 5'SS/3'SS window extraction, GT-AG canonical check, PPT scoring, branch-point YNYURAY motif search (with the 15 nt minimum distance filter from the 3'SS)
-3. **Sequence logos** — Frequency-mode PWM rendering (no information-content scaling)
-4. **Reading frame classification** — MANE Select transcript mapping, in_frame/frameshift/non_coding classes, NMD caveat note (PTC > 50 nt upstream rule)
-5. **MANE Select annotation** — Local GFF3 lookup with Ensembl REST fallback, exon boundary correction (overlap and flanking strategies)
-6. **Deep analysis** *(when linked)* — Welch's t-test and two-proportion z-test for group comparison, permutation testing with Phipson & Smyth correction
-7. **hnRNP motif enrichment** *(when linked)* — rMAPS2-inspired framework, five genomic regions, 19 motifs, BH FDR correction
-8. **Pathway enrichment** *(when linked)* — Enrichr submission and library results
+1. **Input preprocessing** — Coverage filtering (≥ 10X mean junction coverage per group), exact-coordinate deduplication (lowest FDR), and overlap-based deduplication (50 bp window, most significant retained)
+2. **Splicing event detection** — rMATS likelihood-ratio test, JC vs JCEC modes
+3. **Splice site annotation** — 5'SS/3'SS window extraction, GT-AG canonical check, PPT scoring, branch-point YNYURAY motif search (with the 15 nt minimum distance filter from the 3'SS)
+4. **Sequence logos** — Frequency-mode PWM rendering (no information-content scaling)
+5. **Reading frame classification** — MANE Select transcript mapping, in_frame/frameshift/non_coding classes, NMD caveat note (PTC > 50 nt upstream rule)
+6. **MANE Select annotation** — Local GFF3 lookup with Ensembl REST fallback, exon boundary correction (overlap and flanking strategies)
+7. **Deep analysis** *(when linked)* — Welch's t-test and two-proportion z-test for group comparison, permutation testing with Phipson & Smyth correction
+8. **hnRNP motif enrichment** *(when linked)* — rMAPS2-inspired framework, five genomic regions, 19 motifs, BH FDR correction
+9. **Pathway enrichment** *(when linked)* — Enrichr submission and library results
 
 > Sequence logos in the PDF use **frequency mode**: every column fills the full height and letter height is proportional to raw nucleotide frequency, matching the web app display.
 

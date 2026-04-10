@@ -25,7 +25,7 @@ export function GroupMappingDialog({
           value={group1Label}
           onChange={(e) => onGroup1Change(e.target.value)}
           className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 transition-shadow"
-          placeholder="Ex : Patients PCBP1"
+          placeholder="Ex : Subjects PCBP1"
         />
         <p className="text-xs text-muted-foreground mt-1">Porteurs de variants / cohorte cas</p>
       </div>

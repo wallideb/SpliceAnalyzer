@@ -29,7 +29,7 @@ class SampleGroupResponse(BaseModel):
 
 class AnalysisCreate(BaseModel):
     name: str
-    group1_label: str = "Patients PCBP1"
+    group1_label: str = "Subjects PCBP1"
     group2_label: str = "Contrôles"
     group1_samples: list[str] = []
     group2_samples: list[str] = []

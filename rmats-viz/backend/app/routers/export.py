@@ -2264,18 +2264,16 @@ def _build_pdf(
                 ])
             enr_tbl = _make_tbl(enr_rows, [1.0*_cm, 7.5*_cm, 1.8*_cm, 2.2*_cm, 2.7*_cm], S)
             story += [enr_tbl, sp(0.2)]
-            # List genes from significant terms (adj. p < 0.05)
-            sig_genes: list[str] = []
+            # List genes per significant term (adj. p < 0.05)
             for term in top_terms:
-                if term.get("adjusted_p_value", 1.0) < 0.05:
-                    sig_genes.extend(term.get("genes", []))
-            if sig_genes:
-                unique_genes = sorted(set(sig_genes))
-                story.append(p(
-                    f"<b>Genes in significant pathways:</b> {', '.join(unique_genes)}",
-                    "small",
-                ))
-                story.append(sp(0.15))
+                if term.get("adjusted_p_value", 1.0) < 0.05 and term.get("genes"):
+                    genes_sorted = sorted(term["genes"])
+                    term_name = str(term.get("term", "—"))
+                    story.append(p(
+                        f"<b>{term_name}:</b> {', '.join(genes_sorted)}",
+                        "small",
+                    ))
+            story.append(sp(0.15))
         story.append(p(
             "FDR-adjusted p-values use the Benjamini-Hochberg method (Enrichr internal correction). "
             "Top 5 terms per library shown. <b>&#9733;</b> Adj. p-value &lt; 0.05.",

@@ -129,7 +129,7 @@ A second-pass module that partitions events into **significant** and **non-signi
 
 ### Export
 
-- **PDF report** &mdash; Multi-page PDF report with a **section selector modal** for choosing which sections to include. Sections: analysis summary, significant SE events with splice feature tables, deep analysis sections (hnRNP motif enrichment, pathway enrichment with significant p-values bolded and starred, pattern comparison, summary schematic on a landscape page), frequency-mode sequence logos, methodology appendix, bibliographic references, and statistical methods. Optionally includes deep analysis results when a deep analysis object is linked
+- **PDF report** &mdash; Multi-page PDF report with a **section selector modal** for choosing which sections to include. Sections: analysis summary, significant SE events with splice feature tables, deep analysis sections (hnRNP motif enrichment, pathway enrichment with significant p-values bolded and starred, pattern comparison, summary schematic on a landscape page), frequency-mode sequence logos, methodology appendix, bibliographic references (numbered in order of first appearance; the hnRNP-only references `[11]`–`[28]` are appended only when the hnRNP panel is selected), and statistical methods. Each report ends with a closing note pointing to the SpliceAnalyzer repository for full documentation and methodology. Optionally includes deep analysis results when a deep analysis object is linked
 - **Excel export (deep analysis only)** &mdash; Interactive modal for selecting annotation column groups (`core`, `panelapp`, `go`, `stringdb`) before download; optional groups are fetched in parallel at export time
 
 ### Scientific Provenance
@@ -446,8 +446,9 @@ Click the **Export PDF** button to open the **section selector modal**, which le
 | Pathway Enrichment | Top 5 terms per library; adjusted p-values &lt; 0.05 are **bolded and starred (★)** for quick identification (when deep analysis present) |
 | Summary Schematic | Landscape-page exon-intron architecture diagram with consensus splice-site sequences, PPT, branch-point, in-frame %, intron sizes, mean ΔΨ, and per-feature significance markers (★) (when deep analysis present) |
 | Appendix A | Pipeline methodology (see below) |
-| Appendix B | Bibliographic references |
+| Appendix B | Bibliographic references — entries `[1]`–`[10]` are always emitted (one per citation in the always-on sections) and `[11]`–`[28]` are appended only when the hnRNP enrichment panel is selected. See `HNRNP_REMOVED_REFERENCES.md` for the canonical list of conditional entries |
 | Appendix C | Statistical methods |
+| Closing note | Italicised paragraph pointing to the SpliceAnalyzer repository for full documentation and methodology |
 
 The **Appendix A — Pipeline Methodology** section of the PDF covers:
 

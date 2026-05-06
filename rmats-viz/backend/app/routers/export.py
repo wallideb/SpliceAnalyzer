@@ -2567,7 +2567,7 @@ def _build_pdf(
         story += [
             p(f"<b>{_n}. hnRNP Motif Enrichment Analysis</b>", "h3"),
             p("RNA-binding protein (RBP) motif enrichment is computed in a rMAPS2-inspired "
-              "framework (Hwang et al., 2020 [8]). For each SE event five flanking regions are "
+              "framework (Hwang et al., 2020 [11]). For each SE event five flanking regions are "
               "extracted from GRCh38 (samtools faidx): upstream exon (up to 250 nt), upstream "
               "intron (up to 250 nt after excluding the 6-nt 5'SS signal), skipped exon (full "
               "sequence), downstream intron (up to 250 nt after excluding the 6-nt 5'SS signal), "
@@ -2583,10 +2583,10 @@ def _build_pdf(
               "reflects the events that actually contributed sequence for that region.", "body"),
             p("Nineteen consensus motifs for eight protein families (hnRNP A1/A2, E (PCBP1/E1 "
               "and PCBP2/E2), F/H, K, C, L, M, PTB/I) are matched using IUPAC-degenerate pattern "
-              "search derived from CISBP-RNA (Ray et al., 2013 [11]), Martinez-Contreras et al. "
-              "(2006 [14]), and for hnRNP E (PCBP1/E1 CCWWHCC = CC[AT][AT][ACT]CC; PCBP2/E2 CCYYCCH = "
+              "search derived from CISBP-RNA (Ray et al., 2013 [12]), Martinez-Contreras et al. "
+              "(2006 [13]), and for hnRNP E (PCBP1/E1 CCWWHCC = CC[AT][AT][ACT]CC; PCBP2/E2 CCYYCCH = "
               "CC[CT][CT]CC[ACT], both from rMAPS2 Supplementary Table S2, Homo sapiens): "
-              "Chkheidze et al. (1999 [12]) and Makeyev &amp; Liebhaber (2002 [13]). "
+              "Chkheidze et al. (1999 [14]) and Makeyev &amp; Liebhaber (2002 [15]). "
               "For each motif-region pair, the hit rate (fraction of events with ≥ 1 match) is "
               "compared between the significant and background groups using a two-proportion z-test "
               "(pooled proportion). Benjamini-Hochberg FDR correction is applied across all 95 "
@@ -2613,7 +2613,7 @@ def _build_pdf(
             p("• <b>hnRNP A1/A2:</b> ESS in exons, ISS in introns — "
               "Zhu et al. 2001 [16]; Damgaard et al. 2002 [17]; Kashima et al. 2007 [18]", "body"),
             p("• <b>hnRNP F/H:</b> ESS in exons, ISE in downstream intron — "
-              "Martinez-Contreras et al. 2006 [14]; Chen et al. 1999 [19]; Erkelenz et al. 2013 [20]", "body"),
+              "Martinez-Contreras et al. 2006 [13]; Chen et al. 1999 [19]; Erkelenz et al. 2013 [20]", "body"),
             p("• <b>hnRNP C:</b> ESS in skipped exon, ISE in upstream intron — "
               "König et al. 2010 [21]; Zarnack et al. 2013 [22]", "body"),
             p("• <b>hnRNP L:</b> ESS in skipped exon — "
@@ -2651,12 +2651,20 @@ def _build_pdf(
     story.append(sp())
 
     # ── Appendix B — References ──────────────────────────────────────────────
-    # Ordered by first appearance in the report (hnRNP-only references have
-    # been moved to HNRNP_REMOVED_REFERENCES.md for future reintegration).
+    # [1]–[10] are always emitted (cited by the default report).
+    # [11]–[28] cover the hnRNP enrichment panel and are appended only when
+    # section "e" is included (is_deep and "e" in selected_sections).
     #  [1] Shen 2014       [2] Shapiro 1987    [3] Burge 1997
     #  [4] Coolidge 1997   [5] Morales 2022    [6] Cunningham 2022
     #  [7] Phipson 2010    [8] Chen 2013       [9] Kuleshov 2016
     #  [10] Xie 2021
+    # hnRNP-conditional:
+    #  [11] Hwang 2020         [12] Ray 2013          [13] Martinez-Contreras 2006
+    #  [14] Chkheidze 1999     [15] Makeyev 2002      [16] Zhu 2001
+    #  [17] Damgaard 2002      [18] Kashima 2007      [19] Chen CD 1999
+    #  [20] Erkelenz 2013      [21] König 2010        [22] Zarnack 2013
+    #  [23] House 2006         [24] Hui 2005          [25] Huelga 2012
+    #  [26] Xue 2009           [27] Wagner 2001       [28] Witten 2011
     story.append(PageBreak())
     story += [
         p("Appendix B — Bibliographic References", "h2"),
@@ -2688,8 +2696,70 @@ def _build_pdf(
         p("[10] Xie Z, Bailey A, Kuleshov MV, Clarke DJB, Evangelista JE, Jenkins SL, "
           "Lachmann A, Wojciechowicz ML, Kropiwnicki E, Jagodnik KM, Jeon M, Ma'ayan A. "
           "<i>Gene set knowledge discovery with Enrichr.</i> Curr Protoc. 2021;1(3):e90.", "body"),
-        sp(),
     ]
+
+    # hnRNP-only references — included only when the hnRNP section is rendered.
+    if is_deep and "e" in selected_sections:
+        story += [
+            p("[11] Hwang JY, Jung S, Kook TL, Rouchka EC, Bok J, Park JW. "
+              "<i>rMAPS2: An update of the RNA map analysis and plotting server for "
+              "alternative splicing regulation.</i> Nucleic Acids Res. 2020;48(W1):W300-W306.", "body"),
+            p("[12] Ray D, Kazan H, Cook KB, Weirauch MT, Najafabadi HS, Li X et al. "
+              "<i>A compendium of RNA-binding motifs for decoding gene regulation.</i> "
+              "Nature. 2013;499(7457):172-177.", "body"),
+            p("[13] Martinez-Contreras R, Cloutier P, Shkreta L, Fisette JF, Revil T, Chabot B. "
+              "<i>hnRNP proteins and splicing control.</i> Adv Exp Med Biol. 2007;623:123-147.", "body"),
+            p("[14] Chkheidze AN, Lyakhov DL, Makeyev AV, Morales J, Kong J, Liebhaber SA. "
+              "<i>Assembly of the alpha-globin mRNA stability complex reflects binary "
+              "interaction between the pyrimidine-rich 3' untranslated region determinant "
+              "and poly(C) binding protein alphaCP.</i> Mol Cell Biol. 1999;19(7):4572-4581.", "body"),
+            p("[15] Makeyev AV, Liebhaber SA. "
+              "<i>The poly(C)-binding proteins: a multiplicity of functions and a search "
+              "for mechanisms.</i> RNA. 2002;8(3):265-278.", "body"),
+            p("[16] Zhu J, Mayeda A, Krainer AR. <i>Exon identity established through "
+              "differential antagonism between exonic splicing silencer-bound hnRNP A1 and "
+              "enhancer-bound SR proteins.</i> Mol Cell. 2001;8(6):1351-1361.", "body"),
+            p("[17] Damgaard CK, Tange TØ, Kjems J. <i>hnRNP A1 controls HIV-1 mRNA "
+              "splicing through cooperative binding to intron and exon splicing silencers "
+              "in the context of a conserved secondary structure.</i> RNA. 2002;8(11):1401-1415.", "body"),
+            p("[18] Kashima T, Rao N, David CJ, Manley JL. <i>hnRNP A1 functions with "
+              "specificity in repression of SMN2 exon 7 splicing.</i> Hum Mol Genet. "
+              "2007;16(24):3149-3159.", "body"),
+            p("[19] Chen CD, Kobayashi R, Helfman DM. <i>Binding of hnRNP H to an exonic "
+              "splicing silencer is involved in the regulation of alternative splicing "
+              "of the rat β-tropomyosin gene.</i> Genes Dev. 1999;13(5):593-606.", "body"),
+            p("[20] Erkelenz S, Mueller WF, Evans MS, Busch A, Schöneweis K, Hertel KJ, "
+              "Schaal H. <i>Position-dependent splicing activation and repression by SR "
+              "and hnRNP proteins rely on common mechanisms.</i> RNA. 2013;19(1):96-102.", "body"),
+            p("[21] König J, Zarnack K, Rot G, Curk T, Kayikci M, Zupan B, Turner DJ, "
+              "Luscombe NM, Ule J. <i>iCLIP reveals the function of hnRNP particles in "
+              "splicing at individual nucleotide resolution.</i> Nat Struct Mol Biol. "
+              "2010;17(7):909-915.", "body"),
+            p("[22] Zarnack K, König J, Tajnik M, Martincorena I, Eustermann S, Stévant I, "
+              "Reyes A, Anders S, Luscombe NM, Ule J. <i>Direct competition between hnRNP C "
+              "and U2AF65 protects the transcriptome from the exonization of Alu elements.</i> "
+              "Cell. 2013;152(3):453-466.", "body"),
+            p("[23] House AE, Lynch KW. <i>An exonic splicing silencer represses spliceosome "
+              "assembly after ATP-dependent exon recognition.</i> Nat Struct Mol Biol. "
+              "2006;13(10):937-944.", "body"),
+            p("[24] Hui J, Hung LH, Heiner M, Schreiner S, Neumüller N, Reither G, Haas SA, Bindereif A. "
+              "<i>Intronic CA-repeat and CA-rich elements: a new class of regulators of "
+              "mammalian alternative splicing.</i> EMBO J. 2005;24(11):1988-1998.", "body"),
+            p("[25] Huelga SC, Vu AQ, Arnold JD, Liang TY, Liu PP, Yan BY, Donohue JP, "
+              "Shiue L, Hoon S, Brenner S, Ares M Jr, Yeo GW. <i>Integrative genome-wide "
+              "analysis reveals cooperative regulation of alternative splicing by hnRNP "
+              "proteins.</i> Cell Rep. 2012;1(2):167-178.", "body"),
+            p("[26] Xue Y, Zhou Y, Wu T, Zhu T, Ji X, Kwon YS, Zhang C, Yeo G, Black DL, "
+              "Sun H, Fu XD, Zhang Y. <i>Genome-wide analysis of PTB-RNA interactions "
+              "reveals a strategy used by the general splicing repressor to modulate exon "
+              "inclusion or skipping.</i> Mol Cell. 2009;36(6):996-1006.", "body"),
+            p("[27] Wagner EJ, Garcia-Blanco MA. <i>Polypyrimidine tract binding protein "
+              "antagonizes exon definition.</i> Mol Cell Biol. 2001;21(10):3281-3288.", "body"),
+            p("[28] Witten JT, Ule J. <i>Understanding splicing regulation through RNA "
+              "splicing maps.</i> Trends Genet. 2011;27(3):89-97.", "body"),
+        ]
+
+    story.append(sp())
 
     # ── Appendix C — Statistical Methods ────────────────────────────────────
     # Same mapping logic as Appendix A:

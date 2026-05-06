@@ -1,44 +1,43 @@
-# hnRNP Enrichment Panel — Removed Citations
+# hnRNP Enrichment Panel — Conditional References
 
-This file records the bibliographic references that were removed from the PDF
-report bibliography (`rmats-viz/backend/app/routers/export.py`,
-Appendix B — Bibliographic References) when the hnRNP enrichment panel was
-disabled. The hnRNP body section, Appendix A methodology block, and Appendix C
-statistical-method block remain in the source code (they are conditional on
-`"e" in selected_sections`), but the bibliography no longer lists their
-references because the panel is not currently emitted.
+When the hnRNP enrichment panel is rendered (i.e. `is_deep` is true and the
+user includes section `"e"`), Appendix B of the PDF report appends an
+extra block of 18 references after the always-emitted entries `[1]–[10]`.
+Those entries are listed below as the canonical record (the source of truth
+remains the bibliography block in
+`rmats-viz/backend/app/routers/export.py`).
 
-If the hnRNP enrichment panel is re-enabled, these references must be added
-back into Appendix B in `_build_pdf` (export.py) and the in-text citation
-numbers across the report renumbered consistently. The original numbering
-(used as `[N]` in the source) is preserved below for traceability.
+If the hnRNP panel is dropped or modified, this list — and the in-text
+`[N]` placeholders in the hnRNP body section, the Appendix A methodology
+subsection, and the Appendix C statistical-method subsection — must stay
+synchronised.
 
 ---
 
-## Removed references (original numbering)
+## hnRNP-only references (numbering used in the source)
 
 ```
-[8]  Hwang JY, Jung S, Kook TL, Rouchka EC, Bok J, Park JW.
+[11] Hwang JY, Jung S, Kook TL, Rouchka EC, Bok J, Park JW.
      rMAPS2: An update of the RNA map analysis and plotting server for
      alternative splicing regulation. Nucleic Acids Res. 2020;48(W1):W300-W306.
 
-[11] Ray D, Kazan H, Cook KB, Weirauch MT, Najafabadi HS, Li X et al.
+[12] Ray D, Kazan H, Cook KB, Weirauch MT, Najafabadi HS, Li X et al.
      A compendium of RNA-binding motifs for decoding gene regulation.
      Nature. 2013;499(7457):172-177.
 
-[12] Chkheidze AN, Lyakhov DL, Makeyev AV, Morales J, Kong J, Liebhaber SA.
+[13] Martinez-Contreras R, Cloutier P, Shkreta L, Fisette JF, Revil T, Chabot B.
+     hnRNP proteins and splicing control.
+     Adv Exp Med Biol. 2007;623:123-147.
+
+[14] Chkheidze AN, Lyakhov DL, Makeyev AV, Morales J, Kong J, Liebhaber SA.
      Assembly of the alpha-globin mRNA stability complex reflects binary
      interaction between the pyrimidine-rich 3' untranslated region
      determinant and poly(C) binding protein alphaCP.
      Mol Cell Biol. 1999;19(7):4572-4581.
 
-[13] Makeyev AV, Liebhaber SA.
+[15] Makeyev AV, Liebhaber SA.
      The poly(C)-binding proteins: a multiplicity of functions and a search
      for mechanisms. RNA. 2002;8(3):265-278.
-
-[14] Martinez-Contreras R, Cloutier P, Shkreta L, Fisette JF, Revil T, Chabot B.
-     hnRNP proteins and splicing control.
-     Adv Exp Med Biol. 2007;623:123-147.
 
 [16] Zhu J, Mayeda A, Krainer AR.
      Exon identity established through differential antagonism between exonic
@@ -61,8 +60,7 @@ numbers across the report renumbered consistently. The original numbering
 
 [20] Erkelenz S, Mueller WF, Evans MS, Busch A, Schöneweis K, Hertel KJ,
      Schaal H. Position-dependent splicing activation and repression by SR
-     and hnRNP proteins rely on common mechanisms.
-     RNA. 2013;19(1):96-102.
+     and hnRNP proteins rely on common mechanisms. RNA. 2013;19(1):96-102.
 
 [21] König J, Zarnack K, Rot G, Curk T, Kayikci M, Zupan B, Turner DJ,
      Luscombe NM, Ule J. iCLIP reveals the function of hnRNP particles in
@@ -104,25 +102,23 @@ numbers across the report renumbered consistently. The original numbering
 
 ---
 
-## Where these references are still cited in the source
+## Where each hnRNP reference is cited
 
-The hnRNP code paths in `export.py` retain their original `[N]` placeholders:
-
-- Section E body (gated by `"e" in selected_sections and hnrnp_data`)
-- Appendix A — hnRNP Motif Enrichment Analysis subsection
-  (gated by `is_deep and "e" in selected_sections`)
-- Appendix C — hnRNP two-proportion z-test methods
-  (gated by `is_deep and "e" in selected_sections`)
-
-The cross-section citations actually used by these blocks are
-`[8] [11] [12] [13] [14] [16] [17] [18] [19] [20] [21] [22] [23] [24] [25] [26] [27] [28]`.
-
-## Reintegration checklist
-
-1. Re-add the entries above to Appendix B in `_build_pdf` (export.py).
-2. Choose a renumbering policy that respects "order of first appearance" once
-   the hnRNP section is included (the appearance order changes when section E
-   is rendered).
-3. Update every in-text `[N]` in the body, Appendix A and Appendix C blocks
-   accordingly.
-4. Update the numeric comment header above Appendix B to match the new list.
+- `[11]` Hwang 2020 — Section E body intro; Appendix A (hnRNP intro)
+- `[12]` Ray 2013 — Appendix A (motif sources)
+- `[13]` Martinez-Contreras 2006 — Appendix A (motif sources, hnRNP F/H row)
+- `[14]` Chkheidze 1999 — Appendix A (hnRNP E motif provenance)
+- `[15]` Makeyev 2002 — Appendix A (hnRNP E motif provenance)
+- `[16]` Zhu 2001 — Appendix A regulatory-effect annotations (hnRNP A1/A2)
+- `[17]` Damgaard 2002 — Appendix A regulatory-effect annotations (hnRNP A1/A2)
+- `[18]` Kashima 2007 — Appendix A regulatory-effect annotations (hnRNP A1/A2)
+- `[19]` Chen CD 1999 — Appendix A regulatory-effect annotations (hnRNP F/H)
+- `[20]` Erkelenz 2013 — Appendix A regulatory-effect annotations (hnRNP F/H)
+- `[21]` König 2010 — Appendix A regulatory-effect annotations (hnRNP C)
+- `[22]` Zarnack 2013 — Appendix A regulatory-effect annotations (hnRNP C)
+- `[23]` House 2006 — Appendix A regulatory-effect annotations (hnRNP L)
+- `[24]` Hui 2005 — Appendix A regulatory-effect annotations (hnRNP L)
+- `[25]` Huelga 2012 — Appendix A regulatory-effect annotations (hnRNP M)
+- `[26]` Xue 2009 — Appendix A regulatory-effect annotations (PTB)
+- `[27]` Wagner 2001 — Appendix A regulatory-effect annotations (PTB)
+- `[28]` Witten 2011 — Appendix A regulatory-effect annotations (closing)

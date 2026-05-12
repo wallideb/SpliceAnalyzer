@@ -1,49 +1,10 @@
 """
-Column mappings and composite deduplication keys per rMATS event type.
+Column mappings for rMATS TSV ingestion.
 Handles column name variants produced by different rMATS versions.
 """
 
 # rMATS sometimes uses 'exonStart_0base' (0-based) or 'exonStart'
 # We normalise everything to the _0base name during parsing.
-
-SE_DEDUP_COLS = [
-    "event_type", "gene_id", "chr", "strand",
-    "exon_start", "exon_end",
-    "upstream_es", "upstream_ee",
-    "downstream_es", "downstream_ee",
-]
-
-RI_DEDUP_COLS = [
-    "event_type", "gene_id", "chr", "strand",
-    "exon_start", "exon_end",
-    "upstream_es", "upstream_ee",
-    "downstream_es", "downstream_ee",
-]
-
-A3SS_DEDUP_COLS = [
-    "event_type", "gene_id", "chr", "strand",
-    "exon_start", "exon_end",
-    "upstream_es", "upstream_ee",
-    "downstream_es", "downstream_ee",
-]
-
-A5SS_DEDUP_COLS = A3SS_DEDUP_COLS
-
-MXE_DEDUP_COLS = [
-    "event_type", "gene_id", "chr", "strand",
-    "exon_start", "exon_end",
-    "second_exon_start", "second_exon_end",
-    "upstream_es", "upstream_ee",
-    "downstream_es", "downstream_ee",
-]
-
-DEDUP_COLS_BY_TYPE: dict[str, list[str]] = {
-    "SE": SE_DEDUP_COLS,
-    "RI": RI_DEDUP_COLS,
-    "A3SS": A3SS_DEDUP_COLS,
-    "A5SS": A5SS_DEDUP_COLS,
-    "MXE": MXE_DEDUP_COLS,
-}
 
 # Mapping from rMATS raw column name → normalised internal name
 # Handles variants across rMATS versions

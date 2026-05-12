@@ -22,7 +22,6 @@ from app.services.parser import (
     detect_event_type,
     filter_low_coverage,
     parse_rmats_file,
-    deduplicate_events,
     deduplicate_with_overlap,
 )
 
@@ -179,14 +178,15 @@ def test_filter_mixed_events():
 
 
 def test_full_pipeline_parse_filter_dedup():
-    """End-to-end: parse → coverage filter → dedup removes low-cov and duplicates."""
+    """End-to-end: parse → coverage filter → boundary dedup (lowest FDR)."""
     aid = uuid.uuid4()
     rows = [
         # Event A: high coverage, best FDR
         _make_se_row(0, gene_id="ENSG00000000001", exon_start=1000, exon_end=1100,
                      ijc1="30,40", sjc1="10,15", ijc2="25,30", sjc2="10,12",
                      fdr=0.001, pvalue=0.0001),
-        # Event A duplicate: same coordinates, worse FDR → dedup should remove
+        # Event A duplicate: same coordinates (boundaries within 50 bp), worse FDR
+        # → boundary dedup should remove
         _make_se_row(1, gene_id="ENSG00000000001", exon_start=1000, exon_end=1100,
                      ijc1="20,20", sjc1="10,10", ijc2="15,20", sjc2="10,10",
                      fdr=0.05, pvalue=0.01),
@@ -207,8 +207,8 @@ def test_full_pipeline_parse_filter_dedup():
     df = filter_low_coverage(df, min_coverage=10)
     assert len(df) == 3, f"After coverage filter: expected 3, got {len(df)}"
 
-    # Exact dedup
-    df = deduplicate_events(df)
+    # Boundary dedup (single stage, lowest FDR)
+    df = deduplicate_with_overlap(df, overlap_bp=50)
     assert len(df) == 2, f"After dedup: expected 2, got {len(df)}"
 
     # Verify the kept events
@@ -223,14 +223,15 @@ def test_full_pipeline_parse_filter_dedup():
 
 
 def test_overlap_dedup_after_coverage_filter():
-    """Overlap dedup removes near-duplicate exons within 50bp."""
+    """Boundary dedup collapses events sharing a boundary within 50bp, keeping lowest FDR."""
     aid = uuid.uuid4()
     rows = [
-        # Event at 1000-1100, most significant
+        # Event at 1000-1100, lowest FDR
         _make_se_row(0, exon_start=1000, exon_end=1100,
                      ijc1="30,30", sjc1="10,10", ijc2="25,25", sjc2="10,10",
                      pvalue=0.0001, fdr=0.001),
-        # Event at 1030-1100, within 50bp of the first → overlap dedup should remove
+        # Event at 1030-1100, shares the end boundary with the first (within 50 bp)
+        # → boundary dedup should remove (higher FDR)
         _make_se_row(1, exon_start=1030, exon_end=1100,
                      ijc1="20,20", sjc1="10,10", ijc2="20,20", sjc2="10,10",
                      pvalue=0.01, fdr=0.05),
@@ -244,13 +245,12 @@ def test_overlap_dedup_after_coverage_filter():
     df = filter_low_coverage(df, min_coverage=10)
     assert len(df) == 3
 
-    df = deduplicate_events(df)
     df = deduplicate_with_overlap(df, overlap_bp=50)
-    assert len(df) == 2, f"After overlap dedup: expected 2, got {len(df)}"
+    assert len(df) == 2, f"After boundary dedup: expected 2, got {len(df)}"
 
     kept_starts = sorted(df["exon_start"].tolist())
-    assert kept_starts == [1000, 5000], f"Wrong events after overlap dedup: {kept_starts}"
-    print("  PASS  overlap dedup after coverage filter")
+    assert kept_starts == [1000, 5000], f"Wrong events after boundary dedup: {kept_starts}"
+    print("  PASS  boundary dedup after coverage filter")
 
 
 def test_three_replicates():

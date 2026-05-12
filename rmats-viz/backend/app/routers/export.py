@@ -2446,19 +2446,17 @@ def _build_pdf(
     _n = _next_app_a()
     story += [
         p(f"<b>{_n}. Input Preprocessing — Coverage Filtering &amp; Deduplication</b>", "h3"),
-        p("Upon import, each rMATS output file (<i>.MATS.JC.txt</i>) undergoes three "
+        p("Upon import, each rMATS output file (<i>.MATS.JC.txt</i>) undergoes two "
           "successive preprocessing steps before any downstream analysis:", "body"),
         p("• <b>Coverage filtering:</b> For each event, the mean per-replicate "
           "junction coverage (IJC + SJC) is computed in both sample groups. Events "
           "whose mean coverage falls below <b>10 reads</b> in either group are "
           "discarded to ensure reliable Ψ estimates.", "body"),
-        p("• <b>Exact deduplication:</b> Events sharing identical genomic coordinates "
-          "(event type, gene, chromosome, strand, exon and flanking-exon boundaries) "
-          "are collapsed. The representative event is selected by lowest FDR, then by "
-          "highest |ΔΨ|.", "body"),
-        p("• <b>Overlap-based deduplication:</b> Within each gene and strand, events "
-          "whose exon boundaries lie within <b>50 bp</b> of a more-significant event "
-          "are removed, retaining only the most significant event per cluster.", "body"),
+        p("• <b>Boundary-based deduplication:</b> Within each (event type, gene, "
+          "chromosome, strand) group, when two or more splicing events shared at least "
+          "one boundary (skipped-exon start or end) within <b>±50 bp</b>, they were "
+          "collapsed by retaining the event with the lowest FDR (ties broken by "
+          "largest |ΔΨ|).", "body"),
         p("These steps reduce redundancy and low-confidence calls, yielding a curated "
           "set of splicing events that is used throughout the rest of the pipeline.", "body"),
     ]

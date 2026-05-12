@@ -452,7 +452,7 @@ Click the **Export PDF** button to open the **section selector modal**, which le
 
 The **Appendix A — Pipeline Methodology** section of the PDF covers:
 
-1. **Input preprocessing** — Coverage filtering (≥ 10X mean junction coverage per group), exact-coordinate deduplication (lowest FDR), and overlap-based deduplication (50 bp window, most significant retained)
+1. **Input preprocessing** — Coverage filtering (≥ 10X mean junction coverage per group) and single-stage boundary-based deduplication (events sharing at least one boundary within ±50 bp are collapsed by retaining the lowest-FDR event)
 2. **Splicing event detection** — rMATS likelihood-ratio test, JC vs JCEC modes
 3. **Splice site annotation** — 5'SS/3'SS window extraction, GT-AG canonical check, PPT scoring, branch-point YNYURAY motif search (with the 15 nt minimum distance filter from the 3'SS)
 4. **Sequence logos** — Frequency-mode PWM rendering (no information-content scaling)
@@ -480,15 +480,11 @@ Events where either group has `coverage < 10` or where coverage data is missing/
 
 ### 2. Ingestion Deduplication
 
-Event deduplication runs in two stages during TSV ingestion (`parser.py`):
+Event deduplication runs in a single stage during TSV ingestion (`parser.py`):
 
-**Stage 1 — exact-coordinate deduplication (FDR-ranked):** Within each event type, rows sharing identical genomic coordinates are collapsed to the one with the lowest FDR (ties broken by highest |ΔΨ|). Rows with missing FDR are ranked last.
+**Boundary-based deduplication (FDR-ranked):** Within each (event type, gene, chromosome, strand) group, when two or more splicing events share at least one boundary (skipped-exon start or end) within ±50 bp, they are collapsed by retaining the event with the lowest FDR (ties broken by largest |ΔΨ|; rows with missing FDR are ranked last). The matching condition is OR (start-near **or** end-near), so two exons that share one boundary but differ by more than 50 bp on the other are still collapsed — this is intentionally conservative. A separate exact-coordinate pass is not needed: events with identical coordinates are by construction within ±50 bp on both boundaries and are caught by this rule.
 
-**Stage 2 — overlap deduplication (p-value-ranked):** Within each (event type, gene, chromosome, strand) group, events whose skipped-exon start or end falls within 50 bp of an already-retained event are removed. The removal condition is OR (start-near **or** end-near), so two exons that share one boundary but differ by more than 50 bp on the other are still collapsed — this is intentionally conservative. Ranking for this stage uses raw p-value (most significant first; ties by |ΔΨ|).
-
-**Methods note:** Stage 1 sorts on FDR; stage 2 sorts on raw p-value. After multiple-testing correction these statistics can disagree, so the "best" event kept in each stage can differ for the same pair of near-duplicates. Both criteria should be reported in any methods description.
-
-> **Methods statement:** Events were deduplicated in two sequential stages. First, exact duplicate events sharing the same event-specific genomic key were collapsed by retaining the event with the lowest FDR, breaking ties by the largest absolute ΔΨ. Second, within each (event_type, gene_id, chr, strand) group, near-duplicate events were greedily removed after sorting by ascending p-value and descending absolute ΔΨ; an event was discarded if either its exon start or exon end coordinate lay within 50 bp of any previously retained event. Because this second pass already suppresses overlap-defined duplicates, a subsequent event-clustering step on the retained events was uninformative in practice.
+> **Methods statement:** Events were deduplicated in a single stage. Within each (event_type, gene_id, chr, strand) group, when two or more splicing events shared at least one boundary (skipped-exon start or end) within ±50 bp, they were collapsed by retaining the event with the lowest FDR (ties broken by the largest absolute ΔΨ).
 
 ### 3. Splice Site Sequence Extraction
 

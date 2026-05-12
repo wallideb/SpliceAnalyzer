@@ -1,6 +1,10 @@
 """
 Core rMATS parser: detect event type, parse TSV, deduplicate, bulk-insert.
 
+Deduplication runs in a single stage: events sharing at least one boundary
+(exon start or exon end) within ±50 bp are collapsed to the one with the
+lowest FDR.
+
 Handles the real PCBP1 file quirks:
 - Extra non-standard columns (e.g. InPanelApp) → ignored
 - Duplicate 'ID' column → pandas auto-renames to 'ID.1' → handled
@@ -19,7 +23,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.event import SplicingEvent
-from app.utils.composite_key import RAW_COL_MAP, DEDUP_COLS_BY_TYPE, REQUIRED_COLS
+from app.utils.composite_key import RAW_COL_MAP, REQUIRED_COLS
 
 logger = logging.getLogger(__name__)
 
@@ -168,58 +172,28 @@ def parse_rmats_file(content: bytes, event_type: str, analysis_id: uuid.UUID) ->
     return df
 
 
-def deduplicate_events(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Deduplicate events across the whole DataFrame.
-    For each unique (event_type, coordinates) key, keep the row with lowest FDR
-    (NaN last), then highest |IncLevelDifference|.
-    MXE events use an extended key including second exon coordinates.
-    """
-    if df.empty:
-        return df
-
-    # Sort so that keep='first' retains the best event
-    df = df.sort_values(
-        by=["fdr", "abs_inc_level_diff"],
-        ascending=[True, False],
-        na_position="last",
-    ).reset_index(drop=True)
-
-    parts = []
-    for etype, group in df.groupby("event_type", sort=False):
-        dedup_cols = DEDUP_COLS_BY_TYPE.get(str(etype), DEDUP_COLS_BY_TYPE["SE"])
-        present_dedup = [c for c in dedup_cols if c in group.columns]
-        deduped = group.drop_duplicates(subset=present_dedup, keep="first")
-        parts.append(deduped)
-
-    if not parts:
-        return df
-
-    result = pd.concat(parts, ignore_index=True)
-    logger.info("After exact deduplication: %d rows (from %d)", len(result), len(df))
-    return result
-
-
 def deduplicate_with_overlap(df: pd.DataFrame, overlap_bp: int = 50) -> pd.DataFrame:
     """
-    Secondary deduplication: remove events whose exon start and/or exon end are
-    within *overlap_bp* bases of a more-significant event already kept.
+    Single-stage deduplication: collapse events that share at least one boundary
+    (exon start or exon end) within *overlap_bp* bases, retaining the one with
+    the lowest FDR.
 
-    Within each (event_type, chr, strand) group, events are processed in order of
-    increasing p_value (most significant first, NaN last).  An event is considered
-    a near-duplicate of an already-kept event when:
+    Within each (event_type, gene_id, chr, strand) group, events are processed in
+    order of increasing FDR (lowest first, NaN last). An event is considered a
+    near-duplicate of an already-kept event when:
         |exon_start_candidate − exon_start_kept| ≤ overlap_bp
         OR
         |exon_end_candidate   − exon_end_kept  | ≤ overlap_bp
 
-    Only the most significant event (lowest p_value) of such a cluster is kept.
+    Only the lowest-FDR event of such a cluster is kept (ties broken by largest
+    |ΔΨ|).
     """
     if df.empty:
         return df
 
-    # Sort by p_value ASC (most significant first), NaN last, then |ΔPSI| DESC
+    # Sort by FDR ASC (lowest first), NaN last, then |ΔΨ| DESC
     df = df.sort_values(
-        by=["p_value", "abs_inc_level_diff"],
+        by=["fdr", "abs_inc_level_diff"],
         ascending=[True, False],
         na_position="last",
     ).reset_index(drop=True)
@@ -256,7 +230,7 @@ def deduplicate_with_overlap(df: pd.DataFrame, overlap_bp: int = 50) -> pd.DataF
 
     result = df.loc[kept_indices].reset_index(drop=True)
     logger.info(
-        "After overlap deduplication (%d bp): %d rows (from %d)",
+        "After boundary deduplication (±%d bp, lowest FDR): %d rows (from %d)",
         overlap_bp, len(result), len(df),
     )
     return result
@@ -322,8 +296,7 @@ async def parse_and_store(
 
     combined = pd.concat(all_dfs, ignore_index=True)
     combined = filter_low_coverage(combined, min_coverage=10)
-    deduped = deduplicate_events(combined)
-    deduped = deduplicate_with_overlap(deduped, overlap_bp=50)
+    deduped = deduplicate_with_overlap(combined, overlap_bp=50)
 
     records = _df_to_records(deduped, analysis_id)
 

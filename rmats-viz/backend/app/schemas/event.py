@@ -20,10 +20,20 @@ class SplicingEventResponse(BaseModel):
     downstream_ee: int | None = None
     second_exon_start: int | None = None
     second_exon_end: int | None = None
+    # A3SS / A5SS alternative-site coordinates
+    long_exon_start: int | None = None
+    long_exon_end: int | None = None
+    short_es: int | None = None
+    short_ee: int | None = None
+    flanking_es: int | None = None
+    flanking_ee: int | None = None
     ijc_sample_1: str | None = None
     sjc_sample_1: str | None = None
     ijc_sample_2: str | None = None
     sjc_sample_2: str | None = None
+    inc_form_len: int | None = None
+    skip_form_len: int | None = None
+    counting_mode: str | None = None
     p_value: float | None = None
     fdr: float | None = None
     inc_level_1: str | None = None

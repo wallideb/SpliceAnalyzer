@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy import (
-    String, Text, BigInteger, Double, ForeignKey,
+    String, Text, BigInteger, Integer, Double, ForeignKey,
     UniqueConstraint, Index, Computed
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -48,11 +48,26 @@ class SplicingEvent(Base):
     second_exon_start: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     second_exon_end: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
+    # A3SS / A5SS-only (alternative-site coordinates; exon_start/exon_end
+    # mirror the long exon and the flanking exon is copied into
+    # upstream_* or downstream_* according to genomic position)
+    long_exon_start: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    long_exon_end: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    short_es: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    short_ee: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    flanking_es: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    flanking_ee: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
     # Counts
     ijc_sample_1: Mapped[str | None] = mapped_column(Text, nullable=True)
     sjc_sample_1: Mapped[str | None] = mapped_column(Text, nullable=True)
     ijc_sample_2: Mapped[str | None] = mapped_column(Text, nullable=True)
     sjc_sample_2: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Isoform lengths (needed to interpret JCEC counts) and counting mode
+    inc_form_len: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    skip_form_len: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    counting_mode: Mapped[str | None] = mapped_column(String(4), nullable=True)  # "JC" | "JCEC"
 
     # Stats
     p_value: Mapped[float | None] = mapped_column(Double, nullable=True)

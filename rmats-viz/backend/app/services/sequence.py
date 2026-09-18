@@ -55,8 +55,14 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Complement table
-_COMP = str.maketrans("ACGTacgtNn", "TGCAtgcaNn")
+# Complement table — full IUPAC nucleotide code (upper + lower case).
+#   A↔T  C↔G  U→A (RNA uracil treated as T)
+#   R(AG)↔Y(CT)  S(CG)↔S  W(AT)↔W  K(GT)↔M(AC)
+#   B(CGT)↔V(ACG)  D(AGT)↔H(ACT)  N↔N
+_COMP = str.maketrans(
+    "ACGTURYSWKMBDHVNacgturyswkmbdhvn",
+    "TGCAAYRSWMKVHDBNtgcaayrswmkvhdbn",
+)
 
 # UCSC chr-style → GRCh38 RefSeq accession (for NCBI-headered FASTA files)
 _UCSC_TO_REFSEQ: dict[str, str] = {
@@ -128,21 +134,120 @@ def _resolve_chrom(chrom: str, fasta_path: str) -> str | None:
 
 
 def reverse_complement(seq: str) -> str:
+    """Reverse-complement *seq* using the full IUPAC alphabet.
+
+    Unknown characters are passed through unchanged; ``U`` is complemented
+    as ``T`` (→ ``A``).
+    """
     return seq.translate(_COMP)[::-1]
+
+
+def _parse_faidx_output(text: str, n_expected: int) -> list[str]:
+    """Parse the multi-FASTA text written by ``samtools faidx``.
+
+    One sequence is appended for EVERY header line, including records with
+    no sequence lines (``samtools faidx`` emits an empty record for a region
+    beyond the contig end), so the i-th sequence always belongs to the i-th
+    requested region.  If the number of records does not match *n_expected*
+    the whole chunk is blanked (an error is logged) rather than returning
+    sequences that could be assigned to the wrong regions.
+    """
+    seqs: list[str] = []
+    current: list[str] = []
+    seen_header = False
+    for line in text.split("\n"):
+        if line.startswith(">"):
+            if seen_header:
+                seqs.append("".join(current).upper())
+            current = []
+            seen_header = True
+        elif line.strip():
+            current.append(line.strip())
+    if seen_header:
+        seqs.append("".join(current).upper())
+
+    if len(seqs) != n_expected:
+        logger.error(
+            "samtools faidx returned %d records for %d regions — "
+            "blanking the chunk to avoid mis-assigned sequences",
+            len(seqs), n_expected,
+        )
+        return [""] * n_expected
+    return seqs
+
+
+def _faidx_chunk(
+    fasta: str,
+    chunk_idx: list[int],
+    sam_regions: list[str],
+    out: list[str],
+    invalid: list[str],
+) -> bool:
+    """Run ``samtools faidx`` for the regions at *chunk_idx*, filling *out*.
+
+    On ``CalledProcessError`` the chunk is split in halves and retried
+    recursively down to single regions so that only the invalid regions are
+    blanked (they are collected in *invalid*).
+
+    Returns False when samtools itself is unavailable (callers stop).
+    """
+    if not chunk_idx:
+        return True
+    chunk_regions = [sam_regions[i] for i in chunk_idx]
+    try:
+        result = subprocess.run(
+            [settings.SAMTOOLS_BIN, "faidx", fasta] + chunk_regions,
+            capture_output=True,
+            text=True,
+            timeout=max(30, len(chunk_regions) // 100),
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        logger.warning("samtools not found: %s", exc)
+        return False
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "Batch samtools faidx timed out (%d regions, first=%s)",
+            len(chunk_regions), chunk_regions[0],
+        )
+        return True
+    except subprocess.CalledProcessError as exc:
+        if len(chunk_idx) == 1:
+            invalid.append(chunk_regions[0])
+            logger.debug(
+                "samtools faidx rejected region %s (rc=%d): %s",
+                chunk_regions[0], exc.returncode,
+                exc.stderr.strip() if exc.stderr else "(no stderr)",
+            )
+            return True
+        mid = len(chunk_idx) // 2
+        if not _faidx_chunk(fasta, chunk_idx[:mid], sam_regions, out, invalid):
+            return False
+        return _faidx_chunk(fasta, chunk_idx[mid:], sam_regions, out, invalid)
+
+    seqs = _parse_faidx_output(result.stdout, len(chunk_idx))
+    for idx, seq in zip(chunk_idx, seqs):
+        out[idx] = seq
+    return True
 
 
 def extract_regions_batch(
     regions: list[tuple[str, int, int]],
     fasta_path: str | None = None,
 ) -> list[str]:
-    """Extract multiple genomic regions in a single samtools call.
+    """Extract multiple genomic regions with batched samtools calls.
 
     Parameters
     ----------
     regions : list of (chrom, start, end) tuples (0-based BED coords).
+        A negative *start* is clamped to 0 (the returned sequence is then
+        shorter than requested); regions with ``end <= start`` or an unknown
+        contig yield an empty string.
 
-    Returns a list of sequences in the same order (empty string on error).
-    Much faster than calling extract_region() N times for large batches.
+    Returns a list of sequences in the same order as *regions* (empty string
+    for invalid regions or on error).  Regions are processed in chunks of
+    ``_SAMTOOLS_CHUNK``; when samtools rejects a chunk it is retried in
+    halves so that only the offending regions are blanked.
     """
     if not regions:
         return []
@@ -151,6 +256,8 @@ def extract_regions_batch(
     # single bad chromosome does not abort the entire chunk.
     sam_regions: list[str] = []
     for chrom, start, end in regions:
+        if start < 0:
+            start = 0
         if end <= start:
             sam_regions.append("")
             continue
@@ -166,89 +273,23 @@ def extract_regions_batch(
         return [""] * len(regions)
 
     out = [""] * len(regions)
+    invalid: list[str] = []
 
     # Process in chunks to stay within OS ARG_MAX limits.
     for chunk_start in range(0, len(valid_indices), _SAMTOOLS_CHUNK):
         chunk_idx = valid_indices[chunk_start : chunk_start + _SAMTOOLS_CHUNK]
-        chunk_regions = [sam_regions[i] for i in chunk_idx]
-        try:
-            result = subprocess.run(
-                [settings.SAMTOOLS_BIN, "faidx", fasta] + chunk_regions,
-                capture_output=True,
-                text=True,
-                timeout=max(30, len(chunk_regions) // 100),
-                check=True,
-            )
-            # Parse multi-FASTA output for this chunk
-            seqs: list[str] = []
-            current: list[str] = []
-            for line in result.stdout.split("\n"):
-                if line.startswith(">"):
-                    if current:
-                        seqs.append("".join(current).upper())
-                        current = []
-                elif line.strip():
-                    current.append(line.strip())
-            if current:
-                seqs.append("".join(current).upper())
+        if not _faidx_chunk(fasta, chunk_idx, sam_regions, out, invalid):
+            break  # samtools unavailable — nothing more to do
 
-            for idx, seq in zip(chunk_idx, seqs):
-                out[idx] = seq
-        except FileNotFoundError as exc:
-            logger.warning("samtools not found: %s", exc)
-        except subprocess.TimeoutExpired as exc:
-            logger.warning("Batch samtools faidx timed out (chunk offset %d)", chunk_start)
-        except subprocess.CalledProcessError as exc:
-            logger.warning(
-                "Batch samtools faidx failed (chunk offset %d, rc=%d): %s",
-                chunk_start, exc.returncode,
-                exc.stderr.strip() if exc.stderr else "(no stderr)",
-            )
-            # Leave those chunk positions as "" and continue
+    if invalid:
+        preview = ", ".join(invalid[:10])
+        logger.warning(
+            "samtools faidx rejected %d of %d regions (blanked): %s%s",
+            len(invalid), len(valid_indices), preview,
+            " ..." if len(invalid) > 10 else "",
+        )
 
     return out
-
-
-def extract_region(
-    chrom: str,
-    start: int,
-    end: int,
-    strand: str = "+",
-    fasta_path: str | None = None,
-) -> str:
-    """Fetch a genomic sub-sequence (0-based BED coords → 1-based samtools).
-
-    Returns empty string on any error (FASTA not available, region out of
-    bounds, samtools not found).  The caller must tolerate empty strings.
-    """
-    if end <= start:
-        return ""
-    fasta = fasta_path or settings.GRCH38_FASTA
-    resolved = _resolve_chrom(chrom, fasta)
-    if resolved is None:
-        return ""
-    # samtools faidx region: 1-based inclusive
-    region = f"{resolved}:{start + 1}-{end}"
-    try:
-        result = subprocess.run(
-            [settings.SAMTOOLS_BIN, "faidx", fasta, region],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=True,
-        )
-        lines = result.stdout.strip().split("\n")
-        seq = "".join(ln for ln in lines if not ln.startswith(">")).upper()
-        if strand == "-":
-            seq = reverse_complement(seq)
-        return seq
-    except FileNotFoundError:
-        logger.warning("samtools not found at '%s'", settings.SAMTOOLS_BIN)
-    except subprocess.CalledProcessError as exc:
-        logger.debug("samtools faidx failed for %s: %s", region, exc.stderr)
-    except subprocess.TimeoutExpired:
-        logger.warning("samtools timed out for %s", region)
-    return ""
 
 
 # ---------------------------------------------------------------------------

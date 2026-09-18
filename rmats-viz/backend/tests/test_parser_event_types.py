@@ -309,6 +309,40 @@ def test_dedup_ri_both_boundaries_close_collapsed():
     assert out.attrs["n_collapsed_by_type"] == {"RI": 1}
 
 
+MXE_HEADER = (
+    "ID\tGeneID\tgeneSymbol\tchr\tstrand\t"
+    "1stExonStart_0base\t1stExonEnd\t2ndExonStart_0base\t2ndExonEnd\t"
+    "upstreamES\tupstreamEE\tdownstreamES\tdownstreamEE\t"
+    "IJC_SAMPLE_1\tSJC_SAMPLE_1\tIJC_SAMPLE_2\tSJC_SAMPLE_2\t"
+    "IncFormLen\tSkipFormLen\tPValue\tFDR\tIncLevel1\tIncLevel2\tIncLevelDifference"
+)
+
+
+def _mxe_row(row_id: int, e1s: int, e1e: int, e2s: int, e2e: int, fdr: float = 0.01) -> str:
+    return (
+        f"{row_id}\tENSG00000000001\tGENE1\tchr1\t+\t{e1s}\t{e1e}\t{e2s}\t{e2e}\t800\t900\t3000\t3100\t"
+        f"{_COUNTS}\t100\t50\t0.001\t{fdr}\t{_STATS}"
+    )
+
+
+def test_dedup_mxe_requires_both_exons_to_match():
+    """MXE: same first exon but a different second exon is a distinct event;
+    only rows with all four boundaries within overlap_bp collapse."""
+    rows = [
+        _mxe_row(0, 1000, 1100, 1500, 1600, fdr=0.001),
+        _mxe_row(1, 1000, 1100, 2000, 2100, fdr=0.01),    # different 2nd exon → keep
+        _mxe_row(2, 1010, 1090, 1510, 1590, fdr=0.05),    # all four within 50 → dup of row 0
+        _mxe_row(3, 1000, 1100, 1500, 1700, fdr=0.02),    # 2nd exon end 100 away → keep
+    ]
+    df = parse_rmats_file(_build(MXE_HEADER, *rows), "MXE", uuid.uuid4())
+    assert len(df) == 4
+    out = deduplicate_with_overlap(df, overlap_bp=50)
+    kept = sorted(zip(out["second_exon_start"].tolist(), out["second_exon_end"].tolist()))
+    assert kept == [(1500, 1600), (1500, 1700), (2000, 2100)], f"Wrong MXE rows kept: {kept}"
+    assert out.attrs["n_collapsed_by_type"] == {"MXE": 1}
+    assert out[out["second_exon_end"] == 1600].iloc[0]["fdr"] == 0.001
+
+
 def test_dedup_se_order_independent_of_input_position():
     """Lowest-FDR row wins regardless of file order; bisect path handles
     kept events inserted out of coordinate order."""

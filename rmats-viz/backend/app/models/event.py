@@ -11,10 +11,15 @@ from app.database import Base
 class SplicingEvent(Base):
     __tablename__ = "splicing_events"
     __table_args__ = (
+        # Identity includes the MXE second exon and the A3SS/A5SS long/short
+        # exons so that events sharing only the generic columns are distinct.
+        # Nullable columns are fine: PostgreSQL treats NULLs as distinct.
         UniqueConstraint(
             "analysis_id", "event_type", "gene_id", "chr", "strand",
             "exon_start", "exon_end", "upstream_es", "upstream_ee",
             "downstream_es", "downstream_ee",
+            "second_exon_start", "second_exon_end",
+            "long_exon_start", "long_exon_end", "short_es", "short_ee",
             name="uq_splicing_event_identity",
         ),
         Index("ix_events_analysis_fdr", "analysis_id", "fdr"),

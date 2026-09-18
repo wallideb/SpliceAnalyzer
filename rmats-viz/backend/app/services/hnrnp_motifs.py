@@ -34,7 +34,7 @@ The two windows of one intron are clipped to the intron body minus the two
 exclusion zones.  For introns shorter than 6 + 250 + 250 + 20 = 526 nt the
 5'SS and 3'SS windows therefore **overlap** (the same nucleotides are scanned
 twice, once in each window; e.g. a 300-nt intron gives a 250-nt 5'SS window
-and a 250-nt 3'SS window sharing 224 nt).  This is intentional and mirrors
+and a 250-nt 3'SS window sharing 226 nt).  This is intentional and mirrors
 rMAPS2, which also scans each intron end independently; the two windows of
 one intron are not independent tests and should be read together.  When an
 intron is at most 26 nt long, both windows are empty.

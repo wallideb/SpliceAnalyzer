@@ -506,141 +506,206 @@ def _normal_cdf(x: float) -> float:
     return 0.5 * math.erfc(-x / math.sqrt(2))
 
 
+def _mann_whitney_u(a: list[float], b: list[float]) -> tuple[float | None, float | None]:
+    """Two-sided Mann-Whitney U test (normal approximation with tie correction).
+
+    Returns (U, p) where U is the statistic of sample *a* (U1), or (None, None)
+    when a group has fewer than ``_MIN_GROUP_N`` values or every value is tied.
+
+    Ranks are mid-ranks; the variance of U is corrected for ties:
+        σ² = n1·n2/12 · [(N + 1) − Σ(t³ − t) / (N(N − 1))]
+    A continuity correction of 0.5 is applied, as in R's wilcox.test and
+    scipy.stats.mannwhitneyu(use_continuity=True).  Rank-based, so it is
+    suited to right-skewed variables (exon/intron sizes, PPT scores).
+    """
+    n1, n2 = len(a), len(b)
+    if n1 < _MIN_GROUP_N or n2 < _MIN_GROUP_N:
+        return None, None
+    n = n1 + n2
+    pooled = sorted(((float(v), 0) for v in a), key=lambda t: t[0])
+    pooled = sorted(pooled + [(float(v), 1) for v in b], key=lambda t: t[0])
+
+    ranks = [0.0] * n
+    tie_term = 0.0
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and pooled[j + 1][0] == pooled[i][0]:
+            j += 1
+        t = j - i + 1
+        mid_rank = (i + 1 + j + 1) / 2.0
+        for k in range(i, j + 1):
+            ranks[k] = mid_rank
+        if t > 1:
+            tie_term += t ** 3 - t
+        i = j + 1
+
+    r1 = sum(rank for rank, (_, grp) in zip(ranks, pooled) if grp == 0)
+    u1 = r1 - n1 * (n1 + 1) / 2.0
+    mu = n1 * n2 / 2.0
+    sigma2 = n1 * n2 / 12.0 * ((n + 1) - tie_term / (n * (n - 1)))
+    if sigma2 <= 0.0 or not math.isfinite(sigma2):
+        return u1, None  # all values tied → no ordering information
+    diff = u1 - mu
+    # Continuity correction toward the mean
+    if diff > 0:
+        diff -= 0.5
+    elif diff < 0:
+        diff += 0.5
+    z = diff / math.sqrt(sigma2)
+    p = min(1.0, 2.0 * (1.0 - _normal_cdf(abs(z))))
+    return u1, p
+
+
+def _bh_adjust(p_values: list[float | None]) -> list[float | None]:
+    """Benjamini-Hochberg adjusted p-values (q-values).
+
+    ``None`` entries (tests that could not be run) are ignored for m and
+    returned as ``None``.  q_(i) = min_{j ≥ i} ( m · p_(j) / j ), clipped to 1.
+    """
+    indexed = [(p, i) for i, p in enumerate(p_values) if p is not None]
+    out: list[float | None] = [None] * len(p_values)
+    m = len(indexed)
+    if m == 0:
+        return out
+    indexed.sort(key=lambda t: t[0])
+    running_min = 1.0
+    for rank in range(m, 0, -1):
+        p, idx = indexed[rank - 1]
+        q = min(running_min, p * m / rank)
+        running_min = q
+        out[idx] = min(1.0, q)
+    return out
+
+
+_MIN_GROUP_N = 5  # minimum observations per group for the z / U tests
+
+
 def _compute_stat_tests(
     sig_events: list,
     sig_feats: list,
     nonsig_events: list,
     nonsig_feats: list,
 ) -> list[StatTestResult]:
-    """Compute statistical tests comparing significant vs non-significant groups."""
+    """Compute statistical tests comparing significant vs non-significant groups.
+
+    Continuous features (mean ΔΨ, exon size, PPT score / T / C content,
+    intron sizes) are tested twice: Welch's t-test (``feature``) and the
+    rank-based Mann-Whitney U test (``feature + "_mwu"``), the latter being
+    robust to the right-skew of size distributions.  Proportions use the
+    pooled two-proportion z-test (≥ 5 observations per group).  Benjamini-
+    Hochberg q-values are computed across the whole panel; ``significant``
+    remains the raw p < 0.05 call and ``significant_fdr`` is q < 0.05.
+    The number of tests is ``len(result)`` — never hard-code it.
+    """
     results: list[StatTestResult] = []
 
-    # 1. Mean ΔΨ — Welch's t-test
-    dpsi_sig = [ev.inc_level_difference for ev in sig_events if ev.inc_level_difference is not None]
-    dpsi_ns = [ev.inc_level_difference for ev in nonsig_events if ev.inc_level_difference is not None]
-    t_stat, p_val = _welch_t_test(dpsi_sig, dpsi_ns)
-    results.append(StatTestResult(
-        feature="mean_delta_psi", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    def _add(feature: str, test_name: str, stat, p) -> None:
+        results.append(StatTestResult(
+            feature=feature, test_name=test_name, statistic=stat, p_value=p,
+            significant=(p if p is not None else 1) < 0.05,
+        ))
 
-    # 2. Exon size — Welch's t-test
-    sizes_sig = [f.exon_size for f in sig_feats if f.exon_size is not None]
-    sizes_ns = [f.exon_size for f in nonsig_feats if f.exon_size is not None]
-    t_stat, p_val = _welch_t_test(sizes_sig, sizes_ns)
-    results.append(StatTestResult(
-        feature="exon_size", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    def _continuous(feature: str, vals_sig: list[float], vals_ns: list[float]) -> None:
+        t_stat, p_val = _welch_t_test(vals_sig, vals_ns)
+        _add(feature, "Welch's t-test", t_stat, p_val)
+        u_stat, p_u = _mann_whitney_u(vals_sig, vals_ns)
+        _add(f"{feature}_mwu", "mann_whitney_u", u_stat, p_u)
 
-    # 3. PPT score — Welch's t-test
-    ppt_sig = [f.ppt_score for f in sig_feats if f.ppt_score is not None and f.donor_seq]
-    ppt_ns = [f.ppt_score for f in nonsig_feats if f.ppt_score is not None and f.donor_seq]
-    t_stat, p_val = _welch_t_test(ppt_sig, ppt_ns)
-    results.append(StatTestResult(
-        feature="ppt_score", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    # 1. Mean ΔΨ
+    _continuous(
+        "mean_delta_psi",
+        [ev.inc_level_difference for ev in sig_events if ev.inc_level_difference is not None],
+        [ev.inc_level_difference for ev in nonsig_events if ev.inc_level_difference is not None],
+    )
 
-    # 3b. PPT T content — Welch's t-test
-    ppt_t_sig = [ppt_t_content(f.ppt_seq) for f in sig_feats if f.ppt_seq]
-    ppt_t_ns = [ppt_t_content(f.ppt_seq) for f in nonsig_feats if f.ppt_seq]
-    t_stat, p_val = _welch_t_test(ppt_t_sig, ppt_t_ns)
-    results.append(StatTestResult(
-        feature="ppt_t_content", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    # 2. Exon size
+    _continuous(
+        "exon_size",
+        [f.exon_size for f in sig_feats if f.exon_size is not None],
+        [f.exon_size for f in nonsig_feats if f.exon_size is not None],
+    )
 
-    # 3c. PPT C content — Welch's t-test
-    ppt_c_sig = [ppt_c_content(f.ppt_seq) for f in sig_feats if f.ppt_seq]
-    ppt_c_ns = [ppt_c_content(f.ppt_seq) for f in nonsig_feats if f.ppt_seq]
-    t_stat, p_val = _welch_t_test(ppt_c_sig, ppt_c_ns)
-    results.append(StatTestResult(
-        feature="ppt_c_content", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    # 3. PPT score
+    _continuous(
+        "ppt_score",
+        [f.ppt_score for f in sig_feats if f.ppt_score is not None and f.donor_seq],
+        [f.ppt_score for f in nonsig_feats if f.ppt_score is not None and f.donor_seq],
+    )
+
+    # 3b. PPT T content
+    _continuous(
+        "ppt_t_content",
+        [ppt_t_content(f.ppt_seq) for f in sig_feats if f.ppt_seq],
+        [ppt_t_content(f.ppt_seq) for f in nonsig_feats if f.ppt_seq],
+    )
+
+    # 3c. PPT C content
+    _continuous(
+        "ppt_c_content",
+        [ppt_c_content(f.ppt_seq) for f in sig_feats if f.ppt_seq],
+        [ppt_c_content(f.ppt_seq) for f in nonsig_feats if f.ppt_seq],
+    )
 
     # 4. Canonical GT (5'SS) — proportion z-test
     sig_with_seq = [f for f in sig_feats if f.donor_seq and len(f.donor_seq) >= 9]
     ns_with_seq = [f for f in nonsig_feats if f.donor_seq and len(f.donor_seq) >= 9]
     k1 = sum(1 for f in sig_with_seq if f.donor_is_gt)
     k2 = sum(1 for f in ns_with_seq if f.donor_is_gt)
-    z_stat, p_val = _proportion_z_test(k1, len(sig_with_seq), k2, len(ns_with_seq))
-    results.append(StatTestResult(
-        feature="canonical_gt", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    _add("canonical_gt", "Proportion z-test", *_proportion_z_test(k1, len(sig_with_seq), k2, len(ns_with_seq)))
 
     # 5. Canonical AG (3'SS) — proportion z-test
     sig_acc = [f for f in sig_feats if f.acceptor_seq and len(f.acceptor_seq) >= 23]
     ns_acc = [f for f in nonsig_feats if f.acceptor_seq and len(f.acceptor_seq) >= 23]
     k1 = sum(1 for f in sig_acc if f.acceptor_is_ag)
     k2 = sum(1 for f in ns_acc if f.acceptor_is_ag)
-    z_stat, p_val = _proportion_z_test(k1, len(sig_acc), k2, len(ns_acc))
-    results.append(StatTestResult(
-        feature="canonical_ag", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    _add("canonical_ag", "Proportion z-test", *_proportion_z_test(k1, len(sig_acc), k2, len(ns_acc)))
 
-    # 6. In-frame proportion — proportion z-test
+    # 6. In-frame proportion (known frames only) — proportion z-test
     sig_frame = [f for f in sig_feats if f.frame_class and f.frame_class != "unknown"]
     ns_frame = [f for f in nonsig_feats if f.frame_class and f.frame_class != "unknown"]
     k1 = sum(1 for f in sig_frame if f.frame_class == "in_frame")
     k2 = sum(1 for f in ns_frame if f.frame_class == "in_frame")
-    z_stat, p_val = _proportion_z_test(k1, len(sig_frame), k2, len(ns_frame))
-    results.append(StatTestResult(
-        feature="in_frame_pct", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    _add("in_frame_pct", "Proportion z-test", *_proportion_z_test(k1, len(sig_frame), k2, len(ns_frame)))
 
     # 7. Branch point found — proportion z-test
     k1 = sum(1 for f in sig_with_seq if f.bp_motif_found)
     k2 = sum(1 for f in ns_with_seq if f.bp_motif_found)
-    z_stat, p_val = _proportion_z_test(k1, len(sig_with_seq), k2, len(ns_with_seq))
-    results.append(StatTestResult(
-        feature="bp_found", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    _add("bp_found", "Proportion z-test", *_proportion_z_test(k1, len(sig_with_seq), k2, len(ns_with_seq)))
 
     # 8. Upstream donor GT (flanking exon) — proportion z-test
     sig_up = [f for f in sig_feats if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
     ns_up = [f for f in nonsig_feats if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
     k1 = sum(1 for f in sig_up if f.upstream_donor_is_gt)
     k2 = sum(1 for f in ns_up if f.upstream_donor_is_gt)
-    z_stat, p_val = _proportion_z_test(k1, len(sig_up), k2, len(ns_up))
-    results.append(StatTestResult(
-        feature="upstream_canonical_gt", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    _add("upstream_canonical_gt", "Proportion z-test", *_proportion_z_test(k1, len(sig_up), k2, len(ns_up)))
 
     # 9. Downstream acceptor AG (flanking exon) — proportion z-test
     sig_dn = [f for f in sig_feats if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
     ns_dn = [f for f in nonsig_feats if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
     k1 = sum(1 for f in sig_dn if f.downstream_acceptor_is_ag)
     k2 = sum(1 for f in ns_dn if f.downstream_acceptor_is_ag)
-    z_stat, p_val = _proportion_z_test(k1, len(sig_dn), k2, len(ns_dn))
-    results.append(StatTestResult(
-        feature="downstream_canonical_ag", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    _add("downstream_canonical_ag", "Proportion z-test", *_proportion_z_test(k1, len(sig_dn), k2, len(ns_dn)))
 
-    # 10. Upstream intron size — Welch's t-test
-    up_introns_sig = [f.upstream_intron_size for f in sig_feats if f.upstream_intron_size is not None]
-    up_introns_ns = [f.upstream_intron_size for f in nonsig_feats if f.upstream_intron_size is not None]
-    t_stat, p_val = _welch_t_test(up_introns_sig, up_introns_ns)
-    results.append(StatTestResult(
-        feature="upstream_intron_size", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    # 10. Upstream intron size
+    _continuous(
+        "upstream_intron_size",
+        [f.upstream_intron_size for f in sig_feats if f.upstream_intron_size is not None],
+        [f.upstream_intron_size for f in nonsig_feats if f.upstream_intron_size is not None],
+    )
 
-    # 11. Downstream intron size — Welch's t-test
-    dn_introns_sig = [f.downstream_intron_size for f in sig_feats if f.downstream_intron_size is not None]
-    dn_introns_ns = [f.downstream_intron_size for f in nonsig_feats if f.downstream_intron_size is not None]
-    t_stat, p_val = _welch_t_test(dn_introns_sig, dn_introns_ns)
-    results.append(StatTestResult(
-        feature="downstream_intron_size", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    # 11. Downstream intron size
+    _continuous(
+        "downstream_intron_size",
+        [f.downstream_intron_size for f in sig_feats if f.downstream_intron_size is not None],
+        [f.downstream_intron_size for f in nonsig_feats if f.downstream_intron_size is not None],
+    )
+
+    # Benjamini-Hochberg across the whole panel
+    q_values = _bh_adjust([r.p_value for r in results])
+    for r, q in zip(results, q_values):
+        r.q_value = round(q, 6) if q is not None else None
+        r.significant_fdr = q is not None and q < 0.05
 
     return results
 
@@ -736,16 +801,24 @@ class MotifEnrichmentItem(BaseModel):
     bg_total: int
     sig_density: float
     bg_density: float
+    # Presence test (fraction of events with ≥ 1 hit): two-proportion z-test, BH
     z_stat: float | None = None
     p_value: float | None = None
     p_adjusted: float | None = None
     significant: bool = False
+    # Density test (per-event motif density): Mann-Whitney U, BH
+    density_u_stat: float | None = None
+    density_p_value: float | None = None
+    density_p_adjusted: float | None = None
+    density_significant: bool = False
     regulatory_effect: str | None = None  # ESE/ESS/ISE/ISS or null
 
 
 class HnRNPMotifResponse(BaseModel):
     n_sig_events: int
     n_bg_events: int
+    # Region names in scanning order (7 regions, see hnrnp_motifs.REGION_NAMES)
+    regions: list[str] = []
     results: list[MotifEnrichmentItem]
 
 
@@ -759,12 +832,17 @@ async def get_hnrnp_motifs(
 ):
     """Run hnRNP motif enrichment: compare motif frequency in significant
     vs non-significant SE events (rMAPS2-inspired analysis)."""
+    from app.services import hnrnp_motifs as hm
     from app.services.hnrnp_motifs import (
-        SERegions, define_se_regions, compare_groups, scan_group,
-        _FIVE_SS_EXCL, _THREE_SS_EXCL, REGULATORY_EFFECTS,
+        REGION_NAMES, SERegions, define_se_regions, compare_groups, scan_group,
+        REGULATORY_EFFECTS,
     )
     from app.services.sequence import extract_regions_batch, reverse_complement
     from app.config import settings
+
+    _FIVE_SS_EXCL = getattr(hm, "_FIVE_SS_EXCL", 6)
+    _THREE_SS_EXCL = getattr(hm, "_THREE_SS_EXCL", 20)
+    n_regions = len(REGION_NAMES)
 
     deep = (
         await db.execute(

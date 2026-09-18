@@ -269,6 +269,7 @@ export default function AnalysisDetailPage() {
             <option value="abs_inc_level_diff|desc">{t("analysisDetail.filters.sortDpsiDesc")}</option>
             <option value="abs_inc_level_diff|asc">{t("analysisDetail.filters.sortDpsiAsc")}</option>
             <option value="gene_symbol|asc">{t("analysisDetail.filters.sortGeneAz")}</option>
+            <option value="gene_symbol|desc">{t("analysisDetail.filters.sortGeneZa")}</option>
           </select>
 
           <button
@@ -376,6 +377,9 @@ export default function AnalysisDetailPage() {
           group1Label={group1Label}
           group2Label={group2Label}
           showIncLevel={showIncLevel}
+          sortBy={sortBy}
+          sortDir={sortDir}
+          onSortChange={(by, dir) => { setSortKey(`${by}|${dir}`); setPage(1); }}
         />
       )}
       {/* ── Statistical methodology note ── */}

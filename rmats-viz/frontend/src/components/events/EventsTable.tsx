@@ -1,15 +1,32 @@
 "use client";
-import { useState } from "react";
 import {
   useReactTable,
   getCoreRowModel,
   flexRender,
-  SortingState,
-  getSortedRowModel,
+  type SortingState,
 } from "@tanstack/react-table";
 import type { SplicingEvent } from "@/types/event";
+import type { EventsQuery } from "@/lib/api/events";
 import { makeEventsColumns } from "./EventsTableColumns";
 import { useT } from "@/contexts/LanguageContext";
+
+export type EventsSortBy = NonNullable<EventsQuery["sort_by"]>;
+export type EventsSortDir = "asc" | "desc";
+
+/** Column ids that the backend can sort on (see EventsQuery.sort_by). */
+const SERVER_SORTABLE: ReadonlySet<string> = new Set<EventsSortBy>([
+  "fdr",
+  "gene_symbol",
+  "abs_inc_level_diff",
+]);
+
+/** Default direction when a column is first clicked. */
+const DEFAULT_DIR: Record<EventsSortBy, EventsSortDir> = {
+  fdr: "asc",
+  p_value: "asc",
+  gene_symbol: "asc",
+  abs_inc_level_diff: "desc",
+};
 
 interface EventsTableProps {
   data: SplicingEvent[];
@@ -21,6 +38,11 @@ interface EventsTableProps {
   group1Label: string;
   group2Label: string;
   showIncLevel?: boolean;
+  /** Current server-side sort (single source of truth lives in the page). */
+  sortBy?: EventsSortBy;
+  sortDir?: EventsSortDir;
+  /** Called when a sortable header is clicked (E8). */
+  onSortChange?: (sortBy: EventsSortBy, sortDir: EventsSortDir) => void;
 }
 
 export function EventsTable({
@@ -33,23 +55,38 @@ export function EventsTable({
   group1Label,
   group2Label,
   showIncLevel = false,
+  sortBy,
+  sortDir = "asc",
+  onSortChange,
 }: EventsTableProps) {
-  const [sorting, setSorting] = useState<SortingState>([]);
   const t = useT();
 
   const columns = makeEventsColumns(group1Label, group2Label, showIncLevel, t);
+
+  // Sorting is performed by the server; we only mirror the current sort so the
+  // header indicator reflects it (manualSorting → no client-side re-ordering).
+  const sorting: SortingState = sortBy ? [{ id: sortBy, desc: sortDir === "desc" }] : [];
 
   const table = useReactTable({
     data,
     columns,
     state: { sorting },
-    onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    manualSorting: false,
+    manualSorting: true,
+    enableSortingRemoval: false,
   });
 
   const totalCols = columns.length;
+
+  const handleHeaderClick = (columnId: string) => {
+    if (!onSortChange || !SERVER_SORTABLE.has(columnId)) return;
+    const col = columnId as EventsSortBy;
+    if (sortBy === col) {
+      onSortChange(col, sortDir === "asc" ? "desc" : "asc");
+    } else {
+      onSortChange(col, DEFAULT_DIR[col]);
+    }
+  };
 
   return (
     <div className="space-y-3">
@@ -97,25 +134,30 @@ export function EventsTable({
           <thead className="bg-muted/50 border-b border-border">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
-                {hg.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground whitespace-nowrap select-none cursor-pointer hover:bg-muted/80 hover:text-foreground transition-colors"
-                    onClick={header.column.getToggleSortingHandler()}
-                  >
-                    {flexRender(
-                      header.column.columnDef.header,
-                      header.getContext()
-                    )}
-                    <span className="ml-1 text-muted-foreground/50">
-                      {
-                        { asc: "↑", desc: "↓" }[
-                          header.column.getIsSorted() as string
-                        ] ?? ""
-                      }
-                    </span>
-                  </th>
-                ))}
+                {hg.headers.map((header) => {
+                  const sortable = !!onSortChange && SERVER_SORTABLE.has(header.column.id);
+                  const sorted = header.column.getIsSorted();
+                  return (
+                    <th
+                      key={header.id}
+                      className={`px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground whitespace-nowrap select-none transition-colors ${
+                        sortable ? "cursor-pointer hover:bg-muted/80 hover:text-foreground" : ""
+                      }`}
+                      onClick={sortable ? () => handleHeaderClick(header.column.id) : undefined}
+                      aria-sort={sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : undefined}
+                    >
+                      {flexRender(
+                        header.column.columnDef.header,
+                        header.getContext()
+                      )}
+                      {sortable && (
+                        <span className="ml-1 text-muted-foreground/50">
+                          {sorted === "asc" ? "↑" : sorted === "desc" ? "↓" : ""}
+                        </span>
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>

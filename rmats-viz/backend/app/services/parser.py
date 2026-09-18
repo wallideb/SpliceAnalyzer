@@ -8,8 +8,10 @@ the filename is uninformative the header is sniffed.
 Deduplication is type-aware:
 - SE: events sharing at least one boundary (exon start OR exon end) within
   ±``overlap_bp`` are collapsed to the one with the lowest FDR.
-- RI / MXE: both boundaries of the defining exon must be within
+- RI: both boundaries of the retained-intron exon must be within
   ±``overlap_bp`` (AND rule).
+- MXE: all four boundaries (first AND second exon start/end) must be within
+  ±``overlap_bp``; a different second exon is a distinct event.
 - A3SS / A5SS: only exact duplicates of the full
   (long exon, short exon, flanking exon) tuple are collapsed (typically the
   JC and JCEC versions of the same event); alternative sites a few nt apart
@@ -431,31 +433,34 @@ def _dedup_se_group(
     return kept
 
 
-def _dedup_and_group(
-    starts: list[int | None], ends: list[int | None], overlap_bp: int
-) -> list[int]:
-    """RI / MXE rule: duplicate only when a kept event has BOTH boundaries
-    within ±overlap_bp.  Kept (start, end) pairs are kept sorted by start so
-    only the candidates within the start window are inspected."""
+def _dedup_and_group(boundaries: list[list[int | None]], overlap_bp: int) -> list[int]:
+    """AND rule (RI: exon start/end; MXE: first AND second exon start/end):
+    a candidate is a duplicate only when a kept event has EVERY boundary in
+    *boundaries* within ±overlap_bp.  Rows with any null boundary are always
+    kept and never used as a reference.  Kept tuples are held sorted by their
+    first boundary so only candidates within that window are inspected."""
     kept: list[int] = []
-    kept_pairs: list[tuple[int, int]] = []  # sorted by start
-    kept_starts: list[int] = []
-    for i, (s, e) in enumerate(zip(starts, ends)):
+    kept_tuples: list[tuple[int, ...]] = []  # sorted by first boundary
+    kept_firsts: list[int] = []
+    for i, key in enumerate(zip(*boundaries)):
+        if any(v is None for v in key):
+            kept.append(i)
+            continue
+        first = key[0]
         is_dup = False
-        if s is not None and e is not None and kept_starts:
-            lo = bisect.bisect_left(kept_starts, s - overlap_bp)
-            hi = bisect.bisect_right(kept_starts, s + overlap_bp)
-            for ks, ke in kept_pairs[lo:hi]:
-                if abs(e - ke) <= overlap_bp:
+        if kept_firsts:
+            lo = bisect.bisect_left(kept_firsts, first - overlap_bp)
+            hi = bisect.bisect_right(kept_firsts, first + overlap_bp)
+            for kt in kept_tuples[lo:hi]:
+                if all(abs(v - kv) <= overlap_bp for v, kv in zip(key, kt)):
                     is_dup = True
                     break
         if is_dup:
             continue
         kept.append(i)
-        if s is not None and e is not None:
-            pos = bisect.bisect_right(kept_starts, s)
-            kept_starts.insert(pos, s)
-            kept_pairs.insert(pos, (s, e))
+        pos = bisect.bisect_right(kept_firsts, first)
+        kept_firsts.insert(pos, first)
+        kept_tuples.insert(pos, tuple(key))  # type: ignore[arg-type]
     return kept
 
 
@@ -482,8 +487,11 @@ def deduplicate_with_overlap(df: pd.DataFrame, overlap_bp: int = 50) -> pd.DataF
 
     - SE: near-duplicate when ``|exon_start − kept_start| ≤ overlap_bp`` OR
       ``|exon_end − kept_end| ≤ overlap_bp``.
-    - RI / MXE: near-duplicate only when BOTH boundaries of the defining exon
-      are within ``overlap_bp``.
+    - RI: near-duplicate only when BOTH boundaries of the retained intron
+      exon are within ``overlap_bp``.
+    - MXE: near-duplicate only when all four boundaries (first AND second
+      exon start/end) are within ``overlap_bp``; a different second exon is
+      a distinct event.
     - A3SS / A5SS: only exact duplicates of
       (long_exon_start, long_exon_end, short_es, short_ee, flanking_es,
       flanking_ee) are collapsed (JC vs JCEC merge); alternative sites a few
@@ -520,9 +528,15 @@ def deduplicate_with_overlap(df: pd.DataFrame, overlap_bp: int = 50) -> pd.DataF
             kept_pos = _dedup_se_group(
                 _col_list(group_df, "exon_start"), _col_list(group_df, "exon_end"), overlap_bp
             )
-        elif event_type in ("RI", "MXE"):
+        elif event_type == "RI":
             kept_pos = _dedup_and_group(
-                _col_list(group_df, "exon_start"), _col_list(group_df, "exon_end"), overlap_bp
+                [_col_list(group_df, "exon_start"), _col_list(group_df, "exon_end")], overlap_bp
+            )
+        elif event_type == "MXE":
+            kept_pos = _dedup_and_group(
+                [_col_list(group_df, c) for c in
+                 ("exon_start", "exon_end", "second_exon_start", "second_exon_end")],
+                overlap_bp,
             )
         elif event_type in ("A3SS", "A5SS"):
             kept_pos = _dedup_exact_group([_col_list(group_df, c) for c in alt_cols])

@@ -872,7 +872,8 @@ async def get_hnrnp_motifs(
         (sig_events if is_sig else bg_events).append(ev)
 
     def _build_regions(events: list[SplicingEvent], label: str = "") -> list[SERegions]:
-        """Extract five genomic regions per event and fetch sequences in one batch."""
+        """Extract the genomic regions (``REGION_NAMES`` order) per event and
+        fetch sequences in one batch."""
         if not events:
             return []
         all_bed_regions: list[tuple[str, int, int]] = []
@@ -890,7 +891,7 @@ async def get_hnrnp_motifs(
             strand = ev.strand or "+"
             if not ev.chr or ev.exon_start is None or ev.exon_end is None:
                 n_missing_coords += 1
-                for _ in range(5):
+                for _ in range(n_regions):
                     all_bed_regions.append(("", 0, 0))
                 strands.append(strand)
                 continue
@@ -931,6 +932,10 @@ async def get_hnrnp_motifs(
                 ev.upstream_es, ev.upstream_ee,
                 ev.downstream_es, ev.downstream_ee,
             )
+            if len(bed) != n_regions:
+                raise RuntimeError(
+                    f"define_se_regions returned {len(bed)} regions, expected {n_regions}"
+                )
             all_bed_regions.extend(bed)
             strands.append(strand)
 
@@ -956,16 +961,10 @@ async def get_hnrnp_motifs(
 
         results: list[SERegions] = []
         for idx, strand in enumerate(strands):
-            s = seqs[idx * 5 : idx * 5 + 5]
+            s = seqs[idx * n_regions : idx * n_regions + n_regions]
             if strand == "-":
                 s = [reverse_complement(x) if x else "" for x in s]
-            results.append(SERegions(
-                upstream_exon=s[0],
-                upstream_intron=s[1],
-                skipped_exon=s[2],
-                downstream_intron=s[3],
-                downstream_exon=s[4],
-            ))
+            results.append(SERegions(**dict(zip(REGION_NAMES, s))))
         return results
 
     # Extract regions for both groups concurrently (two independent samtools calls)

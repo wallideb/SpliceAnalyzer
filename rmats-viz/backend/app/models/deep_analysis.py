@@ -32,7 +32,8 @@ class DeepAnalysis(Base):
     n_significant: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     n_not_significant: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    # Permutation config (filled when user runs a permutation)
+    # Permutation config — written at creation when the client supplies
+    # ``permutation_iterations`` (DeepAnalysisCreate), otherwise NULL.
     permutation_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

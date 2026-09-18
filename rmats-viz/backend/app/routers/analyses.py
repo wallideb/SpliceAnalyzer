@@ -128,8 +128,23 @@ async def create_analysis(
     db.add(SampleGroup(analysis_id=analysis_id, group_label=group2_label, group_index=2, sample_names=g2_samples))
     await db.flush()
 
+    # Parsing runs synchronously inside the request (status 'processing' →
+    # 'ready').  The analysis row is created first so a parser failure can be
+    # recorded on it ('error' + error_message) and surfaced by GET /analyses/{id}.
+    #
+    # TODO(ingestion stats): parse_and_store() returns only the inserted row
+    # count.  The parser records per-file drop reasons on the DataFrame
+    # (df.attrs["n_dropped_low_coverage"], ["n_dropped_missing_counts"],
+    # ["n_collapsed_by_type"]) but those frames are internal to the service;
+    # exposing n_rows_read / n_dropped_* / n_collapsed in UploadResponse
+    # requires parse_and_store to return a stats object.  Until then only
+    # coarse warnings derived from the returned count are reported.
+    warnings: list[str] = []
     try:
         file_data = [(f.filename or f"file_{i}", await f.read()) for i, f in enumerate(files)]
+        for fname, payload in file_data:
+            if not payload:
+                warnings.append(f"File '{fname}' is empty")
         event_count = await parse_and_store(file_data, analysis_id, db)
         analysis.status = "ready"
         await db.commit()
@@ -140,13 +155,24 @@ async def create_analysis(
             err_analysis = await err_db.get(Analysis, analysis_id)
             if err_analysis:
                 err_analysis.status = "error"
-                err_analysis.error_message = str(exc)
+                err_analysis.error_message = f"Parser error: {exc}"
             else:
-                err_db.add(Analysis(id=analysis_id, name=name, status="error", error_message=str(exc)))
+                err_db.add(Analysis(
+                    id=analysis_id, name=name, status="error",
+                    error_message=f"Parser error: {exc}", mutated_genes=parsed_genes,
+                ))
             await err_db.commit()
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=f"Parser error: {exc}") from exc
 
-    return UploadResponse(analysis_id=analysis_id, status="ready", event_count=event_count)
+    if event_count == 0:
+        warnings.append(
+            "No events were imported: check that the files are rMATS *.MATS.JC(EC).txt "
+            "outputs and that events pass the coverage filter (mean ≥ 10 reads per group)"
+        )
+
+    return UploadResponse(
+        analysis_id=analysis_id, status="ready", event_count=event_count, warnings=warnings,
+    )
 
 
 @router.get("", response_model=list[AnalysisListItem])

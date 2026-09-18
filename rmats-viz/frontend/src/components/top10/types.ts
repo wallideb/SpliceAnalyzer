@@ -11,14 +11,14 @@
  *                  (only shown when mutated genes were defined for the analysis)
  *
  * Extended modes (deep-analysis only):
- * - pathways     → Molecular pathway enrichment (KEGG / Reactome)
  * - motifs       → Recurrent splicing motifs across SE events
  * - splice       → Splice-site consensus strength (5'/3'/branch/PPT)
+ * - hnrnp        → hnRNP motif enrichment
+ * - enrichr      → Enrichr pathway enrichment
  */
 export type ViewMode =
   | "gene"
   | "stringdb"
-  | "pathways"
   | "motifs"
   | "splice"
   | "hnrnp"

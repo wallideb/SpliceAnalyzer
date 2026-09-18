@@ -20,7 +20,7 @@ from collections import Counter
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +31,7 @@ from app.models.deep_analysis import DeepAnalysis, DeepAnalysisEvent
 from app.models.splice import EventSpliceFeature
 from app.schemas.deep_analysis import (
     DeepAnalysisCreate,
+    DeepAnalysisEventsPage,
     DeepAnalysisListItem,
     DeepAnalysisResponse,
 )
@@ -78,23 +79,27 @@ async def create_deep_analysis(
         name = f"{gene_part}FDR{body.fdr_threshold}-PSI{body.delta_psi_min}{pval_part}-{_d.today().isoformat()}"
 
     # Fetch all events for this analysis
-    q = select(SplicingEvent.id, SplicingEvent.fdr, SplicingEvent.inc_level_difference).where(
-        SplicingEvent.analysis_id == analysis_id
-    )
+    q = select(
+        SplicingEvent.id, SplicingEvent.fdr, SplicingEvent.p_value, SplicingEvent.inc_level_difference,
+    ).where(SplicingEvent.analysis_id == analysis_id)
     rows = (await db.execute(q)).all()
 
-    # Tag each event
+    # Tag each event: FDR ≤ threshold AND |ΔΨ| ≥ minimum AND (when a p-value
+    # maximum is set) p ≤ pvalue_threshold.
     n_sig = 0
     n_not_sig = 0
     event_records: list[dict] = []
 
-    for event_id, fdr, inc_level_diff in rows:
+    for event_id, fdr, p_value, inc_level_diff in rows:
         fdr_ok = fdr is not None and fdr <= body.fdr_threshold
         dpsi_ok = (
             inc_level_diff is not None
             and abs(inc_level_diff) >= body.delta_psi_min
         )
-        is_sig = fdr_ok and dpsi_ok
+        pv_ok = body.pvalue_threshold is None or (
+            p_value is not None and p_value <= body.pvalue_threshold
+        )
+        is_sig = fdr_ok and dpsi_ok and pv_ok
         if is_sig:
             n_sig += 1
         else:
@@ -110,6 +115,7 @@ async def create_deep_analysis(
         modules=body.modules,
         n_significant=n_sig,
         n_not_significant=n_not_sig,
+        permutation_iterations=body.permutation_iterations,
         status="ready",
     )
     db.add(deep)
@@ -197,14 +203,21 @@ async def delete_deep_analysis(
 
 @router.get(
     "/deep-analyses/{deep_analysis_id}/events",
-    response_model=list[SplicingEventResponse],
+    response_model=DeepAnalysisEventsPage,
 )
 async def list_deep_analysis_events(
     deep_analysis_id: uuid.UUID,
     significant: bool | None = Query(None, description="Filter by significance"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(200, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return events associated with this deep analysis, optionally filtered by significance."""
+    """Return a page of events associated with this deep analysis
+    (ordered by FDR ascending), optionally filtered by significance.
+
+    Response: ``{items, total, page, page_size, pages}`` (same shape as
+    ``GET /analyses/{id}/events``).
+    """
     deep = (
         await db.execute(
             select(DeepAnalysis).where(DeepAnalysis.id == deep_analysis_id)
@@ -221,9 +234,19 @@ async def list_deep_analysis_events(
     if significant is not None:
         q = q.where(DeepAnalysisEvent.is_significant == significant)
 
-    q = q.order_by(SplicingEvent.fdr.asc().nulls_last())
+    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
+
+    q = (
+        q.order_by(SplicingEvent.fdr.asc().nulls_last(), SplicingEvent.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     rows = (await db.execute(q)).scalars().all()
-    return rows
+    pages = max(1, -(-total // page_size))  # ceiling division
+    return DeepAnalysisEventsPage(
+        items=[SplicingEventResponse.model_validate(r) for r in rows],
+        total=total, page=page, page_size=page_size, pages=pages,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +291,12 @@ class StatTestResult(BaseModel):
     test_name: str
     statistic: float | None = None
     p_value: float | None = None
-    significant: bool = False  # p < 0.05
+    # Benjamini-Hochberg adjusted p-value across every test of the panel
+    # (None when the test could not be run).
+    q_value: float | None = None
+    significant: bool = False       # raw p < 0.05
+    significant_fdr: bool = False   # BH q < 0.05
+
 
 class PatternComparisonResponse(BaseModel):
     significant: GroupPatternStats
@@ -449,11 +477,12 @@ def _proportion_z_test(k1: int, n1: int, k2: int, n2: int) -> tuple[float | None
 
     This is a large-sample normal approximation, not an exact test.  For small
     expected counts Fisher's exact test is generally preferred.  No continuity
-    correction is applied.  SE = 0 (and None is returned) whenever p_pool is 0
+    correction is applied.  Groups with fewer than 5 observations are not
+    tested (None, None).  SE = 0 (and None is returned) whenever p_pool is 0
     or 1, i.e. all observations across both groups are failures or all are
     successes; the test is undefined in that case.
     """
-    if n1 < 1 or n2 < 1:
+    if n1 < _MIN_GROUP_N or n2 < _MIN_GROUP_N:
         return None, None
     p1 = k1 / n1
     p2 = k2 / n2

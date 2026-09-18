@@ -14,6 +14,11 @@ class Analysis(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="processing")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     mutated_genes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # Splice-feature background computation state (source of truth for
+    # /splice/progress and the export readiness check; safe across workers):
+    #   'idle' | 'running' | 'done' | 'error'
+    compute_status: Mapped[str] = mapped_column(String(20), nullable=False, default="idle", server_default="idle")
+    compute_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 

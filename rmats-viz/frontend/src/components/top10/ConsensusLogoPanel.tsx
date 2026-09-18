@@ -17,6 +17,7 @@ import { useRef, useState } from "react";
 import { ScienceNote } from "@/components/ScienceNote";
 import { useT } from "@/contexts/LanguageContext";
 import { posNum, posLabel } from "@/lib/utils";
+import { BASE_COLORS } from "@/lib/colors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,12 +45,7 @@ interface ConsensusLogoPanelProps {
 // Constants
 // ---------------------------------------------------------------------------
 
-const BASE_COLORS: Record<string, string> = {
-  A: "#22c55e",
-  C: "#3b82f6",
-  G: "#f97316",
-  T: "#ef4444",
-};
+// Nucleotide colours come from the shared palette in lib/colors.ts (E7).
 
 const COL_W     = 28;
 const LOGO_H    = 90;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/contexts/LanguageContext";
+import { baseColor } from "@/lib/colors";
 
 /**
  * SpliceSiteTrack
@@ -22,12 +23,7 @@ import { useT } from "@/contexts/LanguageContext";
  * Each nucleotide has a native SVG <title> tooltip showing position + base.
  */
 
-const BASE_COLORS: Record<string, string> = {
-  A: "#22c55e",   // green-500
-  C: "#3b82f6",   // blue-500
-  G: "#f97316",   // orange-500
-  T: "#ef4444",   // red-500
-};
+// Nucleotide colours come from the shared palette in lib/colors.ts (E7).
 
 // Position arrays — no zero in splice-site numbering
 const DONOR_POSITIONS    = [-3, -2, -1, 1, 2, 3, 4, 5, 6] as const;      // 9 nt
@@ -99,7 +95,7 @@ function NucTrack({
             .toUpperCase()
             .split("")
             .map((base, i) => {
-              const color    = BASE_COLORS[base] ?? "#94a3b8";
+              const color    = baseColor(base);
               const isHL     = canonicalIdx.has(i);
               const x        = getX(i);
               const pos      = positions[i] ?? i;

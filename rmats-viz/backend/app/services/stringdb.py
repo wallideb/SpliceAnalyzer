@@ -74,16 +74,21 @@ async def _query_string(gene_a: str, gene_b: str, species: int) -> dict | None:
         if not data:
             return None
         # Pick the interaction between our two genes specifically
-        # (STRING may return interactions involving neighbours too)
+        # (STRING may return interactions involving neighbours too).
+        # Matching is case-insensitive on both orientations of the pair.
         g_a = gene_a.upper()
         g_b = gene_b.upper()
         for item in data:
-            a = item.get("preferredName_A", "").upper()
-            b = item.get("preferredName_B", "").upper()
+            a = str(item.get("preferredName_A", "")).upper()
+            b = str(item.get("preferredName_B", "")).upper()
             if (a == g_a and b == g_b) or (a == g_b and b == g_a):
                 return item
-        # If exact match not found, return the first result
-        return data[0] if data else None
+        # No record for the queried pair: treat as "no interaction".  Never
+        # fall back to data[0], which would be an unrelated neighbour pair.
+        logger.debug(
+            "STRING: %d record(s) returned but none for the pair %s/%s", len(data), g_a, g_b,
+        )
+        return None
     except httpx.HTTPError as exc:
         logger.warning("STRING API error for %r/%r: %s", gene_a, gene_b, exc)
         return None

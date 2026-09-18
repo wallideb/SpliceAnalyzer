@@ -6,9 +6,14 @@ alembic==1.13.1
 pydantic==2.7.1
 pydantic-settings==2.2.1
 pandas==2.2.2
+# numpy is imported directly by app/services/permutation.py (vectorised
+# label permutations); pandas 2.2.x supports both the 1.26 and 2.x lines.
+numpy>=1.26.4,<3
 python-multipart==0.0.9
 httpx==0.27.0
 openpyxl==3.1.2
 reportlab==4.2.2
 requests==2.32.3
 urllib3>=1.21.1,<2.5
+# System dependency (not installable via pip): samtools >= 1.10 must be on
+# PATH (or set SAMTOOLS_BIN) for FASTA sequence extraction — see Dockerfile.

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -149,6 +150,14 @@ def _ensembl_get(path: str) -> Any | None:
     return None
 
 
+def _ensembl_chrom(chrom: str) -> str:
+    """UCSC-style chromosome name → Ensembl name (``chr1`` → ``1``, ``chrM`` → ``MT``)."""
+    name = chrom.removeprefix("chr")
+    if name in ("M", "MT"):
+        return "MT"
+    return name
+
+
 def _get_mane_transcript(gene_id: str, chrom: str, exon_start: int, exon_end: int) -> str | None:
     """Return the MANE Select transcript ID for the given gene.
 
@@ -167,7 +176,7 @@ def _get_mane_transcript(gene_id: str, chrom: str, exon_start: int, exon_end: in
                 return t.get("id")
 
     # Strategy 2: region overlap fallback
-    chrom_clean = chrom.lstrip("chr")
+    chrom_clean = _ensembl_chrom(chrom)
     data = _ensembl_get(
         f"/overlap/region/human/{chrom_clean}:{exon_start + 1}-{exon_end}"
         "?feature=transcript&content-type=application/json"
@@ -180,8 +189,37 @@ def _get_mane_transcript(gene_id: str, chrom: str, exon_start: int, exon_end: in
     return None
 
 
+def _cds_belongs_to(cds: dict, transcript_id: str) -> bool:
+    """True when the CDS feature's ``Parent`` is *transcript_id*.
+
+    Ensembl returns ``Parent`` as the transcript stable id, sometimes
+    versioned (``ENST00000123456.7``); both forms are accepted.
+    """
+    parent = cds.get("Parent")
+    if not isinstance(parent, str):
+        return False
+    if parent == transcript_id:
+        return True
+    base = transcript_id.split(".")[0]
+    if parent == base:
+        return True
+    return re.fullmatch(rf"{re.escape(base)}\.\d+", parent) is not None
+
+
+def _filter_cds_by_transcript(cds: Any, transcript_id: str) -> list[dict]:
+    """Keep only the CDS features whose Parent is *transcript_id*.
+
+    ``/overlap/id/{tx}?feature=cds`` returns the CDS features of EVERY
+    transcript overlapping the span, so the other isoforms' CDS would
+    otherwise inflate the CDS span and mis-classify UTR/partial exons.
+    """
+    if not isinstance(cds, list):
+        return []
+    return [c for c in cds if isinstance(c, dict) and _cds_belongs_to(c, transcript_id)]
+
+
 def _get_transcript_structure(transcript_id: str) -> dict | None:
-    """Fetch exon list + CDS intervals for a transcript."""
+    """Fetch exon list + CDS intervals (this transcript only) for a transcript."""
     exons = _ensembl_get(
         f"/lookup/id/{transcript_id}?expand=1&content-type=application/json"
     )
@@ -190,8 +228,19 @@ def _get_transcript_structure(transcript_id: str) -> dict | None:
     cds = _ensembl_get(
         f"/overlap/id/{transcript_id}?feature=cds&content-type=application/json"
     )
-    exons["CDS"] = cds if isinstance(cds, list) else []
+    exons["CDS"] = _filter_cds_by_transcript(cds, transcript_id)
     return exons
+
+
+def _merge_intervals(intervals: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Union of half-open intervals, sorted and non-overlapping."""
+    merged: list[tuple[int, int]] = []
+    for s, e in sorted(i for i in intervals if i[1] > i[0]):
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+    return merged
 
 
 def _frame_class(
@@ -236,16 +285,24 @@ def _frame_class(
         result["frame_class"] = "non_coding"
         return result
 
-    # Overall CDS span
-    cds_starts = [c.get("start", 0) - 1 for c in cds_list]
-    cds_ends   = [c.get("end", 0)     for c in cds_list]
-    cds_start  = min(cds_starts)
-    cds_end    = max(cds_ends)
+    # Union of the CDS segments (Ensembl 1-based inclusive → 0-based half-open)
+    cds_segments = _merge_intervals(
+        [(c.get("start", 0) - 1, c.get("end", 0)) for c in cds_list]
+    )
+    if not cds_segments:
+        result["frame_region"] = "non_coding"
+        result["frame_class"] = "non_coding"
+        return result
+    cds_start = cds_segments[0][0]
+    cds_end   = cds_segments[-1][1]
 
-    overlap_start = max(exon_start, cds_start)
-    overlap_end   = min(exon_end,   cds_end)
+    # Coding length = sum of the exon's overlap with each CDS segment
+    cod_len = sum(
+        max(0, min(exon_end, seg_e) - max(exon_start, seg_s))
+        for seg_s, seg_e in cds_segments
+    )
 
-    if overlap_start >= overlap_end:
+    if cod_len <= 0:
         # No CDS overlap
         if exon_end <= cds_start:
             result["frame_region"] = "UTR5" if transcript.get("strand") == 1 else "UTR3"
@@ -254,10 +311,10 @@ def _frame_class(
         result["frame_class"] = "non_coding"
         return result
 
-    cod_len = overlap_end - overlap_start
-
-    # Partial CDS overlap?
-    if overlap_start > exon_start or overlap_end < exon_end:
+    # "CDS" only when the exon is entirely covered by CDS segments; any part
+    # outside the union (beyond its span, or in a gap) is "partial".
+    exon_len = exon_end - exon_start
+    if cod_len < exon_len or exon_start < cds_start or exon_end > cds_end:
         result["frame_region"] = "partial"
     else:
         result["frame_region"] = "CDS"

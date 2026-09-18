@@ -67,6 +67,8 @@ export const REFERENCES: Record<string, Reference> = {
 
   // ─────────────────────────────────────────────────────────────────────────
   // MaxEnt / splice site scoring model
+  // NOTE: not cited by any <ScienceNote> yet — kept for the planned MaxEntScan
+  // splice-site strength port (E4). Do not remove.
   // ─────────────────────────────────────────────────────────────────────────
   maxent: {
     id: "maxent",

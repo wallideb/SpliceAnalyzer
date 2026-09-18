@@ -53,6 +53,34 @@ _CONFIDENCE_LABEL: dict[str, str] = {
     "1": "red",
 }
 
+# ── Per-gene result cache ────────────────────────────────────────────────────
+# symbol → (monotonic timestamp, panels).  Large exports query the same gene
+# many times (one row per event); PanelApp content changes rarely, so a 6 h
+# TTL removes almost all repeated HTTP round-trips within a process.
+_PANEL_CACHE: dict[str, tuple[float, list[dict]]] = {}
+_PANEL_CACHE_TTL: float = 6 * 3600.0
+_PANEL_CACHE_MAX: int = 20_000  # hard cap to bound memory
+
+
+def _cache_get(symbol: str) -> list[dict] | None:
+    entry = _PANEL_CACHE.get(symbol)
+    if entry is None:
+        return None
+    ts, panels = entry
+    if time.monotonic() - ts > _PANEL_CACHE_TTL:
+        _PANEL_CACHE.pop(symbol, None)
+        return None
+    return panels
+
+
+def _cache_put(symbol: str, panels: list[dict]) -> None:
+    if len(_PANEL_CACHE) >= _PANEL_CACHE_MAX:
+        # Drop the oldest entries (insertion order) to make room.
+        for old in list(_PANEL_CACHE)[: _PANEL_CACHE_MAX // 10]:
+            _PANEL_CACHE.pop(old, None)
+    _PANEL_CACHE[symbol] = (time.monotonic(), panels)
+
+
 # ── Circuit breaker ──────────────────────────────────────────────────────────
 # Maps source base-URL → monotonic timestamp until which the source is skipped.
 _source_down_until: dict[str, float] = {}
@@ -212,8 +240,14 @@ async def get_panels_for_gene(symbol: str) -> list[dict]:
 
     Returns an empty list if the gene is not found in either instance or
     both APIs are unreachable / in backoff.
+
+    Results (including empty ones) are cached in memory for 6 h per symbol.
     """
     symbol = symbol.upper()
+
+    cached = _cache_get(symbol)
+    if cached is not None:
+        return list(cached)
 
     for base in _SOURCES:
         entries = await _query_source(base, symbol)
@@ -223,7 +257,12 @@ async def get_panels_for_gene(symbol: str) -> list[dict]:
                 logger.debug(
                     "PanelApp: %d panel(s) for %r from %s", len(panels), symbol, base
                 )
-                return panels
+                _cache_put(symbol, panels)
+                return list(panels)
 
     logger.info("PanelApp: no panels found for %r in any source", symbol)
+    # Cache the negative result only when at least one source was actually
+    # queried (otherwise a transient backoff would be remembered for 6 h).
+    if any(_is_source_available(b) for b in _SOURCES):
+        _cache_put(symbol, [])
     return []

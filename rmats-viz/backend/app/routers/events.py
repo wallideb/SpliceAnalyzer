@@ -4,7 +4,7 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -13,6 +13,49 @@ from app.models.event import SplicingEvent
 from app.schemas.event import EventsPage, ManhattanPoint, SplicingEventResponse
 
 router = APIRouter(tags=["events"])
+
+
+# ---------------------------------------------------------------------------
+# Natural chromosome ordering
+# ---------------------------------------------------------------------------
+
+# Canonical rank of the human chromosomes: 1..22, X=23, Y=24, M/MT=25.
+_CHR_RANK: dict[str, int] = {str(i): i for i in range(1, 23)}
+_CHR_RANK.update({"X": 23, "Y": 24, "M": 25, "MT": 25})
+_CHR_OTHER_RANK = 100  # contigs / scaffolds sort after the canonical set, by name
+
+
+def _chr_sort_key(chrom: str | None) -> tuple[int, str]:
+    """Natural sort key for chromosome names.
+
+    ``chr1`` … ``chr22`` → 1 … 22, ``chrX`` → 23, ``chrY`` → 24, ``chrM``/``chrMT``
+    → 25; anything else (unplaced contigs, alt scaffolds, None) → 100 + name so
+    they sort after the canonical chromosomes, alphabetically.  A leading
+    ``chr`` prefix (any case) is ignored.
+    """
+    name = (chrom or "").strip()
+    if name[:3].lower() == "chr":
+        name = name[3:]
+    rank = _CHR_RANK.get(name.upper())
+    if rank is not None:
+        return rank, ""
+    return _CHR_OTHER_RANK, name.upper()
+
+
+def _chr_order_sql():
+    """SQL ordering expressions equivalent to :func:`_chr_sort_key`.
+
+    Returns ``(rank_expr, name_expr)`` to be used as
+    ``ORDER BY rank_expr, name_expr, exon_start``.  The rank is a CASE built
+    from the same mapping (chr prefix stripped, case-insensitive).
+    """
+    stripped = func.upper(func.regexp_replace(SplicingEvent.chr, "^[cC][hH][rR]", ""))
+    rank = case(
+        {name: rank for name, rank in _CHR_RANK.items()},
+        value=stripped,
+        else_=_CHR_OTHER_RANK,
+    )
+    return rank, stripped
 
 
 @router.get("/analyses/{analysis_id}/events", response_model=EventsPage)
@@ -77,6 +120,9 @@ async def get_manhattan(
 ):
     """Return lightweight event data for the Manhattan plot.
 
+    Rows are returned in natural genomic order (chr1 … chr22, X, Y, M, then
+    other contigs; by exon start within a chromosome).
+
     For large analyses (>50k events) we keep ALL significant events (FDR < 0.05)
     and uniformly sample the rest to stay under *_MANHATTAN_MAX_POINTS*.
     """
@@ -98,6 +144,8 @@ async def get_manhattan(
         SplicingEvent.fdr,
         SplicingEvent.inc_level_difference,
     )
+    chr_rank, chr_name = _chr_order_sql()
+    natural_order = (chr_rank, chr_name, SplicingEvent.exon_start)
 
     # Check total count first
     total = (await db.execute(
@@ -108,7 +156,7 @@ async def get_manhattan(
 
     if total <= _MANHATTAN_MAX_POINTS:
         # Small enough — return everything
-        q = select(*cols).where(base_cond).order_by(SplicingEvent.chr, SplicingEvent.exon_start)
+        q = select(*cols).where(base_cond).order_by(*natural_order)
         rows = (await db.execute(q)).all()
     else:
         from sqlalchemy import or_
@@ -117,7 +165,7 @@ async def get_manhattan(
         sig_q = (
             select(*cols)
             .where(and_(base_cond, SplicingEvent.fdr < 0.05))
-            .order_by(SplicingEvent.chr, SplicingEvent.exon_start)
+            .order_by(*natural_order)
         )
         sig_rows = (await db.execute(sig_q)).all()
 
@@ -125,14 +173,14 @@ async def get_manhattan(
         if remaining_budget > 0:
             nonsig_count = total - len(sig_rows)
             sample_rate = max(1, nonsig_count // remaining_budget)
-            # Non-significant = FDR >= 0.05 OR FDR IS NULL
+            # Non-significant = FDR >= 0.05 OR FDR IS NULL.  Row numbers follow
+            # the natural chromosome order so the every-Nth sampling spreads
+            # the budget evenly along the genome.
             nonsig_cond = or_(SplicingEvent.fdr >= 0.05, SplicingEvent.fdr.is_(None))
             sub = (
                 select(
                     *cols,
-                    func.row_number().over(
-                        order_by=[SplicingEvent.chr, SplicingEvent.exon_start]
-                    ).label("rn"),
+                    func.row_number().over(order_by=list(natural_order)).label("rn"),
                 )
                 .where(and_(base_cond, nonsig_cond))
                 .subquery()
@@ -144,16 +192,17 @@ async def get_manhattan(
                     sub.c.inc_level_difference,
                 )
                 .where(sub.c.rn % sample_rate == 0)
-                .order_by(sub.c.chr, sub.c.exon_start)
+                .order_by(sub.c.rn)
             )
             nonsig_rows = (await db.execute(sampled_q)).all()
         else:
             nonsig_rows = []
 
-        rows = sorted(
-            list(sig_rows) + list(nonsig_rows),
-            key=lambda r: (r.chr or "", r.exon_start or 0),
-        )
+        rows = list(sig_rows) + list(nonsig_rows)
+
+    # Final natural ordering in Python (≤ 50k rows) — authoritative regardless
+    # of how the SQL side ordered / merged the two subsets.
+    rows = sorted(rows, key=lambda r: (*_chr_sort_key(r.chr), r.exon_start or 0))
 
     return [
         ManhattanPoint(

@@ -53,10 +53,14 @@ export function runPermutationTest(
   nIterations: number = 500,
   fdrThreshold?: number,
   deltaPsiMin?: number,
+  pvalueThreshold?: number | null,
 ): Promise<PermutationResponse> {
   const params = new URLSearchParams({ n_iterations: String(nIterations) });
   if (fdrThreshold !== undefined) params.set("fdr_threshold", String(fdrThreshold));
   if (deltaPsiMin !== undefined) params.set("delta_psi_min", String(deltaPsiMin));
+  if (pvalueThreshold !== undefined && pvalueThreshold !== null) {
+    params.set("pvalue_threshold", String(pvalueThreshold));
+  }
   return fetchJSON<PermutationResponse>(
     `${BASE}/splice/permutation/${analysisId}?${params}`,
     { method: "POST" },

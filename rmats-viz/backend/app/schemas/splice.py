@@ -115,6 +115,11 @@ class EventPermResult(BaseModel):
     empirical_p_value: float | None = None
     n1: int = 0
     n2: int = 0
+    # True when every distinct label split was enumerated (p = r / N);
+    # False for Monte-Carlo sampling (p = (r + 1) / (K + 1)).
+    exact: bool = False
+    # Number of distinct label splits C(n1+n2, n1) when known.
+    n_splits: int | None = None
     null_hist_bins: list[float] = []
     null_hist_counts: list[int] = []
 
@@ -144,6 +149,15 @@ class PermutationResponse(BaseModel):
     observed_hist_counts: list[int] = []
     pct_p05: float | None = None
     pct_p01: float | None = None
+    # Fraction of tested events whose p-value came from exact enumeration
+    # of all label splits (0.0 = all Monte-Carlo, 1.0 = all exact).
+    exact_fraction: float = 0.0
+    # Smallest p-value attainable given the replicate design
+    # (1 / n_splits for exact enumeration, 1 / (K + 1) otherwise); None if unknown.
+    min_p_attainable: float | None = None
+    # Replicates per group in the underlying rMATS design (when uniform).
+    n_replicates_g1: int | None = None
+    n_replicates_g2: int | None = None
     metric_results: list[MetricPermResult] = []
 
 

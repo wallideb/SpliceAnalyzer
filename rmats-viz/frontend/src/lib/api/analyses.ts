@@ -14,14 +14,11 @@
 
 import type { Analysis, AnalysisListItem, UploadResponse } from "@/types/analysis";
 import type { GeneEntry } from "@/types/gene";
-import { BASE, fetchJSON } from "./client";
+import { BASE, fetchJSON, type ApiError } from "./client";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-/** Error with an HTTP status code attached (e.g. 409 from PDF export). */
-interface ApiError extends Error { status?: number; }
 
 export interface UploadPayload {
   name: string;
@@ -46,23 +43,14 @@ export async function getAnalysis(id: string): Promise<Analysis> {
   return fetchJSON(`${BASE}/analyses/${id}`);
 }
 
-// For DELETE we bypass the Next.js rewrite proxy entirely.
-// When running on localhost (standard Docker Compose setup), call the backend
-// directly on port 8000 — it is always exposed and CORS allows localhost:3000.
-// This requires zero env vars and zero container restarts.
-function _deleteUrl(id: string): string {
-  if (typeof window !== "undefined" && window.location.hostname === "localhost") {
-    return `http://localhost:8000/api/v1/analyses/${id}`;
-  }
-  // Fallback: use the Next.js proxy path (non-localhost deployments)
-  return `${BASE}/analyses/${id}`;
-}
-
+// DELETE goes through the Next.js rewrite proxy like every other call (C11);
+// the long-running cascade delete is covered by `experimental.proxyTimeout`
+// in next.config.mjs (10 min).
 export async function deleteAnalysis(id: string): Promise<void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10 * 60 * 1000); // 10 min
   try {
-    const resp = await fetch(_deleteUrl(id), {
+    const resp = await fetch(`${BASE}/analyses/${id}`, {
       method: "DELETE",
       signal: controller.signal,
     });

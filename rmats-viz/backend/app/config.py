@@ -18,8 +18,10 @@ class Settings(BaseSettings):
     # Download from: https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/current/
     # Expected file: MANE.GRCh38.v*.ensembl_genomic.gff.gz
     MANE_GFF3: str = "/data/MANE.GRCh38.ensembl_genomic.gff.gz"
-    # Intronic window (nt) to fetch around each splice site
-    SPLICE_WINDOW: int = 50
+    # Optional directory where the deep-analysis PDF export also writes every
+    # figure as a standalone SVG (one sub-directory per deep analysis).
+    # None (default) disables the side-dump entirely.
+    SVG_EXPORT_DIR: str | None = None
 
     @property
     def cors_origins_list(self) -> List[str]:

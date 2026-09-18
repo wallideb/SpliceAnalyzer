@@ -1,13 +1,31 @@
 "use client";
 import { useCallback, useState } from "react";
 
-const VALID_TYPES = ["SE", "RI", "A3SS", "A5SS", "MXE"];
+/**
+ * Detected rMATS file identity: event type + counting mode (A2).
+ *
+ *   SE.MATS.JC.txt          → { eventType: "SE",  countingMode: "JC" }
+ *   cohort_A3SS.MATS.JCEC.txt → { eventType: "A3SS", countingMode: "JCEC" }
+ *   fromGTF.SE.txt          → { eventType: "SE",  countingMode: null }
+ *
+ * The token must be delimited (start of name or one of . _ - / space) and
+ * immediately followed by `.MATS.<JC|JCEC>.txt`, so filenames such as
+ * `PRIMARY_SE.MATS.JC.txt` or `MYSERIES_SE.MATS.JC.txt` are no longer
+ * mis-classified as RI / SE by substring matching.
+ */
+export interface DetectedRmatsFile {
+  eventType: string;
+  countingMode: string | null;
+}
 
-function detectEventType(filename: string): string | null {
-  const upper = filename.toUpperCase();
-  for (const t of ["MXE", "A3SS", "A5SS", "RI", "SE"]) {
-    if (upper.includes(t)) return t;
-  }
+const MATS_RE = /(?:^|[._\-\/ ])(SE|MXE|A3SS|A5SS|RI)\.MATS\.(JC|JCEC)\.txt$/i;
+const FROM_GTF_RE = /(?:^|[._\-\/ ])fromGTF(?:\.novelJunction|\.novelSpliceSite)?\.(SE|MXE|A3SS|A5SS|RI)\.txt$/i;
+
+export function detectRmatsFile(filename: string): DetectedRmatsFile | null {
+  const m = MATS_RE.exec(filename);
+  if (m) return { eventType: m[1].toUpperCase(), countingMode: m[2].toUpperCase() };
+  const g = FROM_GTF_RE.exec(filename);
+  if (g) return { eventType: g[1].toUpperCase(), countingMode: null };
   return null;
 }
 
@@ -85,8 +103,8 @@ export function FileUploadZone({ files, onChange }: FileUploadZoneProps) {
       {files.length > 0 && (
         <ul className="space-y-1.5">
           {files.map((f) => {
-            const et = detectEventType(f.name);
-            const valid = et !== null;
+            const det = detectRmatsFile(f.name);
+            const valid = det !== null;
             return (
               <li
                 key={f.name}
@@ -98,9 +116,19 @@ export function FileUploadZone({ files, onChange }: FileUploadZoneProps) {
               >
                 <span className="truncate max-w-xs text-foreground">{f.name}</span>
                 <div className="flex items-center gap-2 ml-2 shrink-0">
-                  {et && (
+                  {det && (
                     <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
-                      {et}
+                      {det.eventType}
+                    </span>
+                  )}
+                  {det?.countingMode && (
+                    <span
+                      className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300"
+                      title={det.countingMode === "JCEC"
+                        ? "Junction counts + exon body reads (JCEC)"
+                        : "Junction counts only (JC)"}
+                    >
+                      {det.countingMode}
                     </span>
                   )}
                   {!valid && (

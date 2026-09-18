@@ -31,10 +31,34 @@ _lock = threading.Lock()
 _loaded = False
 
 # gene_id → { transcript_id, exons: [{start, end}], cds: [{start, end}], strand }
+# (the MANE Select transcript of the gene)
 _gene_index: dict[str, dict[str, Any]] = {}
 
 # transcript_id → same dict (secondary lookup)
 _tx_index: dict[str, dict[str, Any]] = {}
+
+# gene_id → [transcript dicts tagged MANE_Plus_Clinical]
+_plus_clinical_index: dict[str, list[dict[str, Any]]] = {}
+
+_TAG_MANE_SELECT = "MANE_Select"
+_TAG_MANE_PLUS_CLINICAL = "MANE_Plus_Clinical"
+
+
+def _parse_tags(tag_value: str) -> set[str]:
+    """Split a GFF3 ``tag`` attribute (``MANE_Select`` or ``a,b,c``) into a set."""
+    if not tag_value:
+        return set()
+    return {t.strip() for t in tag_value.replace("%2C", ",").split(",") if t.strip()}
+
+
+def _reset_index() -> None:
+    """Clear the in-memory index (used by tests to load a different file)."""
+    global _loaded
+    with _lock:
+        _gene_index.clear()
+        _tx_index.clear()
+        _plus_clinical_index.clear()
+        _loaded = False
 
 
 def _parse_attributes(attr_str: str) -> dict[str, str]:
@@ -72,9 +96,12 @@ def load_mane_gff3(path: str | Path) -> bool:
             _do_parse(p)
             _loaded = True
             logger.info(
-                "Loaded MANE GFF3: %d genes, %d transcripts",
+                "Loaded MANE GFF3: %d genes, %d transcripts (%d MANE Select, "
+                "%d MANE Plus Clinical)",
                 len(_gene_index),
                 len(_tx_index),
+                sum(1 for d in _tx_index.values() if d.get("is_mane_select")),
+                sum(len(v) for v in _plus_clinical_index.values()),
             )
             return True
         except Exception as exc:
@@ -133,6 +160,7 @@ def _do_parse(path: Path) -> None:
 
                 if tx_id and gene_id:
                     gff_id = attrs.get("ID", tx_id_raw)
+                    tags = _parse_tags(attrs.get("tag", ""))
                     transcripts[tx_id] = {
                         "transcript_id": tx_id,
                         "gene_id": gene_id,
@@ -140,6 +168,9 @@ def _do_parse(path: Path) -> None:
                         "strand": strand,
                         "exons": [],
                         "cds": [],
+                        "tags": sorted(tags),
+                        "is_mane_select": _TAG_MANE_SELECT in tags,
+                        "is_mane_plus_clinical": _TAG_MANE_PLUS_CLINICAL in tags,
                     }
                     id_to_tx[gff_id] = tx_id
 
@@ -157,6 +188,14 @@ def _do_parse(path: Path) -> None:
                     transcripts[tx_id]["cds"].append({"start": start, "end": end})
 
     # Build indices
+    # One gene may have several transcripts in the GFF3 (one MANE Select plus
+    # MANE Plus Clinical transcripts, in any order).  The gene index holds
+    # the transcript tagged MANE_Select; Plus Clinical transcripts go to a
+    # separate index.  Genes without a MANE_Select tag (old files without a
+    # ``tag`` attribute) fall back to the first transcript seen.
+    first_seen: dict[str, dict[str, Any]] = {}
+    n_select = 0
+    n_plus = 0
     for tx_id, data in transcripts.items():
         # Sort exons and CDS by position
         data["exons"].sort(key=lambda e: e["start"])
@@ -164,12 +203,36 @@ def _do_parse(path: Path) -> None:
 
         gene_id = data["gene_id"]
         _tx_index[tx_id] = data
+        first_seen.setdefault(gene_id, data)
 
-        # One gene may have multiple transcripts in the GFF3
-        # (MANE Select + MANE Plus Clinical).  Prefer MANE Select.
-        # In the Ensembl GFF3, the first transcript per gene is usually MANE Select.
+        if data["is_mane_select"]:
+            n_select += 1
+            if gene_id in _gene_index:
+                logger.warning(
+                    "Gene %s has several MANE_Select transcripts (%s, %s); keeping the first",
+                    gene_id, _gene_index[gene_id]["transcript_id"], tx_id,
+                )
+            else:
+                _gene_index[gene_id] = data
+        if data["is_mane_plus_clinical"]:
+            n_plus += 1
+            _plus_clinical_index.setdefault(gene_id, []).append(data)
+
+    n_fallback = 0
+    for gene_id, data in first_seen.items():
         if gene_id not in _gene_index:
+            n_fallback += 1
+            logger.debug(
+                "Gene %s has no MANE_Select-tagged transcript; using first seen (%s)",
+                gene_id, data["transcript_id"],
+            )
             _gene_index[gene_id] = data
+
+    logger.info(
+        "MANE GFF3 parsed: %d transcripts — %d MANE Select, %d MANE Plus Clinical, "
+        "%d genes without MANE_Select tag (first transcript used)",
+        len(transcripts), n_select, n_plus, n_fallback,
+    )
 
 
 def is_loaded() -> bool:
@@ -187,6 +250,15 @@ def get_mane_for_gene(gene_id: str) -> dict[str, Any] | None:
     # Strip version suffix if present
     gene_id_clean = gene_id.split(".")[0]
     return _gene_index.get(gene_id_clean)
+
+
+def get_mane_plus_clinical(gene_id: str) -> list[dict[str, Any]]:
+    """Return the MANE Plus Clinical transcripts of a gene (may be empty).
+
+    Each entry has the same keys as ``get_mane_for_gene``.
+    """
+    gene_id_clean = gene_id.split(".")[0]
+    return list(_plus_clinical_index.get(gene_id_clean, []))
 
 
 def get_transcript_data(transcript_id: str) -> dict[str, Any] | None:

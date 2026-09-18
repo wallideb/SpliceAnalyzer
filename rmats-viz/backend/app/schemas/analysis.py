@@ -1,10 +1,14 @@
 """
 Analysis schemas
 ================
-Pydantic models for analysis creation, listing, and detailed responses.
+Pydantic models for analysis listing, detailed responses and the upload result.
 
-``mutated_genes`` is stored as a JSONB list of :class:`GeneEntry` objects:
+``mutated_genes`` is stored as a JSONB list of ``GeneEntry``-shaped objects
+(see :mod:`app.schemas.gene`):
     [{"symbol": "BRCA1", "ensembl_id": "ENSG00000012048", "display": "BRCA1 (ENSG00000012048)"}]
+
+Analysis creation uses multipart form fields (see ``routers/analyses.py``),
+so there is no JSON request body schema here.
 """
 
 from __future__ import annotations
@@ -15,8 +19,6 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.schemas.gene import GeneEntry
-
 
 class SampleGroupResponse(BaseModel):
     id: uuid.UUID
@@ -25,15 +27,6 @@ class SampleGroupResponse(BaseModel):
     sample_names: list[str]
 
     model_config = {"from_attributes": True}
-
-
-class AnalysisCreate(BaseModel):
-    name: str
-    group1_label: str = "Subjects PCBP1"
-    group2_label: str = "Contrôles"
-    group1_samples: list[str] = []
-    group2_samples: list[str] = []
-    mutated_genes: list[GeneEntry] = []
 
 
 class AnalysisResponse(BaseModel):
@@ -64,3 +57,5 @@ class UploadResponse(BaseModel):
     analysis_id: uuid.UUID
     status: str
     event_count: int
+    # Human-readable notes about the import (e.g. "no events imported").
+    warnings: list[str] = []

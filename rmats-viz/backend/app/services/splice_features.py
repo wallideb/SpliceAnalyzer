@@ -25,12 +25,20 @@ PPT (polypyrimidine tract):
   ppt_longest_run longest consecutive run of C or T
 
 Branch-point (YNYURAY rule-based):
-  Search the ppt_seq for the 7-mer Y-N-Y-T-R-A-Y.
+  Search the ppt_seq for the 7-mer Y-N-Y-T-R-A-Y (the human branch-point
+  consensus yUnAy of Gao et al. 2008 NAR 36:2257 extended to 7 nt).
   Position scoring (0-7): each base earns 1 point if it matches.
-  N position always scores 1.
-  Report best match if score >= 5 (≥ 5/7 positions match).
-  bp_distance = distance of the best motif centre from the 3'-most end of ppt_seq
-                (≈ distance to 3'SS).
+  N position always scores 1.  The branch adenosine (position 6 of the
+  7-mer, 0-based index 5) is mandatory: candidates without an A there are
+  never reported.
+  Only candidates whose branch A lies 18-44 nt upstream of the exon start
+  are considered (> 95 % of human branch points, Leman et al. 2020 BMC
+  Genomics 21:86).  Report the best match if score >= 5 (≥ 5/7 positions
+  match); ties are broken in favour of the candidate closest to the 3'SS.
+  bp_distance = distance (nt) from the branch adenosine to the exon start
+                (the ppt_seq window ends 3 nt before the exon, hence the
+                ``offset_to_exon`` parameter of ``find_branch_point``).
+  bp_position = 0-based index of the 7-mer in ppt_seq; bp_motif = the 7-mer.
 """
 
 from __future__ import annotations
@@ -101,38 +109,61 @@ _BP_CHECKS = [
 ]
 
 
-_BP_MIN_DISTANCE = 15  # minimum distance (nt) from motif centre to 3'SS
+# Distance window (nt) from the branch adenosine to the 3'SS exon start.
+# Leman et al. 2020 (BMC Genomics 21:86) — genome-wide mapping of human
+# branch points: > 95 % lie between −18 and −44 nt of the acceptor site.
+# Consensus yUnAy (Gao et al. 2008, NAR 36:2257), with the branch A at the
+# 6th position of the 7-mer YNYTRAY used here.
+_BP_MIN_DISTANCE = 18
+_BP_MAX_DISTANCE = 44
+# 0-based index of the branch adenosine inside the 7-mer YNYTRAY
+_BP_A_INDEX = 5
+_BP_SCORE_THRESHOLD = 5
 
 
-def find_branch_point(seq: str) -> tuple[int, int, int]:
-    """Search *seq* for the best YNYURAY match.
+def find_branch_point(seq: str, offset_to_exon: int = 3) -> tuple[int, int, int]:
+    """Search *seq* (the PPT window) for the best YNYTRAY branch-point match.
 
-    Candidates whose motif centre is closer than ``_BP_MIN_DISTANCE`` nt to
-    the 3'SS (end of *seq*) are discarded to reduce false positives — real
-    branch points are typically 18-40 nt upstream of the 3'SS.
+    Parameters
+    ----------
+    seq : sequence ending ``offset_to_exon`` nt before the 3'SS exon start
+        (``ppt_seq`` spans [exon_start-50, exon_start-3), so the default is 3).
+    offset_to_exon : number of nt between the last base of *seq* and the
+        first base of the exon.
+
+    Only candidates with an adenosine at the branch position (index 5 of the
+    7-mer) and whose branch A lies ``_BP_MIN_DISTANCE``–``_BP_MAX_DISTANCE``
+    nt upstream of the exon start are considered.  Among candidates the
+    highest score wins; ties go to the candidate closest to the 3'SS
+    (most 3′).
 
     Returns
     -------
     (best_pos, best_score, best_distance)
-    best_pos      : 0-based index of the first nt of the match in *seq*
-    best_score    : 0-7 (7 = perfect)
-    best_distance : distance from the last nt of seq (≈ distance to 3'SS)
+    best_pos      : 0-based index of the first nt of the 7-mer in *seq*
+    best_score    : 0-7 (7 = perfect match); the A position always matches
+    best_distance : distance (nt) from the branch adenosine to the exon start
+    ``(-1, 0, -1)`` when no candidate lies in the distance window.
     """
     upper = seq.upper()
     n = len(upper)
-    best_pos, best_score = -1, 0
+    best_pos, best_score, best_distance = -1, 0, -1
     for i in range(n - 6):
         motif = upper[i : i + 7]
-        distance = n - (i + 3)  # distance from motif centre to 3'SS
-        if distance < _BP_MIN_DISTANCE:
-            continue  # too close to 3'SS — skip
+        if motif[_BP_A_INDEX] != "A":
+            continue  # branch adenosine is mandatory
+        distance = (n + offset_to_exon) - (i + _BP_A_INDEX)
+        if distance < _BP_MIN_DISTANCE or distance > _BP_MAX_DISTANCE:
+            continue
         score = sum(fn(b) for fn, b in zip(_BP_CHECKS, motif))
-        if score > best_score:
+        # Scanning 5′→3′: a later candidate with an equal score is closer to
+        # the 3'SS, so ">=" implements the tie-break towards the acceptor.
+        if score >= best_score:
             best_score = score
             best_pos = i
+            best_distance = distance
     if best_pos < 0:
         return -1, 0, -1
-    best_distance = n - (best_pos + 3)  # distance from motif centre to end of seq
     return best_pos, best_score, best_distance
 
 
@@ -166,8 +197,10 @@ class SpliceFeatureResult:
     ppt_longest_run: int | None = None
     # branch-point
     bp_motif_found: bool = False
-    bp_distance: int | None = None
+    bp_distance: int | None = None      # branch A → exon start (nt)
     bp_score: int | None = None
+    bp_position: int | None = None      # 0-based index of the 7-mer in ppt_seq
+    bp_motif: str | None = None         # the matched 7-mer
     # error flag (FASTA not available or coords invalid)
     error: str | None = None
 
@@ -251,17 +284,18 @@ def compute_features(
     res.upstream_donor_seq      = windows.upstream_donor_seq
     res.downstream_acceptor_seq = windows.downstream_acceptor_seq
 
-    # GT-AG
+    # GT-AG.  Windows truncated near a contig end (or missing) cannot be
+    # evaluated: report None rather than a spurious False.
     d = windows.donor_seq.upper()
     a = windows.acceptor_seq.upper()
-    res.donor_is_gt    = (len(d) >= 5 and d[3:5] == "GT")
-    res.acceptor_is_ag = (len(a) >= 23 and a[18:20] == "AG")
+    res.donor_is_gt    = (d[3:5] == "GT")   if len(d) >= 5  else None
+    res.acceptor_is_ag = (a[18:20] == "AG") if len(a) >= 20 else None
 
     # Flanking exon GT-AG
     ud = windows.upstream_donor_seq.upper()
     da = windows.downstream_acceptor_seq.upper()
-    res.upstream_donor_is_gt       = (len(ud) >= 5 and ud[3:5] == "GT") if ud else None
-    res.downstream_acceptor_is_ag  = (len(da) >= 23 and da[18:20] == "AG") if da else None
+    res.upstream_donor_is_gt       = (ud[3:5] == "GT")   if len(ud) >= 5  else None
+    res.downstream_acceptor_is_ag  = (da[18:20] == "AG") if len(da) >= 20 else None
 
     # PPT
     if windows.ppt_seq:
@@ -270,12 +304,18 @@ def compute_features(
         res.ppt_c_content = round(ppt_c_content(windows.ppt_seq), 4)
         res.ppt_longest_run = longest_y_run(windows.ppt_seq)
 
-    # Branch-point
+    # Branch-point.  ppt_seq = [exon_start-50, exon_start-3) → the window
+    # ends 3 nt before the exon (offset_to_exon=3); bp_distance is measured
+    # from the branch adenosine to the exon start.
     if windows.ppt_seq:
-        bp_pos, bp_s, bp_dist = find_branch_point(windows.ppt_seq)
-        res.bp_motif_found = bp_s >= 5          # at least 5/7 positions match
-        res.bp_distance    = bp_dist if bp_s >= 5 else None
+        bp_pos, bp_s, bp_dist = find_branch_point(windows.ppt_seq, offset_to_exon=3)
+        found = bp_pos >= 0 and bp_s >= _BP_SCORE_THRESHOLD   # ≥ 5/7 positions match, A present
+        res.bp_motif_found = found
+        res.bp_distance    = bp_dist if found else None
         res.bp_score       = bp_s
+        if found:
+            res.bp_position = bp_pos
+            res.bp_motif    = windows.ppt_seq[bp_pos : bp_pos + 7].upper()
 
     return res
 
@@ -293,7 +333,9 @@ def compute_pwm(seqs: list[str]) -> list[dict[str, float]]:
     result = []
     for i in range(n):
         col = [s[i].upper() for s in seqs if i < len(s)]
-        total = len(col) or 1
+        # Denominator counts A/C/G/T only so the frequencies sum to 1 even
+        # when the column contains N or other IUPAC characters.
+        total = sum(1 for c in col if c in "ACGT") or 1
         result.append({b: round(col.count(b) / total, 4) for b in bases})
     return result
 

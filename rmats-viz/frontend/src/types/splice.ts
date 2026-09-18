@@ -31,8 +31,13 @@ export interface SpliceFeatureResponse {
   ppt_longest_run: number | null;
   // branch-point
   bp_motif_found: boolean | null;
+  /** Distance (nt) from the branch adenosine to the exon start (3′SS). */
   bp_distance: number | null;
   bp_score: number | null;
+  /** 0-based index of the branch adenosine within `ppt_seq` (null if not found). */
+  bp_position: number | null;
+  /** The 7-mer (YNYURAY) matched at the branch point (null if not found). */
+  bp_motif: string | null;
   // MANE
   mane_transcript_id: string | null;
   exon_rank: number | null;
@@ -108,6 +113,10 @@ export interface EventPermResult {
   n2: number;
   null_hist_bins: number[];
   null_hist_counts: number[];
+  /** True when all C(n1+n2, n1) label splits were enumerated exactly. */
+  exact: boolean;
+  /** Number of distinct label splits used when `exact` is true. */
+  n_splits: number | null;
 }
 
 export interface MetricPermResult {
@@ -135,6 +144,12 @@ export interface PermutationResponse {
   pct_p05: number | null;
   pct_p01: number | null;
   metric_results: MetricPermResult[];
+  /** Fraction (0–1) of events whose test enumerated all label splits exactly. */
+  exact_fraction: number;
+  /** Smallest attainable empirical p-value given the replicate counts (C3). */
+  min_p_attainable: number | null;
+  n_replicates_g1: number | null;
+  n_replicates_g2: number | null;
 }
 
 export interface IntronSizeStats {

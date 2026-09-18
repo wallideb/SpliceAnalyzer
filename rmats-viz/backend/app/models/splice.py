@@ -50,10 +50,14 @@ class EventSpliceFeature(Base):
     ppt_score: Mapped[float | None] = mapped_column(Double(precision=53), nullable=True)
     ppt_longest_run: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Branch-point (YNYURAY rule)
+    # Branch-point (yUnAy / YNYURAY heuristic, branch A mandatory, −18…−44 nt)
     bp_motif_found: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Distance (nt) from the branch adenosine to the exon start (3'SS AG)
     bp_distance: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bp_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 0-based index of the matched 7-mer within ppt_seq, and the 7-mer itself
+    bp_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bp_motif: Mapped[str | None] = mapped_column(String(7), nullable=True)
 
     # MANE / frame annotation
     mane_transcript_id: Mapped[str | None] = mapped_column(Text, nullable=True)

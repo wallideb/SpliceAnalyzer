@@ -647,19 +647,27 @@ def _compute_stat_tests(
         [ppt_c_content(f.ppt_seq) for f in nonsig_feats if f.ppt_seq],
     )
 
+    # Canonical-site flags can be None (window truncated at a contig end):
+    # unknown → excluded from numerator AND denominator of the z-tests.
+    def _prop(feats: list, flag_attr: str, seq_attr: str, min_len: int) -> tuple[int, int]:
+        known = [
+            getattr(f, flag_attr) for f in feats
+            if getattr(f, seq_attr) and len(getattr(f, seq_attr)) >= min_len
+            and getattr(f, flag_attr) is not None
+        ]
+        return sum(1 for v in known if v), len(known)
+
     # 4. Canonical GT (5'SS) — proportion z-test
     sig_with_seq = [f for f in sig_feats if f.donor_seq and len(f.donor_seq) >= 9]
     ns_with_seq = [f for f in nonsig_feats if f.donor_seq and len(f.donor_seq) >= 9]
-    k1 = sum(1 for f in sig_with_seq if f.donor_is_gt)
-    k2 = sum(1 for f in ns_with_seq if f.donor_is_gt)
-    _add("canonical_gt", "Proportion z-test", *_proportion_z_test(k1, len(sig_with_seq), k2, len(ns_with_seq)))
+    k1, n1 = _prop(sig_feats, "donor_is_gt", "donor_seq", 9)
+    k2, n2 = _prop(nonsig_feats, "donor_is_gt", "donor_seq", 9)
+    _add("canonical_gt", "Proportion z-test", *_proportion_z_test(k1, n1, k2, n2))
 
     # 5. Canonical AG (3'SS) — proportion z-test
-    sig_acc = [f for f in sig_feats if f.acceptor_seq and len(f.acceptor_seq) >= 23]
-    ns_acc = [f for f in nonsig_feats if f.acceptor_seq and len(f.acceptor_seq) >= 23]
-    k1 = sum(1 for f in sig_acc if f.acceptor_is_ag)
-    k2 = sum(1 for f in ns_acc if f.acceptor_is_ag)
-    _add("canonical_ag", "Proportion z-test", *_proportion_z_test(k1, len(sig_acc), k2, len(ns_acc)))
+    k1, n1 = _prop(sig_feats, "acceptor_is_ag", "acceptor_seq", 23)
+    k2, n2 = _prop(nonsig_feats, "acceptor_is_ag", "acceptor_seq", 23)
+    _add("canonical_ag", "Proportion z-test", *_proportion_z_test(k1, n1, k2, n2))
 
     # 6. In-frame proportion (known frames only) — proportion z-test
     sig_frame = [f for f in sig_feats if f.frame_class and f.frame_class != "unknown"]
@@ -674,18 +682,14 @@ def _compute_stat_tests(
     _add("bp_found", "Proportion z-test", *_proportion_z_test(k1, len(sig_with_seq), k2, len(ns_with_seq)))
 
     # 8. Upstream donor GT (flanking exon) — proportion z-test
-    sig_up = [f for f in sig_feats if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
-    ns_up = [f for f in nonsig_feats if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
-    k1 = sum(1 for f in sig_up if f.upstream_donor_is_gt)
-    k2 = sum(1 for f in ns_up if f.upstream_donor_is_gt)
-    _add("upstream_canonical_gt", "Proportion z-test", *_proportion_z_test(k1, len(sig_up), k2, len(ns_up)))
+    k1, n1 = _prop(sig_feats, "upstream_donor_is_gt", "upstream_donor_seq", 9)
+    k2, n2 = _prop(nonsig_feats, "upstream_donor_is_gt", "upstream_donor_seq", 9)
+    _add("upstream_canonical_gt", "Proportion z-test", *_proportion_z_test(k1, n1, k2, n2))
 
     # 9. Downstream acceptor AG (flanking exon) — proportion z-test
-    sig_dn = [f for f in sig_feats if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
-    ns_dn = [f for f in nonsig_feats if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
-    k1 = sum(1 for f in sig_dn if f.downstream_acceptor_is_ag)
-    k2 = sum(1 for f in ns_dn if f.downstream_acceptor_is_ag)
-    _add("downstream_canonical_ag", "Proportion z-test", *_proportion_z_test(k1, len(sig_dn), k2, len(ns_dn)))
+    k1, n1 = _prop(sig_feats, "downstream_acceptor_is_ag", "downstream_acceptor_seq", 23)
+    k2, n2 = _prop(nonsig_feats, "downstream_acceptor_is_ag", "downstream_acceptor_seq", 23)
+    _add("downstream_canonical_ag", "Proportion z-test", *_proportion_z_test(k1, n1, k2, n2))
 
     # 10. Upstream intron size
     _continuous(
@@ -720,21 +724,27 @@ def _compute_group_stats(
     # Exon sizes
     sizes = [f.exon_size for f in feats if f.exon_size is not None]
 
+    # Canonical-site flags may be None (truncated window near a contig end):
+    # such events are unknown and excluded from BOTH numerator and denominator.
     # Donor
     donor_9 = [f.donor_seq[:9] for f in feats_with_seq if f.donor_seq and len(f.donor_seq) >= 9]
-    n_gt = sum(1 for f in feats_with_seq if f.donor_seq and len(f.donor_seq) >= 9 and f.donor_is_gt)
+    gt_known = [f.donor_is_gt for f in feats_with_seq if f.donor_seq and len(f.donor_seq) >= 9 and f.donor_is_gt is not None]
+    n_gt = sum(1 for v in gt_known if v)
 
     # Acceptor
     acc_23 = [f.acceptor_seq[-23:] for f in feats_with_seq if f.acceptor_seq and len(f.acceptor_seq) >= 23]
-    n_ag = sum(1 for f in feats_with_seq if f.acceptor_seq and len(f.acceptor_seq) >= 23 and f.acceptor_is_ag)
+    ag_known = [f.acceptor_is_ag for f in feats_with_seq if f.acceptor_seq and len(f.acceptor_seq) >= 23 and f.acceptor_is_ag is not None]
+    n_ag = sum(1 for v in ag_known if v)
 
     # Upstream donor (flanking exon)
     up_donor_9 = [f.upstream_donor_seq[:9] for f in feats_with_seq if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
-    n_up_gt = sum(1 for f in feats_with_seq if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9 and f.upstream_donor_is_gt)
+    up_gt_known = [f.upstream_donor_is_gt for f in feats_with_seq if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9 and f.upstream_donor_is_gt is not None]
+    n_up_gt = sum(1 for v in up_gt_known if v)
 
     # Downstream acceptor (flanking exon)
     dn_acc_23 = [f.downstream_acceptor_seq[-23:] for f in feats_with_seq if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
-    n_dn_ag = sum(1 for f in feats_with_seq if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23 and f.downstream_acceptor_is_ag)
+    dn_ag_known = [f.downstream_acceptor_is_ag for f in feats_with_seq if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23 and f.downstream_acceptor_is_ag is not None]
+    n_dn_ag = sum(1 for v in dn_ag_known if v)
 
     # PPT
     ppt_scores = [f.ppt_score for f in feats_with_seq if f.ppt_score is not None]
@@ -760,8 +770,8 @@ def _compute_group_stats(
         n_se_with_features=len(feats),
         exon_size_mean=round(statistics.mean(sizes), 1) if sizes else None,
         exon_size_median=round(statistics.median(sizes), 1) if sizes else None,
-        pct_canonical_gt=round(n_gt / len(donor_9) * 100, 1) if donor_9 else None,
-        pct_canonical_ag=round(n_ag / len(acc_23) * 100, 1) if acc_23 else None,
+        pct_canonical_gt=round(n_gt / len(gt_known) * 100, 1) if gt_known else None,
+        pct_canonical_ag=round(n_ag / len(ag_known) * 100, 1) if ag_known else None,
         ppt_mean_score=round(statistics.mean(ppt_scores), 3) if ppt_scores else None,
         ppt_mean_t_content=round(statistics.mean(ppt_t_vals), 3) if ppt_t_vals else None,
         ppt_mean_c_content=round(statistics.mean(ppt_c_vals), 3) if ppt_c_vals else None,
@@ -773,8 +783,8 @@ def _compute_group_stats(
         acceptor_pwm=compute_pwm(acc_23) if acc_23 else None,
         donor_consensus=iupac_consensus(donor_9) if donor_9 else None,
         acceptor_consensus=iupac_consensus(acc_23) if acc_23 else None,
-        pct_upstream_gt=round(n_up_gt / len(up_donor_9) * 100, 1) if up_donor_9 else None,
-        pct_downstream_ag=round(n_dn_ag / len(dn_acc_23) * 100, 1) if dn_acc_23 else None,
+        pct_upstream_gt=round(n_up_gt / len(up_gt_known) * 100, 1) if up_gt_known else None,
+        pct_downstream_ag=round(n_dn_ag / len(dn_ag_known) * 100, 1) if dn_ag_known else None,
         upstream_donor_pwm=compute_pwm(up_donor_9) if up_donor_9 else None,
         downstream_acceptor_pwm=compute_pwm(dn_acc_23) if dn_acc_23 else None,
         upstream_donor_consensus=iupac_consensus(up_donor_9) if up_donor_9 else None,

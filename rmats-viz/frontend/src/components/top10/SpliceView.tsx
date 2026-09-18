@@ -11,6 +11,7 @@
 import { useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getEventSpliceFeature, computeSpliceFeatures } from "@/lib/api/splice";
+import type { ApiError } from "@/lib/api/client";
 import { ScienceNote } from "@/components/ScienceNote";
 import { useT } from "@/contexts/LanguageContext";
 import type { SplicingEvent } from "@/types/event";
@@ -88,8 +89,9 @@ export function SpliceView({
     enabled: ev.event_type === "SE",
     staleTime: 10 * 60 * 1000,
     retry: (failureCount, error) =>
-      // Retry on 503 (server busy) up to 6 times with backoff
-      failureCount < 6 && error?.message?.includes("503"),
+      // Retry on 503 (server busy) up to 6 times with backoff — read the
+      // status attached by fetchJSON instead of matching the message (C10).
+      failureCount < 6 && (error as ApiError | undefined)?.status === 503,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 15000),
   });
 
@@ -195,6 +197,8 @@ export function SpliceView({
         pptSeq={data.ppt_seq ?? null}
         bpFound={data.bp_motif_found ?? null}
         bpDistance={data.bp_distance ?? null}
+        bpPosition={data.bp_position ?? null}
+        bpMotif={data.bp_motif ?? null}
         group1Label={group1Label}
         group2Label={group2Label}
       />
@@ -227,6 +231,8 @@ export function SpliceView({
           pptLongestRun={data.ppt_longest_run ?? null}
           bpFound={data.bp_motif_found ?? null}
           bpDistance={data.bp_distance ?? null}
+          bpPosition={data.bp_position ?? null}
+          bpMotif={data.bp_motif ?? null}
         />
       )}
 

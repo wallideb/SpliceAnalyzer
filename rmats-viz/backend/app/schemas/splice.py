@@ -38,10 +38,13 @@ class SpliceFeatureResponse(BaseModel):
     # PPT
     ppt_score: float | None = None
     ppt_longest_run: int | None = None
-    # branch-point
+    # branch-point (branch A mandatory; bp_distance = nt from the branch
+    # adenosine to the exon start, searched in the −18…−44 window)
     bp_motif_found: bool | None = None
     bp_distance: int | None = None
     bp_score: int | None = None
+    bp_position: int | None = None   # 0-based index of the 7-mer in ppt_seq
+    bp_motif: str | None = None      # matched 7-mer
     # MANE
     mane_transcript_id: str | None = None
     exon_rank: int | None = None

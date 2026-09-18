@@ -57,7 +57,7 @@ def test_region_names_contract():
         "downstream_exon",
     ]
     assert [f for f in SERegions.__dataclass_fields__] == REGION_NAMES
-    for protein, _, _ in HNRNP_MOTIFS:
+    for _, protein, _ in HNRNP_MOTIFS:
         assert set(REGULATORY_EFFECTS[protein]) == set(REGION_NAMES)
 
 

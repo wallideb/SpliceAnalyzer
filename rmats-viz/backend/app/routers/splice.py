@@ -24,14 +24,16 @@ import statistics
 import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from sqlalchemy import select, delete
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
+from app.models.analysis import Analysis
 from app.models.event import SplicingEvent
 from app.models.deep_analysis import DeepAnalysis, DeepAnalysisEvent
 from app.models.splice import EventSpliceFeature
@@ -64,10 +66,36 @@ from app.services.splice_features import compute_features, compute_pwm, iupac_co
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/splice", tags=["splice"])
 
-# Track which analyses currently have a background compute task running.
-# Keyed by analysis_id (UUID); value is True while the task is active.
-# NOTE: in-memory — only correct with a single uvicorn worker.
-_active_computes: dict[uuid.UUID, bool] = {}
+# Splice-feature computation state lives in ``analyses.compute_status``
+# ('idle' | 'running' | 'done' | 'error') — the DB is the source of truth so
+# progress polling and the export readiness check are correct across uvicorn
+# workers and after a crash of the background task (see main.py lifespan for
+# the restart reset).
+
+# Negative MANE lookups are retried at most once per this interval, using
+# EventSpliceFeature.computed_at as the timestamp of the last attempt.
+_MANE_RETRY_TTL = timedelta(hours=24)
+
+
+async def _set_compute_status(analysis_id: uuid.UUID, status: str, error: str | None = None) -> None:
+    """Persist the background-compute state for an analysis (own session)."""
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Analysis)
+                .where(Analysis.id == analysis_id)
+                .values(compute_status=status, compute_error=error)
+            )
+            await db.commit()
+    except Exception:
+        logger.exception("Failed to set compute_status=%s for %s", status, analysis_id)
+
+
+async def get_compute_status(db: AsyncSession, analysis_id: uuid.UUID) -> str | None:
+    """Return the persisted compute status ('idle'|'running'|'done'|'error') or None if unknown."""
+    return (await db.execute(
+        select(Analysis.compute_status).where(Analysis.id == analysis_id)
+    )).scalar_one_or_none()
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +126,8 @@ def _feat_to_response(feat: EventSpliceFeature, event: SplicingEvent) -> SpliceF
         bp_motif_found=feat.bp_motif_found,
         bp_distance=feat.bp_distance,
         bp_score=feat.bp_score,
+        bp_position=feat.bp_position,
+        bp_motif=feat.bp_motif,
         mane_transcript_id=feat.mane_transcript_id,
         exon_rank=feat.exon_rank,
         frame_region=feat.frame_region,
@@ -259,6 +289,8 @@ def _build_feature_row(
         bp_motif_found         = feat_data.bp_motif_found,
         bp_distance            = feat_data.bp_distance,
         bp_score               = feat_data.bp_score,
+        bp_position            = getattr(feat_data, "bp_position", None),
+        bp_motif               = (getattr(feat_data, "bp_motif", None) or None),
         mane_transcript_id     = mane.get("transcript_id"),
         exon_rank              = mane.get("exon_rank"),
         frame_region           = mane.get("frame_region", "unknown"),
@@ -308,7 +340,7 @@ async def _compute_one(
 
 _COMPUTE_CHUNK = 2_000  # events processed per MANE/feature chunk
 # asyncpg hard-limits query parameters to 32 767.  Each EventSpliceFeature row
-# has 25 columns, so the safe DB-write batch size is floor(32767 / 25) = 1310.
+# has 27 columns, so the safe DB-write batch size is floor(32767 / 27) = 1213.
 _DB_WRITE_BATCH = 1_000  # keep a round number well under the limit
 
 
@@ -321,7 +353,13 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
     When a local FASTA is available, uses mega-batched samtools (one
     subprocess per chunk of 200 events ≈ 1000 regions) which is 20-50x
     faster than one subprocess per event.
+
+    ``analyses.compute_status`` is 'running' while this task is active and is
+    set to 'done' or 'error' (with ``compute_error``) in the ``finally`` block.
     """
+    final_status = "done"
+    final_error: str | None = None
+    n_failed_chunks = 0
     try:
         async with AsyncSessionLocal() as db:
             result = await db.execute(
@@ -506,6 +544,8 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                     if chunk_start % 1000 == 0:
                         logger.info("Compute progress: %d/%d", n_computed, n_total)
                 except Exception as chunk_exc:
+                    n_failed_chunks += 1
+                    final_error = f"{n_failed_chunks} chunk(s) failed; last error: {chunk_exc}"
                     logger.error(
                         "Chunk %d–%d failed for %s: %s — continuing with next chunk",
                         chunk_start, min(chunk_start + _COMPUTE_CHUNK, n_total),
@@ -517,10 +557,18 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                         pass  # best-effort — session may already be clean
 
             logger.info("Background compute done: %d/%d SE events for %s", n_computed, n_total, analysis_id)
-    except Exception as exc:
+            if n_failed_chunks:
+                final_status = "error"
+    except BaseException as exc:  # includes CancelledError on shutdown
+        final_status = "error"
+        final_error = f"Background compute crashed: {exc!r}"
         logger.error("Background compute task crashed for %s: %s", analysis_id, exc)
+        if not isinstance(exc, Exception):
+            # Record the state, then let cancellation propagate.
+            await _set_compute_status(analysis_id, final_status, final_error)
+            raise
     finally:
-        _active_computes.pop(analysis_id, None)
+        await _set_compute_status(analysis_id, final_status, final_error)
 
 
 @router.post("/compute/{analysis_id}", response_model=ComputeJobResponse, status_code=202)
@@ -544,8 +592,18 @@ async def compute_splice_features(
     if not count_res.scalar_one_or_none():
         raise HTTPException(404, "No SE events found for this analysis")
 
-    # Don't start a duplicate task if one is already running (e.g. page refresh)
-    if analysis_id in _active_computes:
+    # Don't start a duplicate task if one is already running (e.g. page refresh).
+    # Atomic claim: only the request that flips 'running' on a non-running row
+    # starts the task (safe with concurrent requests / several workers).
+    claim = await db.execute(
+        update(Analysis)
+        .where(Analysis.id == analysis_id, Analysis.compute_status != "running")
+        .values(compute_status="running", compute_error=None)
+        .returning(Analysis.id)
+    )
+    claimed = claim.scalar_one_or_none()
+    await db.commit()
+    if claimed is None:
         return ComputeJobResponse(
             analysis_id=str(analysis_id),
             n_se_events=0,
@@ -555,7 +613,6 @@ async def compute_splice_features(
         )
 
     fa_ok = fasta_available()
-    _active_computes[analysis_id] = True  # register before add_task to avoid race
     background_tasks.add_task(_run_compute_background, analysis_id, fa_ok)
 
     return ComputeJobResponse(
@@ -576,8 +633,18 @@ async def get_compute_progress(
     analysis_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return splice feature computation progress for an analysis."""
-    from sqlalchemy import func
+    """Return splice feature computation progress for an analysis.
+
+    ``status`` mirrors ``analyses.compute_status`` ('idle'|'running'|'done'|
+    'error'); ``done`` is true when the task is not running any more (even if
+    it failed — see ``error``) or every SE event already has features.
+    """
+    compute_status = await get_compute_status(db, analysis_id)
+    if compute_status is None:
+        raise HTTPException(404, "Analysis not found")
+    compute_error = (await db.execute(
+        select(Analysis.compute_error).where(Analysis.id == analysis_id)
+    )).scalar_one_or_none()
 
     n_se_result = await db.execute(
         select(func.count(SplicingEvent.id)).where(

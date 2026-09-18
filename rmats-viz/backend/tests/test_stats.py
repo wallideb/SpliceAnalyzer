@@ -32,12 +32,24 @@ from app.routers.events import _chr_sort_key  # noqa: E402
 # ---------------------------------------------------------------------------
 
 def test_welch_known_vectors():
-    # scipy.stats.ttest_ind([1,2,3,4,5], [2,3,4,5,6], equal_var=False)
-    #   → statistic=-1.5811388, pvalue=0.1524976 (df = 8)
+    # a = [1..5], b = [2..6]: means 3 and 4, sample variances 2.5 and 2.5
+    #   SE² = 2.5/5 + 2.5/5 = 1  → t = (3 − 4) / 1 = −1.0
+    #   Welch-Satterthwaite df = 1² / (0.5²/4 + 0.5²/4) = 8
+    #   two-tailed p = 2·P(T₈ > 1.0) = 0.34659 (t-table; scipy ttest_ind(equal_var=False))
     t, p = _welch_t_test([1, 2, 3, 4, 5], [2, 3, 4, 5, 6])
     assert t is not None and p is not None
-    assert t == pytest.approx(-1.5811, abs=1e-3)
-    assert p == pytest.approx(0.1525, abs=1e-3)
+    assert t == pytest.approx(-1.0, abs=1e-3)
+    assert p == pytest.approx(0.3466, abs=1e-3)
+
+
+def test_welch_unequal_variances():
+    # a = [1,2,3,4,5] (var 2.5, n=5), b = [0,10,20,30] (mean 15, var 166.67, n=4)
+    #   SE² = 0.5 + 41.667 = 42.167 → t = (3 − 15)/6.494 = −1.8480
+    #   df = 42.167² / (0.5²/4 + 41.667²/3) = 1778.0 / 578.77 = 3.072
+    #   two-tailed p ≈ 0.159 (t = 1.848 with df ≈ 3.07)
+    t, p = _welch_t_test([1, 2, 3, 4, 5], [0, 10, 20, 30])
+    assert t == pytest.approx(-1.848, abs=1e-3)
+    assert p == pytest.approx(0.159, abs=5e-3)
 
 
 def test_welch_symmetric_and_identical():
@@ -63,19 +75,23 @@ def test_welch_guards():
 # ---------------------------------------------------------------------------
 
 def test_mann_whitney_no_overlap_extreme():
-    # scipy.stats.mannwhitneyu(a, b, alternative='two-sided', use_continuity=True)
-    #   a=[1..5], b=[6..10] → U1 = 0, p = 0.011820...
+    # a=[1..5], b=[6..10] → R1 = 15, U1 = 15 − 15 = 0
+    #   μ = 12.5, σ = sqrt(25·11/12) = 4.787, z = (0 − 12.5 + 0.5)/4.787 = −2.507
+    #   two-tailed p = 0.01218 (scipy mannwhitneyu, method="asymptotic", use_continuity=True)
     u, p = _mann_whitney_u([1, 2, 3, 4, 5], [6, 7, 8, 9, 10])
     assert u == pytest.approx(0.0)
-    assert p == pytest.approx(0.01182, abs=1e-3)
+    assert p == pytest.approx(0.01218, abs=1e-3)
 
 
 def test_mann_whitney_with_ties():
-    # scipy.stats.mannwhitneyu([1,2,2,3,4,5], [3,4,4,5,6,7], alternative='two-sided')
-    #   → U1 = 5.5, p ≈ 0.0503 (tie-corrected normal approx. w/ continuity)
+    # a=[1,2,2,3,4,5], b=[3,4,4,5,6,7]; mid-ranks:
+    #   1→1, 2,2→2.5, 3,3→4.5, 4,4,4→7, 5,5→9.5, 6→11, 7→12
+    #   R1 = 1 + 2.5 + 2.5 + 4.5 + 7 + 9.5 = 27 → U1 = 27 − 21 = 6
+    #   tie term Σ(t³−t) = 6 + 6 + 24 + 6 = 42 ; σ² = 3·(13 − 42/132) = 38.045
+    #   z = (6 − 18 + 0.5)/6.168 = −1.864 → p = 0.0623
     u, p = _mann_whitney_u([1, 2, 2, 3, 4, 5], [3, 4, 4, 5, 6, 7])
-    assert u == pytest.approx(5.5)
-    assert p == pytest.approx(0.0503, abs=2e-3)
+    assert u == pytest.approx(6.0)
+    assert p == pytest.approx(0.0623, abs=1e-3)
 
 
 def test_mann_whitney_symmetry_and_identity():

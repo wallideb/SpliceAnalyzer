@@ -20,26 +20,37 @@ interface Props {
   deepId: string;
 }
 
-/** Annotation banner showing a statistical test result between two figure panels */
+function fmtP(v: number): string {
+  return v < 0.0001 ? v.toExponential(2) : v.toFixed(4);
+}
+
+function pColor(v: number | null): string {
+  if (v != null && v < 0.01) return "text-green-600 dark:text-green-400";
+  if (v != null && v < 0.05) return "text-amber-600 dark:text-amber-400";
+  return "text-muted-foreground";
+}
+
+/**
+ * Annotation banner showing a statistical test result between two figure
+ * panels: raw p, BH-adjusted q and a pill driven by `significant_fdr`.
+ */
 function TestAnnotation({ test }: { test: StatTestResult | undefined }) {
+  const t = useT();
   if (!test || test.p_value == null) return null;
-  const pStr = test.p_value < 0.0001
-    ? test.p_value.toExponential(2)
-    : test.p_value.toFixed(4);
-  const color = test.p_value < 0.01
-    ? "text-green-600 dark:text-green-400"
-    : test.p_value < 0.05
-      ? "text-amber-600 dark:text-amber-400"
-      : "text-muted-foreground";
-  const sigLabel = test.significant ? "significant" : "n.s.";
+  const sigLabel = test.significant_fdr ? t("motifPanel.legendQ") : "n.s.";
   return (
-    <div className="flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg bg-muted/40 border border-border text-[10px]">
+    <div className="flex flex-wrap items-center justify-center gap-2 py-1.5 px-3 rounded-lg bg-muted/40 border border-border text-[10px]">
       <span className="text-muted-foreground">{test.test_name}:</span>
-      <span className={`font-mono font-semibold ${color}`}>
-        p = {pStr}
+      <span className={`font-mono font-semibold ${pColor(test.p_value)}`}>
+        p = {fmtP(test.p_value)}
       </span>
+      {test.q_value != null && (
+        <span className={`font-mono font-semibold ${pColor(test.q_value)}`}>
+          q = {fmtP(test.q_value)}
+        </span>
+      )}
       <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${
-        test.significant
+        test.significant_fdr
           ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
           : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
       }`}>
@@ -317,9 +328,11 @@ export function PatternComparisonPanel({ deepId }: Props) {
             Canonical dinucleotides (GT at +1/+2 for 5&apos;SS, AG at -2/-1 for 3&apos;SS) are highlighted in yellow.
           </p>
           <p>
-            <strong>Statistical tests:</strong> continuous metrics (exon size, PPT score, mean ΔΨ) are compared
-            using Welch&apos;s t-test (unequal variances). Proportions (canonical GT/AG, in-frame %, branch point found)
-            use a two-proportion z-test. All tests are two-tailed.
+            <strong>Statistical tests:</strong> continuous metrics (exon size, intron sizes, PPT score, mean ΔΨ) are compared
+            using Welch&apos;s t-test (unequal variances) and, because these sizes are right-skewed, a Mann-Whitney U test
+            (rows suffixed &quot;Mann-Whitney&quot;). Proportions (canonical GT/AG, in-frame %, branch point found)
+            use a two-proportion z-test. All tests are two-tailed; p-values are corrected across all tests of the
+            comparison with the Benjamini-Hochberg procedure (q-value), and the pill reflects q &lt; 0.05.
           </p>
           <p>
             <strong>Reading frame:</strong> exon skipping is classified as in-frame (exon length divisible by 3)

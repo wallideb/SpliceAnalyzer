@@ -90,7 +90,7 @@ export function EnrichrPanel({ deepAnalysisId }: EnrichrPanelProps) {
   // Available libraries
   const libraries = useMemo(() => {
     if (!data) return [];
-    return [...new Set(data.terms.map((t) => t.library))];
+    return Array.from(new Set(data.terms.map((t) => t.library)));
   }, [data]);
 
   // Filtered terms

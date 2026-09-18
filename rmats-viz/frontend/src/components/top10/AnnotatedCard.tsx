@@ -13,11 +13,12 @@
  *   - FDR + ΔPSI summary row
  *
  * The lower section changes based on `mode`:
- *   gene     – ENSG ID, coordinates, Ensembl link
- *   go       – GO terms (BP / MF / CC) from mygene.info
- *   panelapp – Disease panels (green / amber / red) from PanelApp AU
- *   scores   – Full rMATS statistics + read counts
+ *   gene     – ENSG ID, coordinates, Ensembl link, GO terms (BP / MF / CC)
+ *              from mygene.info and PanelApp AU disease panels
  *   stringdb – STRING-DB protein interaction network with the mutated gene
+ *   splice   – compact header + on-demand exon diagram (SpliceView)
+ * The aggregate modes (motifs / hnrnp / enrichr) are rendered by Top10View
+ * as full-width panels and never reach this card.
  */
 
 import { useState } from "react";
@@ -26,6 +27,7 @@ import { getGeneAnnotation, getGeneInteractions } from "@/lib/api/annotations";
 import { EventTypeBadge } from "@/components/events/EventTypeBadge";
 import { formatFDR, formatDeltaPSI, formatCoord } from "@/lib/utils";
 import { useT } from "@/contexts/LanguageContext";
+import { ScienceNote } from "@/components/ScienceNote";
 import type { SplicingEvent } from "@/types/event";
 import type { GeneAnnotation, GeneInteraction, PanelConfidence } from "@/types/annotation";
 import type { GeneEntry } from "@/types/gene";
@@ -183,6 +185,11 @@ function GOView({ annotation, isLoading }: { annotation?: GeneAnnotation; isLoad
           </div>
         );
       })}
+      <ScienceNote
+        title={t("scienceNotes.geneOntology.title")}
+        body={t("scienceNotes.geneOntology.body")}
+        refs={["gene_ontology"]}
+      />
     </div>
   );
 }
@@ -221,6 +228,11 @@ function PanelAppView({ annotation, isLoading }: { annotation?: GeneAnnotation; 
         <ExternalIcon />
         {t("annotatedCard.panelapp.viewPanelApp")}
       </a>
+      <ScienceNote
+        title={t("scienceNotes.panelapp.title")}
+        body={t("scienceNotes.panelapp.body")}
+        refs={["panelapp"]}
+      />
     </div>
   );
 }
@@ -485,6 +497,11 @@ function StringDBView({
           eventSymbol={eventSymbol}
         />
       ))}
+      <ScienceNote
+        title={t("scienceNotes.stringdb.title")}
+        body={t("scienceNotes.stringdb.body")}
+        refs={["stringdb"]}
+      />
     </div>
   );
 }
@@ -553,32 +570,6 @@ function PanelAppBadge({ annotation }: { annotation?: GeneAnnotation }) {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Coming-soon stub for deep-analysis modules not yet implemented
-// ---------------------------------------------------------------------------
-
-const COMING_SOON_LABEL_KEYS: Partial<Record<ViewMode, string>> = {
-  pathways: "sidebarNav.tabs.pathways",
-  motifs:   "sidebarNav.tabs.motifs",
-};
-
-function ComingSoonView({ mode }: { mode: ViewMode }) {
-  const t = useT();
-  const label = COMING_SOON_LABEL_KEYS[mode] ? t(COMING_SOON_LABEL_KEYS[mode]!) : mode;
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 py-6 text-center">
-      <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-      <p className="text-sm font-semibold text-foreground">{t("annotatedCard.comingSoon")}</p>
-      <p
-        className="text-[11px] text-muted-foreground max-w-[180px] leading-relaxed"
-        dangerouslySetInnerHTML={{ __html: t("annotatedCard.comingSoonModule", { label }) }}
-      />
     </div>
   );
 }
@@ -802,9 +793,6 @@ export function AnnotatedCard({ event: ev, mode, ensemblIdHint, mutatedGenes, an
           </div>
         )}
         {mode === "stringdb" && <StringDBView eventSymbol={symbol} mutatedGenes={mutatedGenes} />}
-        {(mode === "pathways" || mode === "motifs") && (
-          <ComingSoonView mode={mode} />
-        )}
       </div>
     </div>
   );

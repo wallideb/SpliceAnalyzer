@@ -20,9 +20,9 @@
  * A "Calculer" button triggers POST /api/v1/splice/compute/{analysisId}.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getSplicePatterns, computeSpliceFeatures } from "@/lib/api/splice";
+import { getSplicePatterns, computeSpliceFeatures, getComputeProgress } from "@/lib/api/splice";
 import { getPatternComparison } from "@/lib/api/deep-analyses";
 import type { GroupPatternStats, StatTestResult } from "@/lib/api/deep-analyses";
 import { ScienceNote } from "@/components/ScienceNote";
@@ -270,8 +270,12 @@ export function MotifPatternPanel({ events, analysisId, deepAnalysisId, fdrThres
   const seCount = events.filter((e) => e.event_type === "SE").length;
   const nonSeCount = events.length - seCount;
 
-  // After triggering compute (which returns 202 immediately), poll until data appears.
+  // After triggering compute (which returns 202 immediately), poll until data
+  // appears. Polling stops (C12) when: data arrives, the progress endpoint
+  // reports `done`, the progress endpoint errors, or after MAX_POLLS polls.
+  const MAX_POLLS = 60;
   const [isPolling, setIsPolling] = useState(false);
+  const pollCount = useRef(0);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["splice-patterns", analysisId, fdrThreshold, absDeltaPsiMin, deepAnalysisId],
@@ -281,7 +285,20 @@ export function MotifPatternPanel({ events, analysisId, deepAnalysisId, fdrThres
     retry: false,
     // Poll every 4 s while waiting for background computation to finish
     refetchInterval: isPolling ? 4_000 : false,
-    // Stop polling once data arrives
+    refetchIntervalInBackground: false,
+  });
+
+  // Background-compute progress (only polled while waiting)
+  const { data: progress, isError: progressError } = useQuery({
+    queryKey: ["compute-progress", analysisId],
+    queryFn: () => {
+      pollCount.current += 1;
+      return getComputeProgress(analysisId);
+    },
+    enabled: isPolling && !!analysisId,
+    staleTime: 0,
+    retry: false,
+    refetchInterval: isPolling ? 4_000 : false,
     refetchIntervalInBackground: false,
   });
 
@@ -293,15 +310,33 @@ export function MotifPatternPanel({ events, analysisId, deepAnalysisId, fdrThres
     staleTime: 5 * 60 * 1000,
   });
 
-  // Stop polling once we have data (must be in useEffect, not render body)
+  // Polling termination (must be in useEffect, not render body)
   useEffect(() => {
-    if (isPolling && data) setIsPolling(false);
-  }, [isPolling, data]);
+    if (!isPolling) return;
+    if (data) {
+      setIsPolling(false);
+      return;
+    }
+    if (progressError) {
+      setIsPolling(false);
+      return;
+    }
+    if (progress?.done) {
+      setIsPolling(false);
+      // Background task finished (or crashed): fetch the patterns once more.
+      qc.invalidateQueries({ queryKey: ["splice-patterns", analysisId] });
+      return;
+    }
+    if (pollCount.current >= MAX_POLLS) {
+      setIsPolling(false);
+    }
+  }, [isPolling, data, progress, progressError, qc, analysisId]);
 
   const compute = useMutation({
     mutationFn: () => computeSpliceFeatures(analysisId),
     onSuccess: () => {
       // Compute now returns 202 immediately; poll until background task finishes
+      pollCount.current = 0;
       setIsPolling(true);
     },
   });
@@ -716,6 +751,34 @@ function FeatureComparisonSection({
   const testMap = new Map<string, StatTestResult>();
   for (const t2 of tests ?? []) testMap.set(t2.feature, t2);
   const p = (key: string) => testMap.get(key);
+  const mwuSuffix = t("motifPanel.mwuSuffix");
+
+  const fmtNt = (v: number | null) => (v != null ? `${v} nt` : null);
+  const fmtPct100 = (v: number | null) => (v != null ? `${Math.round(v * 100)}%` : null);
+
+  /**
+   * Continuous feature = Welch row (means) followed, when the backend
+   * provides it, by a Mann-Whitney row (`<feature>_mwu`, medians when known).
+   */
+  const continuousRows = (
+    label: string,
+    key: string,
+    sigMean: string | null,
+    nonsigMean: string | null,
+    sigMedian: string | null = sigMean,
+    nonsigMedian: string | null = nonsigMean,
+  ) => {
+    const welch = p(key);
+    const mwu = p(`${key}_mwu`);
+    return (
+      <>
+        <CmpRow label={label} sigVal={sigMean} nonsigVal={nonsigMean} test={welch} />
+        {mwu && (
+          <CmpRow label={`${label} ${mwuSuffix}`} sigVal={sigMedian} nonsigVal={nonsigMedian} test={mwu} secondary />
+        )}
+      </>
+    );
+  };
 
   return (
     <>
@@ -732,38 +795,43 @@ function FeatureComparisonSection({
                 <th className="px-3 py-2.5 text-xs font-bold text-center text-slate-500">
                   {t("deepAnalysis.notSignificant")} <span className="font-normal opacity-70">({nonsig.n_events})</span>
                 </th>
-                <th className="px-3 py-2.5 text-xs font-semibold text-center text-muted-foreground w-[90px]">p-value</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-center text-muted-foreground w-[80px]">{t("motifPanel.colPValue")}</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-center text-muted-foreground w-[80px]">{t("motifPanel.colQValue")}</th>
+                <th className="px-3 py-2.5 w-[70px]" />
               </tr>
             </thead>
             <tbody>
               <CmpRow label="SE events with features" sigVal={sig.n_se_with_features} nonsigVal={nonsig.n_se_with_features} />
-              <CmpRow label="Mean exon size" sigVal={sig.exon_size_mean != null ? `${sig.exon_size_mean} nt` : null} nonsigVal={nonsig.exon_size_mean != null ? `${nonsig.exon_size_mean} nt` : null} pValue={p("exon_size")?.p_value} testName={p("exon_size")?.test_name} />
-              <CmpRow label="Median exon size" sigVal={sig.exon_size_median != null ? `${sig.exon_size_median} nt` : null} nonsigVal={nonsig.exon_size_median != null ? `${nonsig.exon_size_median} nt` : null} />
-              <CmpRow label="Canonical GT (5'SS)" sigVal={sig.pct_canonical_gt} nonsigVal={nonsig.pct_canonical_gt} format="pct" pValue={p("canonical_gt")?.p_value} testName={p("canonical_gt")?.test_name} />
-              <CmpRow label="Canonical AG (3'SS)" sigVal={sig.pct_canonical_ag} nonsigVal={nonsig.pct_canonical_ag} format="pct" pValue={p("canonical_ag")?.p_value} testName={p("canonical_ag")?.test_name} />
-              <CmpRow label="Mean PPT score" sigVal={sig.ppt_mean_score != null ? `${Math.round(sig.ppt_mean_score * 100)}%` : null} nonsigVal={nonsig.ppt_mean_score != null ? `${Math.round(nonsig.ppt_mean_score * 100)}%` : null} pValue={p("ppt_score")?.p_value} testName={p("ppt_score")?.test_name} />
-              <CmpRow label="PPT T content" sigVal={sig.ppt_mean_t_content != null ? `${Math.round(sig.ppt_mean_t_content * 100)}%` : null} nonsigVal={nonsig.ppt_mean_t_content != null ? `${Math.round(nonsig.ppt_mean_t_content * 100)}%` : null} pValue={p("ppt_t_content")?.p_value} testName={p("ppt_t_content")?.test_name} />
-              <CmpRow label="PPT C content" sigVal={sig.ppt_mean_c_content != null ? `${Math.round(sig.ppt_mean_c_content * 100)}%` : null} nonsigVal={nonsig.ppt_mean_c_content != null ? `${Math.round(nonsig.ppt_mean_c_content * 100)}%` : null} pValue={p("ppt_c_content")?.p_value} testName={p("ppt_c_content")?.test_name} />
-              <CmpRow label="In-frame" sigVal={sig.frame_in_frame} nonsigVal={nonsig.frame_in_frame} pValue={p("in_frame_pct")?.p_value} testName={p("in_frame_pct")?.test_name} />
+              {continuousRows("Mean exon size", "exon_size", fmtNt(sig.exon_size_mean), fmtNt(nonsig.exon_size_mean), fmtNt(sig.exon_size_median), fmtNt(nonsig.exon_size_median))}
+              <CmpRow label="Median exon size" sigVal={fmtNt(sig.exon_size_median)} nonsigVal={fmtNt(nonsig.exon_size_median)} />
+              <CmpRow label="Canonical GT (5'SS)" sigVal={sig.pct_canonical_gt} nonsigVal={nonsig.pct_canonical_gt} format="pct" test={p("canonical_gt")} />
+              <CmpRow label="Canonical AG (3'SS)" sigVal={sig.pct_canonical_ag} nonsigVal={nonsig.pct_canonical_ag} format="pct" test={p("canonical_ag")} />
+              {continuousRows("Mean PPT score", "ppt_score", fmtPct100(sig.ppt_mean_score), fmtPct100(nonsig.ppt_mean_score))}
+              {continuousRows("PPT T content", "ppt_t_content", fmtPct100(sig.ppt_mean_t_content), fmtPct100(nonsig.ppt_mean_t_content))}
+              {continuousRows("PPT C content", "ppt_c_content", fmtPct100(sig.ppt_mean_c_content), fmtPct100(nonsig.ppt_mean_c_content))}
+              <CmpRow label="In-frame" sigVal={sig.frame_in_frame} nonsigVal={nonsig.frame_in_frame} test={p("in_frame_pct")} />
               <CmpRow label="Frameshift" sigVal={sig.frame_frameshift} nonsigVal={nonsig.frame_frameshift} />
               <CmpRow label="Non-coding" sigVal={sig.frame_non_coding} nonsigVal={nonsig.frame_non_coding} />
-              <CmpRow label="Upstream GT (5'SS)" sigVal={sig.pct_upstream_gt} nonsigVal={nonsig.pct_upstream_gt} format="pct" pValue={p("upstream_canonical_gt")?.p_value} testName={p("upstream_canonical_gt")?.test_name} />
-              <CmpRow label="Downstream AG (3'SS)" sigVal={sig.pct_downstream_ag} nonsigVal={nonsig.pct_downstream_ag} format="pct" pValue={p("downstream_canonical_ag")?.p_value} testName={p("downstream_canonical_ag")?.test_name} />
-              <CmpRow label="Mean upstream intron" sigVal={sig.upstream_intron_size_mean != null ? `${sig.upstream_intron_size_mean} nt` : null} nonsigVal={nonsig.upstream_intron_size_mean != null ? `${nonsig.upstream_intron_size_mean} nt` : null} pValue={p("upstream_intron_size")?.p_value} testName={p("upstream_intron_size")?.test_name} />
-              <CmpRow label="Median upstream intron" sigVal={sig.upstream_intron_size_median != null ? `${sig.upstream_intron_size_median} nt` : null} nonsigVal={nonsig.upstream_intron_size_median != null ? `${nonsig.upstream_intron_size_median} nt` : null} />
-              <CmpRow label="Mean downstream intron" sigVal={sig.downstream_intron_size_mean != null ? `${sig.downstream_intron_size_mean} nt` : null} nonsigVal={nonsig.downstream_intron_size_mean != null ? `${nonsig.downstream_intron_size_mean} nt` : null} pValue={p("downstream_intron_size")?.p_value} testName={p("downstream_intron_size")?.test_name} />
-              <CmpRow label="Median downstream intron" sigVal={sig.downstream_intron_size_median != null ? `${sig.downstream_intron_size_median} nt` : null} nonsigVal={nonsig.downstream_intron_size_median != null ? `${nonsig.downstream_intron_size_median} nt` : null} />
-              <CmpRow label="Branch point found" sigVal={sig.bp_found_pct} nonsigVal={nonsig.bp_found_pct} format="pct" pValue={p("bp_found")?.p_value} testName={p("bp_found")?.test_name} />
-              <CmpRow label="Mean ΔΨ" sigVal={sig.mean_delta_psi != null ? formatDeltaPSI(sig.mean_delta_psi) : null} nonsigVal={nonsig.mean_delta_psi != null ? formatDeltaPSI(nonsig.mean_delta_psi) : null} pValue={p("mean_delta_psi")?.p_value} testName={p("mean_delta_psi")?.test_name} />
+              <CmpRow label="Upstream GT (5'SS)" sigVal={sig.pct_upstream_gt} nonsigVal={nonsig.pct_upstream_gt} format="pct" test={p("upstream_canonical_gt")} />
+              <CmpRow label="Downstream AG (3'SS)" sigVal={sig.pct_downstream_ag} nonsigVal={nonsig.pct_downstream_ag} format="pct" test={p("downstream_canonical_ag")} />
+              {continuousRows("Mean upstream intron", "upstream_intron_size", fmtNt(sig.upstream_intron_size_mean), fmtNt(nonsig.upstream_intron_size_mean), fmtNt(sig.upstream_intron_size_median), fmtNt(nonsig.upstream_intron_size_median))}
+              <CmpRow label="Median upstream intron" sigVal={fmtNt(sig.upstream_intron_size_median)} nonsigVal={fmtNt(nonsig.upstream_intron_size_median)} />
+              {continuousRows("Mean downstream intron", "downstream_intron_size", fmtNt(sig.downstream_intron_size_mean), fmtNt(nonsig.downstream_intron_size_mean), fmtNt(sig.downstream_intron_size_median), fmtNt(nonsig.downstream_intron_size_median))}
+              <CmpRow label="Median downstream intron" sigVal={fmtNt(sig.downstream_intron_size_median)} nonsigVal={fmtNt(nonsig.downstream_intron_size_median)} />
+              <CmpRow label="Branch point found" sigVal={sig.bp_found_pct} nonsigVal={nonsig.bp_found_pct} format="pct" test={p("bp_found")} />
+              {continuousRows("Mean ΔΨ", "mean_delta_psi", sig.mean_delta_psi != null ? formatDeltaPSI(sig.mean_delta_psi) : null, nonsig.mean_delta_psi != null ? formatDeltaPSI(nonsig.mean_delta_psi) : null)}
             </tbody>
           </table>
           {tests && tests.length > 0 && (
-            <div className="px-4 py-3 border-t border-border flex items-center gap-4 text-[10px] text-muted-foreground">
+            <div className="px-4 py-3 border-t border-border flex flex-wrap items-center gap-4 text-[10px] text-muted-foreground">
               <span>p-value:</span>
               <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-green-500" /> &lt; 0.01</span>
               <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-amber-500" /> &lt; 0.05</span>
               <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-slate-400" /> n.s.</span>
-              <span className="ml-auto italic">Hover p-value for test name</span>
+              <span className="flex items-center gap-1">
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">{t("motifPanel.legendQ")}</span>
+              </span>
+              <span className="ml-auto italic">{t("motifPanel.legendTests", { n: tests.length })}</span>
             </div>
           )}
         </div>
@@ -775,34 +843,68 @@ function FeatureComparisonSection({
           <CmpFrameBar stats={sig} label={`${t("deepAnalysis.significant")} (${sig.n_se_with_features})`} />
           <CmpFrameBar stats={nonsig} label={`${t("deepAnalysis.notSignificant")} (${nonsig.n_se_with_features})`} />
         </div>
-        {p("in_frame_pct") && p("in_frame_pct")!.p_value != null && (
-          <div className="flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg bg-muted/40 border border-border text-[10px] mt-3">
-            <span className="text-muted-foreground">{p("in_frame_pct")!.test_name}:</span>
-            <span className={`font-mono font-semibold ${
-              p("in_frame_pct")!.p_value! < 0.01 ? "text-green-600 dark:text-green-400" :
-              p("in_frame_pct")!.p_value! < 0.05 ? "text-amber-600 dark:text-amber-400" :
-              "text-muted-foreground"
-            }`}>
-              p = {p("in_frame_pct")!.p_value! < 0.0001 ? p("in_frame_pct")!.p_value!.toExponential(2) : p("in_frame_pct")!.p_value!.toFixed(4)}
-            </span>
-          </div>
-        )}
+        {(() => {
+          const inFrame = p("in_frame_pct");
+          if (!inFrame || inFrame.p_value == null) return null;
+          return (
+            <div className="flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg bg-muted/40 border border-border text-[10px] mt-3">
+              <span className="text-muted-foreground">{inFrame.test_name}:</span>
+              <span className={`font-mono font-semibold ${pColorClass(inFrame.p_value)}`}>
+                p = {fmtP(inFrame.p_value)}
+              </span>
+              {inFrame.q_value != null && (
+                <span className={`font-mono font-semibold ${pColorClass(inFrame.q_value)}`}>
+                  q = {fmtP(inFrame.q_value)}
+                </span>
+              )}
+              <SigPill significant={inFrame.significant_fdr} t={t} />
+            </div>
+          );
+        })()}
       </Section>
     </>
   );
 }
 
+/** p / q formatting shared by the comparison rows. */
+function fmtP(v: number | null | undefined): string {
+  if (v == null) return "—";
+  return v < 0.0001 ? v.toExponential(2) : v.toFixed(4);
+}
+
+function pColorClass(v: number | null | undefined): string {
+  if (v != null && v < 0.01) return "text-green-600 dark:text-green-400";
+  if (v != null && v < 0.05) return "text-amber-600 dark:text-amber-400";
+  return "text-muted-foreground";
+}
+
+/** FDR significance pill (driven by `significant_fdr`). */
+function SigPill({ significant, t }: { significant: boolean; t: ReturnType<typeof useT> }) {
+  return (
+    <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium whitespace-nowrap ${
+      significant
+        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+        : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+    }`}>
+      {significant ? t("motifPanel.legendQ") : "n.s."}
+    </span>
+  );
+}
+
 /** Comparison table row */
 function CmpRow({
-  label, sigVal, nonsigVal, format = "default", pValue, testName,
+  label, sigVal, nonsigVal, format = "default", test, secondary = false,
 }: {
   label: string;
   sigVal: string | number | null;
   nonsigVal: string | number | null;
   format?: "default" | "pct";
-  pValue?: number | null;
-  testName?: string;
+  /** Statistical test for this row (p, q and FDR significance). */
+  test?: StatTestResult;
+  /** Secondary (Mann-Whitney) row rendered in a lighter style under its Welch row. */
+  secondary?: boolean;
 }) {
+  const t = useT();
   const fmt = (v: string | number | null) => {
     if (v === null || v === undefined) return "—";
     if (format === "pct" && typeof v === "number") return `${v}%`;
@@ -810,19 +912,29 @@ function CmpRow({
     return v;
   };
   return (
-    <tr className="border-b border-border/50">
-      <td className="px-3 py-2 text-xs text-muted-foreground font-medium">{label}</td>
+    <tr className={`border-b border-border/50 ${secondary ? "bg-muted/20" : ""}`}>
+      <td className={`px-3 py-2 text-xs font-medium ${secondary ? "text-muted-foreground/80 italic pl-6" : "text-muted-foreground"}`}>{label}</td>
       <td className="px-3 py-2 text-xs text-foreground font-semibold tabular-nums text-center">{fmt(sigVal)}</td>
       <td className="px-3 py-2 text-xs text-muted-foreground tabular-nums text-center">{fmt(nonsigVal)}</td>
-      {pValue !== undefined ? (
-        <td className={`px-3 py-2 text-[10px] tabular-nums text-center font-semibold ${
-          pValue !== null && pValue < 0.01 ? "text-green-600 dark:text-green-400" :
-          pValue !== null && pValue < 0.05 ? "text-amber-600 dark:text-amber-400" :
-          "text-muted-foreground"
-        }`} title={testName}>
-          {pValue !== null ? pValue.toFixed(4) : "—"}
-        </td>
-      ) : <td className="px-3 py-2" />}
+      {test ? (
+        <>
+          <td className={`px-3 py-2 text-[10px] tabular-nums text-center font-semibold ${pColorClass(test.p_value)}`} title={test.test_name}>
+            {fmtP(test.p_value)}
+          </td>
+          <td className={`px-3 py-2 text-[10px] tabular-nums text-center font-semibold ${pColorClass(test.q_value)}`} title={test.test_name}>
+            {fmtP(test.q_value)}
+          </td>
+          <td className="px-2 py-2 text-center">
+            <SigPill significant={test.significant_fdr} t={t} />
+          </td>
+        </>
+      ) : (
+        <>
+          <td className="px-3 py-2" />
+          <td className="px-3 py-2" />
+          <td className="px-2 py-2" />
+        </>
+      )}
     </tr>
   );
 }

@@ -3,9 +3,18 @@
 /**
  * HnRNPMotifPanel
  * ================
- * Displays hnRNP motif enrichment analysis results: proportion of known
- * RNA-binding protein motifs in significant vs background events, across
- * five genomic regions around skipped exons.
+ * Displays hnRNP motif enrichment analysis results: known RNA-binding
+ * protein motifs in significant vs background events, across seven genomic
+ * regions around skipped exons (rMAPS2 design, E1):
+ *
+ *   upstream exon · upstream intron (5′ss side) · upstream intron (3′ss side)
+ *   · skipped exon · downstream intron (5′ss side) · downstream intron (3′ss side)
+ *   · downstream exon
+ *
+ * Two tests per (motif × region) pair (E2):
+ *   • presence — two-proportion z-test on motif presence (q = p_adjusted)
+ *   • density  — Mann-Whitney U on per-event motif density (q = density_p_adjusted)
+ * A pair is flagged significant when EITHER test passes the BH threshold.
  *
  * Inspired by rMAPS2 (Hwang et al., NAR 2020).
  *
@@ -22,9 +31,10 @@ import { useT } from "@/contexts/LanguageContext";
 // Types
 // ---------------------------------------------------------------------------
 
-interface MotifEnrichmentItem {
+export interface MotifEnrichmentItem {
   motif_name: string;
   protein: string;
+  /** One of REGION_ORDER */
   region: string;
   sig_hit_count: number;
   sig_total: number;
@@ -32,14 +42,20 @@ interface MotifEnrichmentItem {
   bg_total: number;
   sig_density: number;
   bg_density: number;
+  // Presence test (two-proportion z)
   z_stat: number | null;
   p_value: number | null;
   p_adjusted: number | null;
   significant: boolean;
+  // Density test (Mann-Whitney U)
+  density_u_stat: number | null;
+  density_p_value: number | null;
+  density_p_adjusted: number | null;
+  density_significant: boolean;
   regulatory_effect: string | null; // ESE/ESS/ISE/ISS or null
 }
 
-interface HnRNPMotifResponse {
+export interface HnRNPMotifResponse {
   n_sig_events: number;
   n_bg_events: number;
   results: MotifEnrichmentItem[];
@@ -57,21 +73,46 @@ function getHnRNPMotifs(deepId: string): Promise<HnRNPMotifResponse> {
 // Constants
 // ---------------------------------------------------------------------------
 
-const REGION_LABELS: Record<string, string> = {
-  upstream_exon: "Upstream exon",
-  upstream_intron: "Upstream intron",
-  skipped_exon: "Skipped exon",
-  downstream_intron: "Downstream intron",
-  downstream_exon: "Downstream exon",
-};
-
-const REGION_ORDER = [
+export const REGION_ORDER = [
   "upstream_exon",
-  "upstream_intron",
+  "upstream_intron_5ss",
+  "upstream_intron_3ss",
   "skipped_exon",
-  "downstream_intron",
+  "downstream_intron_5ss",
+  "downstream_intron_3ss",
   "downstream_exon",
-];
+] as const;
+
+type T = ReturnType<typeof useT>;
+
+/** i18n region label with a graceful fallback to the raw region key. */
+function regionLabel(t: T, region: string): string {
+  const key = `hnrnpPanel.regions.${region}`;
+  const label = t(key);
+  return label === key ? region : label;
+}
+
+/** Smallest of the two adjusted p-values (null when neither is available). */
+function minQ(r: MotifEnrichmentItem): number | null {
+  const qs = [r.p_adjusted, r.density_p_adjusted].filter((q): q is number => q != null);
+  return qs.length ? Math.min(...qs) : null;
+}
+
+/** Significant if either the presence or the density test passes. */
+function isSig(r: MotifEnrichmentItem): boolean {
+  return r.significant || r.density_significant;
+}
+
+function fmtQ(q: number | null): string {
+  if (q === null) return "—";
+  return q < 0.0001 ? q.toExponential(2) : q.toFixed(4);
+}
+
+function qColorClass(q: number | null): string {
+  if (q !== null && q < 0.01) return "text-green-600 dark:text-green-400";
+  if (q !== null && q < 0.05) return "text-amber-600 dark:text-amber-400";
+  return "text-muted-foreground";
+}
 
 const PROTEIN_COLORS: Record<string, string> = {
   "hnRNP A1/A2":      "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-red-200 dark:border-red-800",
@@ -123,7 +164,16 @@ export function HnRNPMotifPanel({ deepAnalysisId }: HnRNPMotifPanelProps) {
   // Unique protein families
   const proteins = useMemo(() => {
     if (!data) return [];
-    return [...new Set(data.results.map((r) => r.protein))];
+    return Array.from(new Set(data.results.map((r) => r.protein)));
+  }, [data]);
+
+  // Regions actually present in the data (REGION_ORDER first, then any unknown)
+  const regions = useMemo<string[]>(() => {
+    if (!data) return [...REGION_ORDER];
+    const present = new Set(data.results.map((r) => r.region));
+    const known = REGION_ORDER.filter((r) => present.has(r));
+    const unknown = Array.from(present).filter((r) => !(REGION_ORDER as readonly string[]).includes(r));
+    return known.length || unknown.length ? [...known, ...unknown] : [...REGION_ORDER];
   }, [data]);
 
   // Filter & sort results
@@ -131,7 +181,7 @@ export function HnRNPMotifPanel({ deepAnalysisId }: HnRNPMotifPanelProps) {
     if (!data) return [];
     let results = data.results;
     if (!showAll) {
-      results = results.filter((r) => r.significant);
+      results = results.filter(isSig);
     }
     if (selectedProtein) {
       results = results.filter((r) => r.protein === selectedProtein);
@@ -139,17 +189,19 @@ export function HnRNPMotifPanel({ deepAnalysisId }: HnRNPMotifPanelProps) {
     if (selectedRegion) {
       results = results.filter((r) => r.region === selectedRegion);
     }
-    // Sort by p_adjusted ascending (most significant first)
+    // Sort by the smaller of the two q-values (most significant first)
     return [...results].sort((a, b) => {
-      if (a.p_adjusted === null) return 1;
-      if (b.p_adjusted === null) return -1;
-      return a.p_adjusted - b.p_adjusted;
+      const qa = minQ(a);
+      const qb = minQ(b);
+      if (qa === null) return 1;
+      if (qb === null) return -1;
+      return qa - qb;
     });
   }, [data, showAll, selectedProtein, selectedRegion]);
 
-  // Significant count
+  // Significant count (either test)
   const nSignificant = useMemo(
-    () => data?.results.filter((r) => r.significant).length ?? 0,
+    () => data?.results.filter(isSig).length ?? 0,
     [data],
   );
 
@@ -218,8 +270,8 @@ export function HnRNPMotifPanel({ deepAnalysisId }: HnRNPMotifPanelProps) {
           className="px-2 py-0.5 text-[10px] rounded border border-border bg-card text-foreground"
         >
           <option value="">{t("hnrnpPanel.allRegions")}</option>
-          {REGION_ORDER.map((r) => (
-            <option key={r} value={r}>{REGION_LABELS[r]}</option>
+          {regions.map((r) => (
+            <option key={r} value={r}>{regionLabel(t, r)}</option>
           ))}
         </select>
       </div>
@@ -241,17 +293,23 @@ export function HnRNPMotifPanel({ deepAnalysisId }: HnRNPMotifPanelProps) {
                   <th className="px-3 py-2 text-center font-semibold text-green-700 dark:text-green-400">{t("hnrnpPanel.colSig")}</th>
                   <th className="px-3 py-2 text-center font-semibold text-slate-500">{t("hnrnpPanel.colBg")}</th>
                   <th className="px-3 py-2 text-center font-semibold text-muted-foreground">z</th>
-                  <th className="px-3 py-2 text-center font-semibold text-muted-foreground">p (adj)</th>
+                  <th className="px-3 py-2 text-center font-semibold text-muted-foreground" title={t("hnrnpPanel.presenceTooltip")}>
+                    {t("hnrnpPanel.colPresenceQ")}
+                  </th>
+                  <th className="px-3 py-2 text-center font-semibold text-muted-foreground" title={t("hnrnpPanel.densityTooltip")}>
+                    {t("hnrnpPanel.colDensityQ")}
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {filteredResults.map((r, i) => {
                   const sigPct = r.sig_total > 0 ? ((r.sig_hit_count / r.sig_total) * 100).toFixed(1) : "0";
                   const bgPct = r.bg_total > 0 ? ((r.bg_hit_count / r.bg_total) * 100).toFixed(1) : "0";
+                  const sig = isSig(r);
                   return (
                     <tr
                       key={`${r.motif_name}-${r.region}-${i}`}
-                      className={`border-b border-border/50 ${r.significant ? "bg-green-50/50 dark:bg-green-950/10" : ""}`}
+                      className={`border-b border-border/50 ${sig ? "bg-green-50/50 dark:bg-green-950/10" : ""}`}
                     >
                       <td className="px-3 py-1.5">
                         <span className={`inline-flex px-1.5 py-0.5 rounded text-[9px] font-semibold border ${PROTEIN_COLORS[r.protein] ?? "bg-muted text-muted-foreground border-border"}`}>
@@ -259,7 +317,7 @@ export function HnRNPMotifPanel({ deepAnalysisId }: HnRNPMotifPanelProps) {
                         </span>
                       </td>
                       <td className="px-3 py-1.5 font-mono font-bold text-foreground">{r.motif_name}</td>
-                      <td className="px-3 py-1.5 text-muted-foreground">{REGION_LABELS[r.region] ?? r.region}</td>
+                      <td className="px-3 py-1.5 text-muted-foreground">{regionLabel(t, r.region)}</td>
                       <td className="px-3 py-1.5 text-center tabular-nums">
                         <span className="font-semibold text-foreground">{r.sig_hit_count}</span>
                         <span className="text-muted-foreground">/{r.sig_total}</span>
@@ -272,14 +330,14 @@ export function HnRNPMotifPanel({ deepAnalysisId }: HnRNPMotifPanelProps) {
                       <td className="px-3 py-1.5 text-center tabular-nums text-muted-foreground">
                         {r.z_stat !== null ? r.z_stat.toFixed(2) : "—"}
                       </td>
-                      <td className={`px-3 py-1.5 text-center tabular-nums font-semibold ${
-                        r.p_adjusted !== null && r.p_adjusted < 0.01 ? "text-green-600 dark:text-green-400" :
-                        r.p_adjusted !== null && r.p_adjusted < 0.05 ? "text-amber-600 dark:text-amber-400" :
-                        "text-muted-foreground"
-                      }`}>
-                        {r.p_adjusted !== null
-                          ? (r.p_adjusted < 0.0001 ? r.p_adjusted.toExponential(2) : r.p_adjusted.toFixed(4))
-                          : "—"}
+                      <td className={`px-3 py-1.5 text-center tabular-nums font-semibold ${qColorClass(r.p_adjusted)}`}>
+                        {fmtQ(r.p_adjusted)}{r.significant ? "*" : ""}
+                      </td>
+                      <td
+                        className={`px-3 py-1.5 text-center tabular-nums font-semibold ${qColorClass(r.density_p_adjusted)}`}
+                        title={r.density_u_stat !== null ? `U = ${r.density_u_stat.toFixed(1)} · ${r.sig_density.toFixed(3)} vs ${r.bg_density.toFixed(3)}` : undefined}
+                      >
+                        {fmtQ(r.density_p_adjusted)}{r.density_significant ? "*" : ""}
                       </td>
                     </tr>
                   );
@@ -287,7 +345,7 @@ export function HnRNPMotifPanel({ deepAnalysisId }: HnRNPMotifPanelProps) {
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-2 border-t border-border text-[10px] text-muted-foreground flex items-center gap-4">
+          <div className="px-4 py-2 border-t border-border text-[10px] text-muted-foreground flex flex-wrap items-center gap-4">
             <span>{t("hnrnpPanel.showing", { n: filteredResults.length, total: data.results.length })}</span>
             <span className="ml-auto italic">{t("hnrnpPanel.bonferroni")}</span>
           </div>
@@ -295,12 +353,12 @@ export function HnRNPMotifPanel({ deepAnalysisId }: HnRNPMotifPanelProps) {
       )}
 
       {/* Heatmap: protein × region */}
-      <HeatmapView data={data} />
+      <HeatmapView data={data} regions={regions} />
 
       <ScienceNote
         title={t("scienceNotes.hnrnpMotifs.title")}
         body={t("scienceNotes.hnrnpMotifs.body")}
-        refs={["rmaps2"]}
+        refs={["rmaps2", "cisbp_rna"]}
       />
     </div>
   );
@@ -310,20 +368,22 @@ export function HnRNPMotifPanel({ deepAnalysisId }: HnRNPMotifPanelProps) {
 // Heatmap view: protein families × regions
 // ---------------------------------------------------------------------------
 
-function HeatmapView({ data }: { data: HnRNPMotifResponse }) {
+function HeatmapView({ data, regions }: { data: HnRNPMotifResponse; regions: string[] }) {
   const t = useT();
 
   // Build a matrix: for each protein × region, pick the most significant motif
-  const proteins = [...new Set(data.results.map((r) => r.protein))];
+  // (smallest of the presence / density q-values).
+  const proteins = Array.from(new Set(data.results.map((r) => r.protein)));
   const matrix: Record<string, Record<string, MotifEnrichmentItem | null>> = {};
   for (const p of proteins) {
     matrix[p] = {};
-    for (const r of REGION_ORDER) {
+    for (const r of regions) {
       const candidates = data.results.filter((x) => x.protein === p && x.region === r);
-      // Pick the one with lowest p_adjusted
       const best = candidates.reduce<MotifEnrichmentItem | null>((acc, c) => {
         if (acc === null) return c;
-        if (c.p_adjusted !== null && (acc.p_adjusted === null || c.p_adjusted < acc.p_adjusted)) return c;
+        const qc = minQ(c);
+        const qa = minQ(acc);
+        if (qc !== null && (qa === null || qc < qa)) return c;
         return acc;
       }, null);
       matrix[p][r] = best;
@@ -340,17 +400,17 @@ function HeatmapView({ data }: { data: HnRNPMotifResponse }) {
         <div
           className="inline-grid gap-px bg-slate-200 dark:bg-slate-700 border border-slate-200 dark:border-slate-700"
           style={{
-            gridTemplateColumns: `minmax(100px, auto) repeat(${REGION_ORDER.length}, minmax(72px, 1fr))`,
+            gridTemplateColumns: `minmax(100px, auto) repeat(${regions.length}, minmax(72px, 1fr))`,
           }}
         >
           {/* Header row */}
           <div className="bg-white dark:bg-background" />
-          {REGION_ORDER.map((r) => (
+          {regions.map((r) => (
             <div
               key={r}
               className="bg-white dark:bg-background px-2 py-1.5 text-center text-[9px] font-bold text-slate-600 dark:text-slate-400 leading-tight"
             >
-              {REGION_LABELS[r]}
+              {regionLabel(t, r)}
             </div>
           ))}
 
@@ -364,9 +424,10 @@ function HeatmapView({ data }: { data: HnRNPMotifResponse }) {
                 {p}
               </div>
               {/* Region cells */}
-              {REGION_ORDER.map((r) => {
+              {regions.map((r) => {
                 const item = matrix[p][r];
-                if (!item || item.p_adjusted === null) {
+                const q = item ? minQ(item) : null;
+                if (!item || q === null) {
                   return (
                     <div
                       key={`${p}-${r}`}
@@ -377,17 +438,23 @@ function HeatmapView({ data }: { data: HnRNPMotifResponse }) {
                   );
                 }
                 const enriched = item.sig_density > item.bg_density;
-                const sig = item.p_adjusted < 0.05;
+                const sig = isSig(item) || q < 0.05;
                 let bgColor = "bg-slate-100 dark:bg-slate-800";
                 if (sig && enriched) bgColor = "bg-red-200 dark:bg-red-900/40";
                 else if (sig && !enriched) bgColor = "bg-blue-200 dark:bg-blue-900/40";
                 const effectRing = item.regulatory_effect ? (EFFECT_BORDER[item.regulatory_effect] ?? "") : "";
                 const effectLabel = item.regulatory_effect ?? "";
+                const title = [
+                  item.motif_name,
+                  `${t("hnrnpPanel.colPresenceQ")}=${fmtQ(item.p_adjusted)}${item.z_stat != null ? ` (z=${item.z_stat.toFixed(2)})` : ""}`,
+                  `${t("hnrnpPanel.colDensityQ")}=${fmtQ(item.density_p_adjusted)}${item.density_u_stat != null ? ` (U=${item.density_u_stat.toFixed(1)})` : ""}`,
+                  effectLabel ? `(${effectLabel})` : "",
+                ].filter(Boolean).join(" · ");
                 return (
                   <div
                     key={`${p}-${r}`}
                     className={`flex flex-col items-center justify-center min-h-[32px] px-1 py-0.5 ${bgColor} ${effectRing}`}
-                    title={`${item.motif_name}: p_adj=${item.p_adjusted.toFixed(4)}, z=${item.z_stat?.toFixed(2)}${effectLabel ? ` (${effectLabel})` : ""}`}
+                    title={title}
                   >
                     <span className={`font-mono font-bold text-[10px] leading-tight ${sig ? "text-foreground" : "text-muted-foreground"}`}>
                       {item.motif_name}{sig ? "*" : ""}
@@ -417,6 +484,7 @@ function HeatmapView({ data }: { data: HnRNPMotifResponse }) {
         <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 shadow-[inset_0_0_0_2px_#ea580c] bg-white dark:bg-slate-800" /> {t("hnrnpPanel.silencer")}</span>
         <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 shadow-[inset_0_0_0_2px_#059669] bg-white dark:bg-slate-800" /> {t("hnrnpPanel.enhancer")}</span>
       </div>
+      <p className="mt-1 text-[9px] text-muted-foreground italic">{t("hnrnpPanel.heatmapNote")}</p>
     </div>
   );
 }

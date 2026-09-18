@@ -258,6 +258,7 @@ export default function DeepAnalysisDetailPage() {
             analysisId={id}
             fdrThreshold={deepAnalysis?.fdr_threshold}
             deltaPsiMin={deepAnalysis?.delta_psi_min}
+            pvalueThreshold={deepAnalysis?.pvalue_threshold}
           />
         </div>
       )}

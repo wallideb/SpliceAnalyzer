@@ -8,12 +8,15 @@
  * based on the selected mode.
  *
  * The "Interactions" (StringDB) tab is only shown when at least one mutated
- * gene was defined for the analysis.
+ * gene was defined for the analysis (and, in a deep analysis, when the
+ * "stringdb" module is active).
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { SplicingEvent } from "@/types/event";
 import type { GeneEntry } from "@/types/gene";
+import type { GeneAnnotation } from "@/types/annotation";
 import { SidebarNav } from "@/components/top10/SidebarNav";
 import { AnnotatedCard } from "@/components/top10/AnnotatedCard";
 import { MotifPatternPanel } from "@/components/top10/MotifPatternPanel";
@@ -41,6 +44,16 @@ function chrNum(chr: string | null | undefined): number {
   return CHR_ORDER[key] ?? 99;
 }
 
+/**
+ * Query key used by AnnotatedCard for the gene annotation of an event —
+ * must stay in sync with `["annotation", symbol, ensemblIdHint]` there.
+ */
+function annotationQueryKey(ev: SplicingEvent, ensemblHints: Record<string, string>) {
+  const symbol = ev.gene_symbol ?? ev.gene_id ?? "";
+  const hint = ensemblHints[(ev.gene_symbol ?? "").toUpperCase()] ?? ev.gene_id;
+  return ["annotation", symbol, hint] as const;
+}
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -51,7 +64,7 @@ interface Top10ViewProps {
   mutatedGenes?: GeneEntry[];
   /**
    * Optional set of deep-analysis module keys to enable extra sidebar tabs.
-   * Supported: "pathways" | "motifs" | "splice"
+   * Supported: "stringdb" | "motifs" | "splice" | "hnrnp" | "enrichr"
    * When not provided (Top-10 context) no extra tabs are shown.
    */
   activeModules?: Set<string>;
@@ -77,21 +90,42 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("default");
   const t = useT();
+  const qc = useQueryClient();
 
   // StringDB shown only when mutated genes exist.
   const showStringDB =
     mutatedGenes.length > 0 &&
     (activeModules === undefined || activeModules.has("stringdb"));
 
-  // Build a symbol → ensembl_id map from the analysis mutated genes list
-  const ensemblHints: Record<string, string> = {};
-  for (const g of mutatedGenes) {
-    ensemblHints[g.symbol.toUpperCase()] = g.ensembl_id;
-  }
+  // Build a symbol → ensembl_id map from the analysis mutated genes list (E10)
+  const ensemblHints = useMemo<Record<string, string>>(() => {
+    const hints: Record<string, string> = {};
+    for (const g of mutatedGenes) hints[g.symbol.toUpperCase()] = g.ensembl_id;
+    return hints;
+  }, [mutatedGenes]);
+
+  // PanelApp sort (E9) reads the annotation query cache populated by the
+  // cards. The cache fills asynchronously, so re-sort whenever an annotation
+  // query succeeds while this sort is active.
+  const [annotationVersion, setAnnotationVersion] = useState(0);
+  useEffect(() => {
+    if (sortKey !== "panelapp") return;
+    return qc.getQueryCache().subscribe((event) => {
+      if (
+        event.type === "updated" &&
+        event.action.type === "success" &&
+        event.query.queryKey[0] === "annotation"
+      ) {
+        setAnnotationVersion((v) => v + 1);
+      }
+    });
+  }, [qc, sortKey]);
 
   // Sort events — always use gene_symbol then event id as tiebreaker
   // to ensure deterministic ordering across re-renders.
   const sortedEvents = useMemo(() => {
+    // annotationVersion only forces a recompute for the "panelapp" sort.
+    void annotationVersion;
     if (sortKey === "default") return events;
     const copy = [...events];
     const tie = (a: typeof events[0], b: typeof events[0]) =>
@@ -105,12 +139,24 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
         return copy.sort((a, b) => (b.abs_inc_level_diff ?? 0) - (a.abs_inc_level_diff ?? 0) || tie(a, b));
       case "chr":
         return copy.sort((a, b) => chrNum(a.chr) - chrNum(b.chr) || (a.exon_start ?? 0) - (b.exon_start ?? 0) || tie(a, b));
-      case "panelapp":
-        return copy.sort((a, b) => (a.fdr ?? 1) - (b.fdr ?? 1) || tie(a, b));
+      case "panelapp": {
+        // Highest PanelApp confidence level (3 green > 2 amber > 1 red > 0 / unknown), then FDR.
+        const confidence = (ev: SplicingEvent): number => {
+          const ann = qc.getQueryData<GeneAnnotation>(annotationQueryKey(ev, ensemblHints));
+          return Math.max(0, ...(ann?.panels ?? []).map((p) => p.confidence_level ?? 0));
+        };
+        const conf = new Map<string, number>(copy.map((ev) => [ev.id, confidence(ev)]));
+        return copy.sort(
+          (a, b) =>
+            (conf.get(b.id) ?? 0) - (conf.get(a.id) ?? 0) ||
+            (a.fdr ?? 1) - (b.fdr ?? 1) ||
+            tie(a, b),
+        );
+      }
       default:
         return copy;
     }
-  }, [events, sortKey]);
+  }, [events, sortKey, qc, ensemblHints, annotationVersion]);
 
   if (events.length === 0) {
     return <p className="text-muted-foreground text-sm">{t("top10View.noEvents")}</p>;
@@ -119,7 +165,6 @@ export function Top10View({ events, mutatedGenes = [], activeModules, analysisId
   const MODE_LABELS: Record<ViewMode, string> = {
     gene:     t("top10View.modeLabels.gene"),
     stringdb: t("top10View.modeLabels.stringdb"),
-    pathways: t("top10View.modeLabels.pathways"),
     motifs:   t("top10View.modeLabels.motifs"),
     splice:   t("top10View.modeLabels.splice"),
     hnrnp:    t("top10View.modeLabels.hnrnp"),

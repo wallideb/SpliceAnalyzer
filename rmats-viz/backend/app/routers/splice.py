@@ -731,13 +731,24 @@ async def _get_splice_feature_inner(event_id: uuid.UUID) -> SpliceFeatureRespons
         feat = feat_res.scalar_one_or_none()
 
         # If feature exists AND already has MANE data (or gene_id is missing),
-        # return immediately.  Otherwise retry MANE lookup.
+        # return immediately.  A missing MANE annotation is retried at most
+        # once per _MANE_RETRY_TTL (negative-result cache keyed on computed_at)
+        # so genes absent from the GFF3 do not trigger a network lookup on
+        # every card load.
         if feat is not None:
             has_mane = feat.mane_transcript_id is not None
-            can_retry_mane = (not has_mane) and bool(event.gene_id)
-            if not can_retry_mane:
+            now = datetime.now(timezone.utc)
+            computed_at = feat.computed_at
+            if computed_at is not None and computed_at.tzinfo is None:
+                computed_at = computed_at.replace(tzinfo=timezone.utc)
+            should_retry = (
+                (not has_mane)
+                and bool(event.gene_id)
+                and (computed_at is None or now - computed_at > _MANE_RETRY_TTL)
+            )
+            if not should_retry:
                 return _feat_to_response(feat, event)
-            # Retry MANE in background — return current data but schedule update
+            # Retry MANE — return current data but schedule update
             _retry_event = event   # snapshot for closure
     # ── session closed — connection returned to pool ─────────────────────
 
@@ -753,9 +764,8 @@ async def _get_splice_feature_inner(event_id: uuid.UUID) -> SpliceFeatureRespons
                 _retry_event.exon_start or 0,
                 _retry_event.exon_end or 0,
             )
-            if mane.get("transcript_id"):
-                async with AsyncSessionLocal() as db:
-                    from sqlalchemy import update
+            async with AsyncSessionLocal() as db:
+                if mane.get("transcript_id"):
                     await db.execute(
                         update(EventSpliceFeature)
                         .where(EventSpliceFeature.event_id == event_id)
@@ -765,15 +775,24 @@ async def _get_splice_feature_inner(event_id: uuid.UUID) -> SpliceFeatureRespons
                             frame_region=mane.get("frame_region", "unknown"),
                             frame_class=mane.get("frame_class") or feat.frame_class,
                             cds_exon_length=mane.get("cds_exon_length"),
+                            computed_at=func.now(),
                         )
                     )
-                    await db.commit()
-                    # Re-read updated feature
-                    feat_res = await db.execute(
-                        select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
+                else:
+                    # Still no MANE: stamp the attempt so the next retry waits
+                    # another _MANE_RETRY_TTL.
+                    await db.execute(
+                        update(EventSpliceFeature)
+                        .where(EventSpliceFeature.event_id == event_id)
+                        .values(computed_at=func.now())
                     )
-                    feat = feat_res.scalar_one()
-                    return _feat_to_response(feat, _retry_event)
+                await db.commit()
+                # Re-read updated feature
+                feat_res = await db.execute(
+                    select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
+                )
+                feat = feat_res.scalar_one()
+                return _feat_to_response(feat, _retry_event)
         except Exception as exc:
             logger.debug("MANE retry failed for %s: %s", event_id, exc)
         return _feat_to_response(feat, _retry_event)
@@ -814,6 +833,7 @@ async def get_splice_patterns(
     analysis_id: uuid.UUID,
     fdr_threshold: float = Query(0.05, ge=0.0, le=1.0, description="FDR significance cutoff"),
     abs_delta_psi_min: float = Query(0.05, ge=0.0, le=1.0, description="Minimum |ΔΨ| for significance"),
+    pvalue_threshold: float | None = Query(None, ge=0.0, le=1.0, description="Optional p-value maximum for significance (ignored with deep_analysis_id)"),
     deep_analysis_id: uuid.UUID | None = Query(None, description="If set, only analyse significant events from this deep analysis"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -821,6 +841,8 @@ async def get_splice_patterns(
 
     When deep_analysis_id is provided, only events tagged as significant
     in that deep analysis are included (thresholds are informational only).
+    Otherwise an event is significant when FDR ≤ fdr_threshold, |ΔΨ| ≥
+    abs_delta_psi_min and, if given, p ≤ pvalue_threshold.
     """
 
     # Fetch events + their features (join)
@@ -860,12 +882,18 @@ async def get_splice_patterns(
     size_dist: Counter[int] = Counter()
     donor_9: list[str] = []
     acc_23: list[str] = []
+    # Canonical-site flags may be None (window truncated near a contig end):
+    # unknown → excluded from both numerator (n_*) and denominator (n_*_known).
     n_gt = 0
+    n_gt_known = 0
     n_ag = 0
+    n_ag_known = 0
     up_donor_9: list[str] = []
     dn_acc_23: list[str] = []
     n_up_gt = 0
+    n_up_gt_known = 0
     n_dn_ag = 0
+    n_dn_ag_known = 0
     n_with_up_seq = 0
     n_with_dn_seq = 0
     ppt_scores: list[float] = []
@@ -890,7 +918,10 @@ async def get_splice_patterns(
                 ev.inc_level_difference is not None
                 and abs(ev.inc_level_difference) >= abs_delta_psi_min
             )
-            if fdr_ok and dpsi_ok:
+            pv_ok = pvalue_threshold is None or (
+                ev.p_value is not None and ev.p_value <= pvalue_threshold
+            )
+            if fdr_ok and dpsi_ok and pv_ok:
                 n_significant += 1
                 delta_psi_significant.append(ev.inc_level_difference)  # type: ignore[arg-type]
             else:
@@ -921,13 +952,17 @@ async def get_splice_patterns(
             # Donor
             if len(feat.donor_seq) >= 9:
                 donor_9.append(feat.donor_seq[:9])
-                if feat.donor_is_gt:
-                    n_gt += 1
+                if feat.donor_is_gt is not None:
+                    n_gt_known += 1
+                    if feat.donor_is_gt:
+                        n_gt += 1
             # Acceptor
             if feat.acceptor_seq and len(feat.acceptor_seq) >= 23:
                 acc_23.append(feat.acceptor_seq[-23:])
-                if feat.acceptor_is_ag:
-                    n_ag += 1
+                if feat.acceptor_is_ag is not None:
+                    n_ag_known += 1
+                    if feat.acceptor_is_ag:
+                        n_ag += 1
             # PPT
             if feat.ppt_score is not None:
                 ppt_scores.append(feat.ppt_score)
@@ -941,14 +976,18 @@ async def get_splice_patterns(
                 n_with_up_seq += 1
                 if len(feat.upstream_donor_seq) >= 9:
                     up_donor_9.append(feat.upstream_donor_seq[:9])
-                if feat.upstream_donor_is_gt:
-                    n_up_gt += 1
+                    if feat.upstream_donor_is_gt is not None:
+                        n_up_gt_known += 1
+                        if feat.upstream_donor_is_gt:
+                            n_up_gt += 1
             if feat.downstream_acceptor_seq:
                 n_with_dn_seq += 1
                 if len(feat.downstream_acceptor_seq) >= 23:
                     dn_acc_23.append(feat.downstream_acceptor_seq[-23:])
-                if feat.downstream_acceptor_is_ag:
-                    n_dn_ag += 1
+                    if feat.downstream_acceptor_is_ag is not None:
+                        n_dn_ag_known += 1
+                        if feat.downstream_acceptor_is_ag:
+                            n_dn_ag += 1
 
     # Deep-analysis significance counts
     if deep_analysis_id is not None:
@@ -987,7 +1026,7 @@ async def get_splice_patterns(
         consensus     = iupac_consensus(donor_9) if donor_9 else None,
         pwm           = compute_pwm(donor_9),
         n_canonical   = n_gt,
-        pct_canonical = round(n_gt / len(donor_9) * 100, 1) if donor_9 else 0.0,
+        pct_canonical = round(n_gt / n_gt_known * 100, 1) if n_gt_known else 0.0,
         examples      = donor_9[:8],
     )
     acc_stats = SiteStats(
@@ -995,7 +1034,7 @@ async def get_splice_patterns(
         consensus     = iupac_consensus(acc_23) if acc_23 else None,
         pwm           = compute_pwm(acc_23),
         n_canonical   = n_ag,
-        pct_canonical = round(n_ag / len(acc_23) * 100, 1) if acc_23 else 0.0,
+        pct_canonical = round(n_ag / n_ag_known * 100, 1) if n_ag_known else 0.0,
         examples      = acc_23[:8],
     )
     up_donor_stats: SiteStats | None = SiteStats(
@@ -1003,7 +1042,7 @@ async def get_splice_patterns(
         consensus     = iupac_consensus(up_donor_9) if up_donor_9 else None,
         pwm           = compute_pwm(up_donor_9),
         n_canonical   = n_up_gt,
-        pct_canonical = round(n_up_gt / len(up_donor_9) * 100, 1) if up_donor_9 else 0.0,
+        pct_canonical = round(n_up_gt / n_up_gt_known * 100, 1) if n_up_gt_known else 0.0,
         examples      = up_donor_9[:8],
     ) if up_donor_9 else None
     dn_acc_stats: SiteStats | None = SiteStats(
@@ -1011,7 +1050,7 @@ async def get_splice_patterns(
         consensus     = iupac_consensus(dn_acc_23) if dn_acc_23 else None,
         pwm           = compute_pwm(dn_acc_23),
         n_canonical   = n_dn_ag,
-        pct_canonical = round(n_dn_ag / len(dn_acc_23) * 100, 1) if dn_acc_23 else 0.0,
+        pct_canonical = round(n_dn_ag / n_dn_ag_known * 100, 1) if n_dn_ag_known else 0.0,
         examples      = dn_acc_23[:8],
     ) if dn_acc_23 else None
     ppt_stats = PPTStats(
@@ -1119,19 +1158,23 @@ async def run_permutation_test(
     n_iterations: int = 500,
     fdr_threshold: float | None = None,
     delta_psi_min: float | None = None,
+    pvalue_threshold: float | None = Query(None, ge=0, le=1),
     db: AsyncSession = Depends(get_db),
 ):
     """Run a permutation test for all SE events of an analysis.
 
-    For each SE event, the patient/control group labels are randomly shuffled
-    *n_iterations* times and ΔΨ is recomputed.  The empirical p-value is the
-    fraction of permutations where |permuted ΔΨ| ≥ |observed ΔΨ|.
+    For each SE event, the patient/control group labels are shuffled and ΔΨ is
+    recomputed.  When the number of distinct label splits C(n1+n2, n1) is
+    ≤ 5000 every split is enumerated (exact p = r / N); otherwise
+    *n_iterations* Monte-Carlo draws are used with p = (r + 1) / (K + 1).
 
     Parameters
     ----------
-    n_iterations   : number of permutation iterations (default 500, max 2000).
-    fdr_threshold  : optional FDR threshold to count significant events (from deep analysis).
-    delta_psi_min  : optional |ΔΨ| minimum to count significant events (from deep analysis).
+    n_iterations     : number of permutation iterations (default 500, max 2000).
+    fdr_threshold    : optional FDR threshold to count significant events (from deep analysis).
+    delta_psi_min    : optional |ΔΨ| minimum to count significant events (from deep analysis).
+    pvalue_threshold : optional rMATS p-value maximum applied to the significant subset
+                       (only used together with fdr_threshold + delta_psi_min).
 
     Response
     --------
@@ -1182,7 +1225,9 @@ async def run_permutation_test(
             str(ev.id) for ev in se_events
             if (ev.fdr is not None and ev.fdr <= fdr_threshold
                     and ev.inc_level_difference is not None
-                    and abs(ev.inc_level_difference) >= delta_psi_min)
+                    and abs(ev.inc_level_difference) >= delta_psi_min
+                    and (pvalue_threshold is None
+                         or (ev.p_value is not None and ev.p_value <= pvalue_threshold)))
         }
         n_sig = len(sig_event_ids)
 
@@ -1222,6 +1267,8 @@ async def run_permutation_test(
                 "empirical_p_value":  r.empirical_p_value,
                 "n1":                 r.n1,
                 "n2":                 r.n2,
+                "exact":              bool(getattr(r, "exact", False)),
+                "n_splits":           getattr(r, "n_splits", None),
                 "null_hist_bins":     r.null_hist_bins,
                 "null_hist_counts":   r.null_hist_counts,
             }
@@ -1233,6 +1280,10 @@ async def run_permutation_test(
         observed_hist_counts    = obs_hist_counts,
         pct_p05                 = pct_p05,
         pct_p01                 = pct_p01,
+        exact_fraction          = float(getattr(perm_result, "exact_fraction", 0.0) or 0.0),
+        min_p_attainable        = getattr(perm_result, "min_p_attainable", None),
+        n_replicates_g1         = getattr(perm_result, "n_replicates_g1", None),
+        n_replicates_g2         = getattr(perm_result, "n_replicates_g2", None),
         metric_results          = [
             MetricPermResult(
                 metric_name       = r.metric_name,

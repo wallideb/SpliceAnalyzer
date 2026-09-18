@@ -20,11 +20,16 @@ from openpyxl.utils import get_column_letter
 
 from sqlalchemy import func as sa_func
 
+from app.config import settings as _settings
 from app.database import get_db
 from app.models.analysis import Analysis
 from app.models.event import SplicingEvent
 from app.models.splice import EventSpliceFeature
-from app.services.splice_features import ppt_t_content as _ppt_t_content, ppt_c_content as _ppt_c_content
+from app.services.splice_features import (
+    compute_pwm as _compute_pwm,
+    ppt_t_content as _ppt_t_content,
+    ppt_c_content as _ppt_c_content,
+)
 from app.services.panelapp import get_panels_for_gene
 from app.services.gene_ontology import get_go_terms
 from app.services.stringdb import get_interaction
@@ -128,11 +133,11 @@ async def _assert_splice_features_ready(
 ) -> None:
     """Raise 409 Conflict if splice-feature computation is still in progress.
 
-    Checks whether a background compute task is actively running for this
-    analysis.  If the task has finished (even with partial failures), the
-    check passes so users aren't blocked from exporting what was computed.
+    Reads ``analyses.compute_status`` (persisted by the splice router).  If
+    the task has finished (even with partial failures), the check passes so
+    users aren't blocked from exporting what was computed.
     """
-    from app.routers.splice import _active_computes
+    from app.routers.splice import get_compute_status
 
     n_se = (await db.execute(
         select(sa_func.count(SplicingEvent.id)).where(
@@ -156,7 +161,7 @@ async def _assert_splice_features_ready(
     )).scalar() or 0
 
     # Allow export if the background task has finished (even partially)
-    task_running = analysis_id in _active_computes
+    task_running = (await get_compute_status(db, analysis_id)) == "running"
     if n_computed < n_se and task_running:
         pct = round(n_computed / n_se * 100, 1)
         raise HTTPException(
@@ -288,10 +293,20 @@ async def export_deep_analysis_excel(
             g.get("symbol", "") for g in (analysis.mutated_genes or []) if g.get("symbol")
         ]
         if mutated_genes_list:
-            pairs = [
-                (sym, mut) for sym in unique_symbols for mut in mutated_genes_list
-                if sym.upper() != mut.upper()
-            ]
+            # STRING's /network endpoint scores one pair per call, so keep
+            # per-pair calls but query each unordered pair once (deduplicated,
+            # case-insensitive) under the shared concurrency cap.
+            _seen_pairs: set[frozenset[str]] = set()
+            pairs: list[tuple[str, str]] = []
+            for sym in unique_symbols:
+                for mut in mutated_genes_list:
+                    if sym.upper() == mut.upper():
+                        continue
+                    key = frozenset((sym.upper(), mut.upper()))
+                    if key in _seen_pairs:
+                        continue
+                    _seen_pairs.add(key)
+                    pairs.append((sym, mut))
             if pairs:
                 interaction_results = await asyncio.gather(
                     *[_throttled(get_interaction(sym, mut)) for sym, mut in pairs],
@@ -366,6 +381,7 @@ async def export_deep_analysis_excel(
     ws_sum = wb.create_sheet("Summary")
     ws_sum.append(["Deep Analysis", deep.name or str(deep_analysis_id)])
     ws_sum.append(["FDR threshold", deep.fdr_threshold])
+    ws_sum.append(["p-value maximum", deep.pvalue_threshold if deep.pvalue_threshold is not None else "not applied"])
     ws_sum.append(["|ΔΨ| minimum", deep.delta_psi_min])
     ws_sum.append(["Significant events", len(events)])
     ws_sum.append([])
@@ -397,7 +413,6 @@ async def export_deep_analysis_excel(
 
 import math as _math
 import statistics as _statistics
-from collections import Counter
 from datetime import date as _date
 
 from reportlab.lib import colors as _colors
@@ -411,7 +426,6 @@ from reportlab.platypus import (
 )
 from reportlab.graphics.shapes import Drawing, Rect, String, Line, Group, PolyLine
 from reportlab.graphics import renderSVG as _renderSVG
-from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.pdfbase import pdfmetrics as _pdfmetrics
 _W, _ = _A4
 _MARGIN = 2 * _cm
@@ -522,26 +536,57 @@ def _make_tbl(rows, col_widths, S, style_fn=None):
 # hnRNP heatmap builder (protein × region, with regulatory effect frames)
 # ---------------------------------------------------------------------------
 
+# Seven regions per SE event, in transcript order (rMAPS2 design: 250-nt
+# windows after each 5'SS and before each 3'SS, plus the exonic flanks and the
+# full skipped exon).  Must match hnrnp_motifs.REGION_NAMES.
 _HEATMAP_REGION_ORDER = [
-    "upstream_exon", "upstream_intron", "skipped_exon",
-    "downstream_intron", "downstream_exon",
+    "upstream_exon",
+    "upstream_intron_5ss",
+    "upstream_intron_3ss",
+    "skipped_exon",
+    "downstream_intron_5ss",
+    "downstream_intron_3ss",
+    "downstream_exon",
 ]
 _HEATMAP_REGION_LABELS = {
     "upstream_exon": "Upstream\nexon",
-    "upstream_intron": "Upstream\nintron",
+    "upstream_intron_5ss": "Upstream\nintron\n(5'SS side)",
+    "upstream_intron_3ss": "Upstream\nintron\n(3'SS side)",
     "skipped_exon": "Skipped\nexon",
-    "downstream_intron": "Downstream\nintron",
+    "downstream_intron_5ss": "Downstream\nintron\n(5'SS side)",
+    "downstream_intron_3ss": "Downstream\nintron\n(3'SS side)",
     "downstream_exon": "Downstream\nexon",
 }
+# Single-line labels for tables
+_REGION_TABLE_LABELS = {
+    "upstream_exon": "Upstream exon",
+    "upstream_intron_5ss": "Upstream intron (5'SS)",
+    "upstream_intron_3ss": "Upstream intron (3'SS)",
+    "skipped_exon": "Skipped exon",
+    "downstream_intron_5ss": "Downstream intron (5'SS)",
+    "downstream_intron_3ss": "Downstream intron (3'SS)",
+    "downstream_exon": "Downstream exon",
+}
+
+
+def _heatmap_region_order(hnrnp_data: dict) -> list[str]:
+    """Region columns for the heatmap: the order reported by the service when
+    available (``regions`` key), otherwise the module default."""
+    regs = hnrnp_data.get("regions")
+    if isinstance(regs, list) and regs:
+        return [str(r) for r in regs]
+    return list(_HEATMAP_REGION_ORDER)
 
 
 def _build_hnrnp_heatmap(hnrnp_data: dict) -> Drawing | None:
     """Build a vector heatmap Drawing: protein families × genomic regions.
 
-    For each protein × region cell, the most significant motif is shown.
-    Cell background encodes enrichment/depletion (red/blue/grey).
-    An orange (silencer) or green (enhancer) border frame indicates the
-    established regulatory effect when available.
+    For each protein × region cell, the most significant motif (presence
+    test, BH-adjusted) is shown.  Cell background encodes enrichment/depletion
+    (red/blue/grey).  An orange (silencer) or green (enhancer) border frame
+    indicates the established regulatory effect when available.  Seven
+    region columns (7 × 55 pt + 92 pt label column = 477 pt) fit the
+    portrait text frame.
     """
     results = hnrnp_data.get("results", [])
     if not results:
@@ -551,11 +596,13 @@ def _build_hnrnp_heatmap(hnrnp_data: dict) -> Drawing | None:
     if not proteins:
         return None
 
+    region_order = _heatmap_region_order(hnrnp_data)
+
     # Build matrix: protein → region → best motif (lowest p_adjusted)
     matrix: dict[str, dict[str, dict | None]] = {}
     for prot in proteins:
         matrix[prot] = {}
-        for reg in _HEATMAP_REGION_ORDER:
+        for reg in region_order:
             candidates = [r for r in results if r.get("protein") == prot and r.get("region") == reg]
             best = None
             for c in candidates:
@@ -566,13 +613,13 @@ def _build_hnrnp_heatmap(hnrnp_data: dict) -> Drawing | None:
                     best = c
             matrix[prot][reg] = best
 
-    # Drawing dimensions
-    cell_w = 80
+    # Drawing dimensions (7 columns must fit the 482 pt portrait frame)
+    cell_w = 55
     cell_h = 28
-    label_w = 110  # protein name column width
-    header_h = 30
+    label_w = 92   # protein name column width
+    header_h = 36  # three header lines
     n_rows = len(proteins)
-    n_cols = len(_HEATMAP_REGION_ORDER)
+    n_cols = len(region_order)
     total_w = label_w + n_cols * cell_w
     total_h = header_h + n_rows * cell_h + 12  # +12 for top margin
 
@@ -590,15 +637,15 @@ def _build_hnrnp_heatmap(hnrnp_data: dict) -> Drawing | None:
     clr_header   = _colors.HexColor("#475569")   # slate-600
 
     # Column headers
-    for ci, reg in enumerate(_HEATMAP_REGION_ORDER):
+    for ci, reg in enumerate(region_order):
         x = label_w + ci * cell_w
         y = total_h - header_h
-        label = _HEATMAP_REGION_LABELS[reg]
+        label = _HEATMAP_REGION_LABELS.get(reg, reg.replace("_", "\n"))
         lines = label.split("\n")
         for li, line in enumerate(lines):
             d.add(String(
                 x + cell_w / 2, y + (len(lines) - 1 - li) * 8 + 2,
-                line, fontSize=6.5, fontName="Helvetica-Bold",
+                line, fontSize=6, fontName="Helvetica-Bold",
                 fillColor=clr_header, textAnchor="middle",
             ))
 
@@ -609,11 +656,11 @@ def _build_hnrnp_heatmap(hnrnp_data: dict) -> Drawing | None:
         # Protein label
         d.add(String(
             label_w - 4, y + cell_h / 2 - 3,
-            prot, fontSize=7, fontName="Helvetica-Bold",
+            prot, fontSize=6.5, fontName="Helvetica-Bold",
             fillColor=clr_text, textAnchor="end",
         ))
 
-        for ci, reg in enumerate(_HEATMAP_REGION_ORDER):
+        for ci, reg in enumerate(region_order):
             x = label_w + ci * cell_w
             item = matrix[prot][reg]
 
@@ -658,7 +705,7 @@ def _build_hnrnp_heatmap(hnrnp_data: dict) -> Drawing | None:
             d.add(String(
                 x + cell_w / 2, y + cell_h / 2 + (2 if effect else -1),
                 motif_name + suffix,
-                fontSize=7, fontName="Courier-Bold",
+                fontSize=6.5, fontName="Courier-Bold",
                 fillColor=text_color, textAnchor="middle",
             ))
 
@@ -773,9 +820,15 @@ def _fig_exon_size_histogram(exon_sizes: list[int]) -> Drawing | None:
     return d
 
 
-def _fig_frame_breakdown(n_if: int, n_fs: int, n_nc: int, n_feat: int) -> Drawing | None:
-    """Horizontal stacked bar showing reading-frame class proportions."""
-    if n_feat == 0:
+def _fig_frame_breakdown(n_if: int, n_fs: int, n_nc: int, n_unknown: int = 0) -> Drawing | None:
+    """Horizontal stacked bar showing reading-frame class proportions.
+
+    Percentages are computed over events with a KNOWN frame class
+    (n_if + n_fs + n_nc); ``n_unknown`` (no MANE annotation) is only
+    reported beside the bar, never used as part of the denominator.
+    """
+    n_known = n_if + n_fs + n_nc
+    if n_known == 0:
         return None
 
     W, H = 440, 50
@@ -797,11 +850,11 @@ def _fig_frame_breakdown(n_if: int, n_fs: int, n_nc: int, n_feat: int) -> Drawin
     for count, color, label in segments:
         if count == 0:
             continue
-        seg_w = (count / n_feat) * bar_w
+        seg_w = (count / n_known) * bar_w
         d.add(Rect(x, BAR_Y, seg_w, BAR_H,
                     fillColor=_colors.HexColor(color), strokeColor=None))
         # Label inside if wide enough
-        pct = count / n_feat * 100
+        pct = count / n_known * 100
         if seg_w > 35:
             d.add(String(x + seg_w / 2, BAR_Y + 5,
                           f"{label} {pct:.0f}%",
@@ -815,9 +868,15 @@ def _fig_frame_breakdown(n_if: int, n_fs: int, n_nc: int, n_feat: int) -> Drawin
         if count == 0:
             continue
         d.add(Rect(lx, 2, 8, 8, fillColor=_colors.HexColor(color), strokeColor=None))
-        d.add(String(lx + 10, 2, f"{label}: {count} ({count / n_feat * 100:.1f}%)",
+        d.add(String(lx + 10, 2, f"{label}: {count} ({count / n_known * 100:.1f}%)",
                       fontSize=5.5, fontName="Helvetica", fillColor=_colors.HexColor("#475569")))
         lx += 110
+
+    # Unknown frames (excluded from the percentages) — right-aligned note
+    d.add(String(W - MARGIN_L, 2,
+                  f"{n_unknown} unknown (not shown)  ·  n = {n_known} known",
+                  fontSize=5.5, fontName="Helvetica-Oblique",
+                  fillColor=_colors.HexColor("#64748b"), textAnchor="end"))
 
     return d
 
@@ -938,25 +997,24 @@ def _fig_splice_site_consensus(
     if pwm_data:
         pwm = pwm_data
     else:
+        # Same alignment as the API routers: donors are the FIRST 9 nt
+        # (3 exon + 6 intron), acceptors the LAST 23 nt (20 intron + 3 exon),
+        # so a longer-than-expected window is trimmed on the correct side.
         sequences = []
+        expected_len = 9 if site == "donor" else 23
         for f in features_dict.values():
             seq = f.donor_seq if site == "donor" else f.acceptor_seq
-            if seq:
-                expected_len = 9 if site == "donor" else 23
-                if len(seq) >= expected_len:
-                    sequences.append(seq[:expected_len].upper())
+            if seq and len(seq) >= expected_len:
+                sequences.append(
+                    seq[:expected_len].upper() if site == "donor" else seq[-expected_len:].upper()
+                )
         if len(sequences) < 3:
             return None
-
-        seq_len = len(sequences[0])
-        pwm = []
-        for pos in range(seq_len):
-            counts = Counter(seq[pos] for seq in sequences)
-            total = sum(counts[b] for b in "ACGT") or 1
-            freqs = {b: counts.get(b, 0) / total for b in "ACGT"}
-            pwm.append(freqs)
+        pwm = _compute_pwm(sequences)
 
     seq_len = len(pwm)
+    if seq_len == 0:
+        return None
 
     COL_W  = min(22, int((max_width - 16) / seq_len))
     LOGO_H = 80
@@ -1206,9 +1264,17 @@ def _fig_summary_schematic(
     # ── Frame badge (directly under skipped exon) ──
     FRAME_Y = EXON_Y - 22
     FRAME_X = (SK_X1 + SK_X2) / 2
-    sig_n = max(sig_data.get("n_se_with_features", 1), 1)
-    sig_if_pct = sig_data.get("frame_in_frame", 0) / sig_n * 100
-    frame_str = f"In-frame: {sig_if_pct:.0f}%"
+    # Percentage over events with a KNOWN frame class (unknown excluded)
+    sig_known = (
+        sig_data.get("frame_in_frame", 0)
+        + sig_data.get("frame_frameshift", 0)
+        + sig_data.get("frame_non_coding", 0)
+    )
+    if sig_known:
+        sig_if_pct = sig_data.get("frame_in_frame", 0) / sig_known * 100
+        frame_str = f"In-frame: {sig_if_pct:.0f}%"
+    else:
+        frame_str = "In-frame: n/a"
     badge_w = 90
     d.add(Rect(FRAME_X - badge_w / 2, FRAME_Y, badge_w, 16,
                fillColor=_colors.HexColor("#1e293b"), strokeColor=None, rx=4, ry=4))
@@ -1518,16 +1584,20 @@ def _build_pdf(
     se_evts_all = [e for e in events if e.event_type == "SE"]
     n_se = len(se_evts_all)
     n_with_seq = sum(1 for f in features.values() if f.donor_seq)
+    # Canonical-site flags can be None (unknown, truncated window): those
+    # events are excluded from both numerator and denominator.
     n_gt = sum(1 for f in features.values() if f.donor_is_gt is True)
+    n_gt_known = sum(1 for f in features.values() if f.donor_is_gt is not None)
     n_ag = sum(1 for f in features.values() if f.acceptor_is_ag is True)
+    n_ag_known = sum(1 for f in features.values() if f.acceptor_is_ag is not None)
     story += [
         sp(0.3),
         p(f"<b>Total events:</b> {n_total} · <b>SE events:</b> {n_se}", "body"),
         p(f"<b>SE events with sequence data:</b> {n_with_seq} / {n_se}", "body"),
-        p(f"<b>Canonical GT (5'SS):</b> {n_gt} / {n_with_seq} "
-          f"({n_gt / n_with_seq * 100:.1f}%)" if n_with_seq else "", "body") if n_with_seq else sp(0),
-        p(f"<b>Canonical AG (3'SS):</b> {n_ag} / {n_with_seq} "
-          f"({n_ag / n_with_seq * 100:.1f}%)" if n_with_seq else "", "body") if n_with_seq else sp(0),
+        p(f"<b>Canonical GT (5'SS):</b> {n_gt} / {n_gt_known} "
+          f"({n_gt / n_gt_known * 100:.1f}%)", "body") if n_gt_known else sp(0),
+        p(f"<b>Canonical AG (3'SS):</b> {n_ag} / {n_ag_known} "
+          f"({n_ag / n_ag_known * 100:.1f}%)", "body") if n_ag_known else sp(0),
     ]
 
     story += [
@@ -1591,16 +1661,27 @@ def _build_pdf(
 
         if subset_features:
             n_f  = len(subset_features)
+            # Canonical-site flags can be None (unknown): excluded from both
+            # numerator and denominator.
             n_gt = sum(1 for f in subset_features.values() if f.donor_is_gt is True)
+            n_gt_known = sum(1 for f in subset_features.values() if f.donor_is_gt is not None)
             n_ag = sum(1 for f in subset_features.values() if f.acceptor_is_ag is True)
+            n_ag_known = sum(1 for f in subset_features.values() if f.acceptor_is_ag is not None)
             n_if = sum(1 for f in subset_features.values() if f.frame_class == "in_frame")
             n_fs = sum(1 for f in subset_features.values() if f.frame_class == "frameshift")
             n_nc = sum(1 for f in subset_features.values() if f.frame_class == "non_coding")
+            n_frame_known = n_if + n_fs + n_nc
+            n_frame_unknown = n_f - n_frame_known
             n_bp = sum(1 for f in subset_features.values() if f.bp_motif_found is True)
+            n_bp_seq = sum(1 for f in subset_features.values() if f.ppt_seq)
             n_up_gt = sum(1 for f in subset_features.values() if f.upstream_donor_is_gt is True)
-            n_up_seq = sum(1 for f in subset_features.values() if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9)
+            n_up_seq = sum(1 for f in subset_features.values()
+                           if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9
+                           and f.upstream_donor_is_gt is not None)
             n_dn_ag = sum(1 for f in subset_features.values() if f.downstream_acceptor_is_ag is True)
-            n_dn_seq = sum(1 for f in subset_features.values() if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23)
+            n_dn_seq = sum(1 for f in subset_features.values()
+                           if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23
+                           and f.downstream_acceptor_is_ag is not None)
             ppt_vals = [f.ppt_score for f in subset_features.values() if f.ppt_score is not None]
             ppt_t_vals = [_ppt_t_content(f.ppt_seq) for f in subset_features.values() if f.ppt_seq]
             ppt_c_vals = [_ppt_c_content(f.ppt_seq) for f in subset_features.values() if f.ppt_seq]
@@ -1610,14 +1691,15 @@ def _build_pdf(
             stat_tbl = _make_tbl([
                 ["Metric", "Value"],
                 ["SE events with features", str(n_f)],
-                ["Canonical GT (5'SS)", f"{n_gt} / {n_f} ({n_gt / n_f * 100:.1f}%)" if n_f else "—"],
-                ["Canonical AG (3'SS)", f"{n_ag} / {n_f} ({n_ag / n_f * 100:.1f}%)" if n_f else "—"],
+                ["Canonical GT (5'SS)", f"{n_gt} / {n_gt_known} ({n_gt / n_gt_known * 100:.1f}%)" if n_gt_known else "—"],
+                ["Canonical AG (3'SS)", f"{n_ag} / {n_ag_known} ({n_ag / n_ag_known * 100:.1f}%)" if n_ag_known else "—"],
                 ["Upstream GT (5'SS)", f"{n_up_gt} / {n_up_seq} ({n_up_gt / n_up_seq * 100:.1f}%)" if n_up_seq else "—"],
                 ["Downstream AG (3'SS)", f"{n_dn_ag} / {n_dn_seq} ({n_dn_ag / n_dn_seq * 100:.1f}%)" if n_dn_seq else "—"],
-                ["In-frame",   f"{n_if} ({n_if / n_f * 100:.0f}%)" if n_f else "—"],
-                ["Frameshift", f"{n_fs} ({n_fs / n_f * 100:.0f}%)" if n_f else "—"],
-                ["Non-coding", f"{n_nc} ({n_nc / n_f * 100:.0f}%)" if n_f else "—"],
-                ["Branch point detected", f"{n_bp} / {n_f} ({n_bp / n_f * 100:.1f}%)" if n_f else "—"],
+                ["In-frame (of known frames)",   f"{n_if} / {n_frame_known} ({n_if / n_frame_known * 100:.0f}%)" if n_frame_known else "—"],
+                ["Frameshift (of known frames)", f"{n_fs} / {n_frame_known} ({n_fs / n_frame_known * 100:.0f}%)" if n_frame_known else "—"],
+                ["Non-coding (of known frames)", f"{n_nc} / {n_frame_known} ({n_nc / n_frame_known * 100:.0f}%)" if n_frame_known else "—"],
+                ["Frame unknown (no MANE annotation)", f"{n_frame_unknown} / {n_f}" if n_f else "—"],
+                ["Branch point detected", f"{n_bp} / {n_bp_seq} ({n_bp / n_bp_seq * 100:.1f}%)" if n_bp_seq else "—"],
                 ["Exon size (mean / median)",
                  f"{_statistics.mean(exsz_vals):.0f} / {_statistics.median(exsz_vals):.0f} nt" if exsz_vals else "—"],
                 ["Mean PPT score",
@@ -1662,7 +1744,7 @@ def _build_pdf(
                         sp(),
                     ]
 
-                frame_fig = _fig_frame_breakdown(n_if, n_fs, n_nc, n_f)
+                frame_fig = _fig_frame_breakdown(n_if, n_fs, n_nc, n_frame_unknown)
                 _save_svg(frame_fig, f"sec{section_num:02d}_reading_frame")
                 if frame_fig:
                     story += [
@@ -1671,7 +1753,9 @@ def _build_pdf(
                             caption(
                                 "Reading-frame classification of skipped exons. "
                                 "In-frame: CDS length divisible by 3; frameshift: not divisible by 3; "
-                                f"non-coding: exon entirely within UTR. n = {n_f} SE events."
+                                "non-coding: exon entirely within UTR. Percentages are computed over "
+                                f"events with a known frame class (n = {n_frame_known}); "
+                                f"{n_frame_unknown} unknown (no MANE annotation) are excluded."
                             ),
                         ]),
                         sp(),
@@ -1715,11 +1799,7 @@ def _build_pdf(
                 up_seqs = [f.upstream_donor_seq[:9].upper() for f in subset_features.values()
                            if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
                 if len(up_seqs) >= 3:
-                    up_pwm = []
-                    for pos_i in range(9):
-                        cnt = Counter(s[pos_i] for s in up_seqs)
-                        tot = sum(cnt[b] for b in "ACGT") or 1
-                        up_pwm.append({b: cnt.get(b, 0) / tot for b in "ACGT"})
+                    up_pwm = _compute_pwm(up_seqs)
                     up_logo = _fig_splice_site_consensus(
                         {}, site="donor", pwm_data=up_pwm,
                         n_sequences=len(up_seqs), max_width=FIG_MAX_W,
@@ -1743,11 +1823,7 @@ def _build_pdf(
                 dn_seqs = [f.downstream_acceptor_seq[-23:].upper() for f in subset_features.values()
                            if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
                 if len(dn_seqs) >= 3:
-                    dn_pwm = []
-                    for pos_i in range(23):
-                        cnt = Counter(s[pos_i] for s in dn_seqs)
-                        tot = sum(cnt[b] for b in "ACGT") or 1
-                        dn_pwm.append({b: cnt.get(b, 0) / tot for b in "ACGT"})
+                    dn_pwm = _compute_pwm(dn_seqs)
                     dn_logo = _fig_splice_site_consensus(
                         {}, site="acceptor", pwm_data=dn_pwm,
                         n_sequences=len(dn_seqs), max_width=FIG_MAX_W,
@@ -1795,6 +1871,8 @@ def _build_pdf(
         nonsig = comparison["not_significant"]
         tests = comparison.get("statistical_tests", [])
         test_map = {t["feature"]: t for t in tests}
+        n_tests = len(tests)
+        n_tests_run = sum(1 for t in tests if t.get("p_value") is not None)
 
         def _fmt_pval(pv):
             if pv is None:
@@ -1804,28 +1882,48 @@ def _build_pdf(
             return f"{pv:.4f}"
 
         def _sig_str(t):
-            if t is None:
+            if t is None or t.get("p_value") is None:
                 return ""
-            return "★" if t.get("significant") else "n.s."
+            raw = "★" if t.get("significant") else "n.s."
+            if t.get("significant_fdr"):
+                raw += "†"
+            return raw
+
+        def _test_label(t):
+            if not t:
+                return "—"
+            name = t.get("test_name", "—")
+            return "Mann-Whitney U" if name == "mann_whitney_u" else name
 
         # Ca. Feature comparison table
         cmp_headers = ["Feature", f"Significant (n={sig['n_se_with_features']})",
-                        f"Non-significant (n={nonsig['n_se_with_features']})", "Test", "p-value", ""]
+                        f"Non-significant (n={nonsig['n_se_with_features']})", "Test", "p-value", "q (BH)", ""]
         cmp_rows = [cmp_headers]
 
         def _row(label, sig_val, nonsig_val, test_key):
-            t = test_map.get(test_key)
-            cmp_rows.append([
-                label,
-                sig_val if sig_val is not None else "—",
-                nonsig_val if nonsig_val is not None else "—",
-                t["test_name"] if t else "—",
-                _fmt_pval(t["p_value"] if t else None),
-                _sig_str(t),
-            ])
+            """Append one row per test available for *test_key*: the primary
+            test and, for continuous features, the Mann-Whitney U row."""
+            keys = [test_key]
+            if f"{test_key}_mwu" in test_map:
+                keys.append(f"{test_key}_mwu")
+            for i, key in enumerate(keys):
+                t = test_map.get(key)
+                cmp_rows.append([
+                    label if i == 0 else "",
+                    (sig_val if sig_val is not None else "—") if i == 0 else "",
+                    (nonsig_val if nonsig_val is not None else "—") if i == 0 else "",
+                    _test_label(t),
+                    _fmt_pval(t["p_value"] if t else None),
+                    _fmt_pval(t.get("q_value") if t else None),
+                    _sig_str(t),
+                ])
 
         def _pct(v):
             return f"{v:.1f}%" if v is not None else "—"
+
+        def _frame_pct(g):
+            known = g.get("frame_in_frame", 0) + g.get("frame_frameshift", 0) + g.get("frame_non_coding", 0)
+            return g.get("frame_in_frame", 0) / known * 100 if known else None
 
         _row("Exon size (mean)", f"{sig['exon_size_mean']:.0f} nt" if sig.get("exon_size_mean") else "—",
              f"{nonsig['exon_size_mean']:.0f} nt" if nonsig.get("exon_size_mean") else "—", "exon_size")
@@ -1837,8 +1935,7 @@ def _build_pdf(
              _pct(nonsig["ppt_mean_t_content"] * 100 if nonsig.get("ppt_mean_t_content") is not None else None), "ppt_t_content")
         _row("PPT C content", _pct(sig["ppt_mean_c_content"] * 100 if sig.get("ppt_mean_c_content") is not None else None),
              _pct(nonsig["ppt_mean_c_content"] * 100 if nonsig.get("ppt_mean_c_content") is not None else None), "ppt_c_content")
-        _row("In-frame %", _pct(sig["frame_in_frame"] / max(sig["n_se_with_features"], 1) * 100 if sig["n_se_with_features"] else None),
-             _pct(nonsig["frame_in_frame"] / max(nonsig["n_se_with_features"], 1) * 100 if nonsig["n_se_with_features"] else None), "in_frame_pct")
+        _row("In-frame % (of known frames)", _pct(_frame_pct(sig)), _pct(_frame_pct(nonsig)), "in_frame_pct")
         _row("Branch point found", _pct(sig.get("bp_found_pct")), _pct(nonsig.get("bp_found_pct")), "bp_found")
         _row("Mean ΔΨ",
              f"{sig['mean_delta_psi']:+.3f}" if sig.get("mean_delta_psi") is not None else "—",
@@ -1855,13 +1952,26 @@ def _build_pdf(
              f"{nonsig['downstream_intron_size_mean']:.0f} nt" if nonsig.get("downstream_intron_size_mean") is not None else "—",
              "downstream_intron_size")
 
-        cmp_tbl = _make_tbl(cmp_rows, [3.2*_cm, 3.5*_cm, 3.5*_cm, 2.8*_cm, 2.2*_cm, 1*_cm], S)
+        cmp_tbl = _make_tbl(cmp_rows, [3.0*_cm, 2.9*_cm, 2.9*_cm, 2.6*_cm, 1.9*_cm, 1.9*_cm, 1.0*_cm], S)
+        _sig_unknown_note = ""
+        _fr_unk_sig = sig.get("n_se_with_features", 0) - (
+            sig.get("frame_in_frame", 0) + sig.get("frame_frameshift", 0) + sig.get("frame_non_coding", 0))
+        _fr_unk_ns = nonsig.get("n_se_with_features", 0) - (
+            nonsig.get("frame_in_frame", 0) + nonsig.get("frame_frameshift", 0) + nonsig.get("frame_non_coding", 0))
+        if _fr_unk_sig or _fr_unk_ns:
+            _sig_unknown_note = (
+                f" In-frame % excludes events with an unknown frame "
+                f"({_fr_unk_sig} significant, {_fr_unk_ns} non-significant)."
+            )
         story += [KeepTogether([
             p(f"{cmp_sec}.1 Feature Comparison", "h3"),
             cmp_tbl,
-            p("★ = p &lt; 0.05; n.s. = not significant. "
-              "Welch's t-test assumes approximate normality; exon/intron size distributions "
-              "are typically right-skewed — interpret p-values with caution for small groups.", "small"),
+            p("★ = raw p &lt; 0.05; † = Benjamini-Hochberg q &lt; 0.05; n.s. = not significant. "
+              f"{n_tests} tests in this panel ({n_tests_run} evaluable); q-values are BH-adjusted "
+              "across the whole panel. Continuous features are tested with both Welch's t-test "
+              "(assumes approximate normality) and the rank-based Mann-Whitney U test, which is "
+              "robust to the right-skew of exon/intron size distributions; proportion tests require "
+              "≥ 5 events per group." + _sig_unknown_note, "small"),
         ]), sp()]
 
         # Cb. Comparison logos — donor
@@ -2023,16 +2133,16 @@ def _build_pdf(
             ))
             story += [KeepTogether(_block), sp()]
 
-        # Cf. Frame comparison
+        # Cf. Frame comparison (percentages over KNOWN frames; unknown shown beside the bar)
         _block = [p(f"{cmp_sec}.6 Reading Frame Comparison", "h3")]
-        frame_sig = _fig_frame_breakdown(sig["frame_in_frame"], sig["frame_frameshift"], sig["frame_non_coding"], sig["n_se_with_features"])
+        frame_sig = _fig_frame_breakdown(sig["frame_in_frame"], sig["frame_frameshift"], sig["frame_non_coding"], _fr_unk_sig)
         _save_svg(frame_sig, f"sec{cmp_sec:02d}_comparison_reading_frame_sig")
         if frame_sig:
-            _block += [p(f"<b>Significant</b> (n = {sig['n_se_with_features']})", "small"), frame_sig]
-        frame_nonsig = _fig_frame_breakdown(nonsig["frame_in_frame"], nonsig["frame_frameshift"], nonsig["frame_non_coding"], nonsig["n_se_with_features"])
+            _block += [p(f"<b>Significant</b> (n = {sig['n_se_with_features']}, {_fr_unk_sig} unknown)", "small"), frame_sig]
+        frame_nonsig = _fig_frame_breakdown(nonsig["frame_in_frame"], nonsig["frame_frameshift"], nonsig["frame_non_coding"], _fr_unk_ns)
         _save_svg(frame_nonsig, f"sec{cmp_sec:02d}_comparison_reading_frame_nonsig")
         if frame_nonsig:
-            _block += [p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']})", "small"), frame_nonsig]
+            _block += [p(f"<b>Non-significant</b> (n = {nonsig['n_se_with_features']}, {_fr_unk_ns} unknown)", "small"), frame_nonsig]
         t_frame = test_map.get("in_frame_pct")
         if t_frame:
             _block.append(p(
@@ -2041,7 +2151,11 @@ def _build_pdf(
                 f"({'significant' if t_frame['significant'] else 'not significant'})",
                 "small",
             ))
-        _block.append(caption("Reading-frame breakdown: significant vs non-significant events."))
+        _block.append(caption(
+            "Reading-frame breakdown: significant vs non-significant events. "
+            "Percentages are computed over events with a known frame class; "
+            "events without MANE annotation (unknown) are counted beside each bar and excluded."
+        ))
         story += [KeepTogether(_block), sp()]
 
     # ── Section D: Permutation Test (deep analysis only) ──────────────────
@@ -2053,30 +2167,50 @@ def _build_pdf(
 
         story.append(p(
             "The permutation test evaluates whether the observed ΔΨ for each event is "
-            "statistically significant by randomly permuting sample labels and computing "
-            "a null distribution.  The table below shows the percentage of events reaching "
-            "significance at different iteration counts, providing insight into result "
-            "stability as the number of permutations increases.",
+            "statistically significant by permuting sample labels and computing a null "
+            "distribution.  When the number of distinct label splits C(n1+n2, n1) is ≤ 5000 "
+            "every split is enumerated (exact p = r / N); otherwise Monte-Carlo sampling is "
+            "used with p = (r + 1) / (K + 1).  The table below shows the percentage of events "
+            "reaching significance at different iteration counts K, providing insight into "
+            "result stability as the number of permutations increases (rows are identical "
+            "when all events are enumerated exactly, since K is then irrelevant).",
             "body",
         ))
         story.append(sp())
 
-        perm_headers = ["Iterations", "Events Tested", "% p < 0.05", "% p < 0.01"]
+        perm_headers = ["Iterations (K)", "Events Tested", "% p < 0.05", "% p < 0.01", "Exact"]
         perm_rows = [perm_headers]
         for pt in permutation_table:
+            ef = pt.get("exact_fraction")
             perm_rows.append([
                 f"{pt['iterations']:,}",
                 f"{pt['n_tested']:,}",
                 f"{pt['pct_p05']:.1f}%" if pt.get("pct_p05") is not None else "—",
                 f"{pt['pct_p01']:.1f}%" if pt.get("pct_p01") is not None else "—",
+                f"{ef * 100:.0f}%" if ef is not None else "—",
             ])
-        perm_tbl = _make_tbl(perm_rows, [3.5 * _cm, 3.5 * _cm, 4 * _cm, 4 * _cm], S)
+        perm_tbl = _make_tbl(perm_rows, [3.0 * _cm, 3.0 * _cm, 3.0 * _cm, 3.0 * _cm, 2.5 * _cm], S)
         story += [perm_tbl, sp()]
 
+        _ref = permutation_table[-1]
+        _min_p = _ref.get("min_p_attainable")
+        _n_g1 = _ref.get("n_replicates_g1")
+        _n_g2 = _ref.get("n_replicates_g2")
+        _design = (
+            f" Replicate design: {_n_g1} vs {_n_g2} per group."
+            if _n_g1 is not None and _n_g2 is not None else ""
+        )
+        _min_p_txt = (
+            f" <b>Minimum attainable p-value: {_min_p:.4g}</b> — with few replicates per group "
+            "only a handful of distinct label splits exist, so p-values below this bound are "
+            "impossible whatever the number of iterations; interpret '% p &lt; 0.01' accordingly."
+            if _min_p is not None else ""
+        )
         story.append(p(
-            "As the number of permutation iterations increases, the empirical p-value "
-            "estimates become more precise.  Convergence of the significance percentages "
-            "across iterations indicates stable results.",
+            "As the number of Monte-Carlo iterations increases, the empirical p-value "
+            "estimates become more precise; convergence of the significance percentages "
+            "across iterations indicates stable results.  'Exact' is the fraction of events "
+            "whose p-value comes from complete enumeration." + _design + _min_p_txt,
             "small",
         ))
         story.append(sp())
@@ -2087,11 +2221,16 @@ def _build_pdf(
         hnrnp_sec = section_n
         section_n += 1
         story.append(p(f"{hnrnp_sec}. hnRNP Motif Enrichment Analysis", "h2"))
+        _hn_regions = _heatmap_region_order(hnrnp_data)
         story.append(p(
-            "Inspired by rMAPS2 (Hwang et al., 2020), this analysis scans five genomic regions "
-            "around each skipped exon for known hnRNP RNA-binding protein consensus motifs "
-            "and compares their frequency between significant and non-significant events using "
-            "a two-proportion z-test with Benjamini-Hochberg FDR correction (q &lt; 0.05).",
+            f"Inspired by rMAPS2 (Hwang et al., 2020), this analysis scans {len(_hn_regions)} genomic "
+            "regions around each skipped exon (upstream exon; upstream intron on the 5'SS and on the "
+            "3'SS side; skipped exon; downstream intron on the 5'SS and on the 3'SS side; downstream "
+            "exon) for known hnRNP RNA-binding protein consensus motifs and compares significant and "
+            "non-significant events with two complementary tests: motif <i>presence</i> (fraction of "
+            "events with ≥ 1 hit, two-proportion z-test) and motif <i>density</i> (hits per nt per "
+            "event, Mann-Whitney U test).  Each family of p-values is Benjamini-Hochberg adjusted "
+            "across all motif × region pairs (q &lt; 0.05).",
             "body",
         ))
 
@@ -2104,48 +2243,64 @@ def _build_pdf(
         ))
         story.append(sp(0.2))
 
-        sig_motifs = [r for r in hnrnp_data.get("results", []) if r.get("significant")]
+        _hn_headers = ["Protein", "Motif", "Region", "Sig %", "Bg %", "z", "q presence", "q density"]
+        _hn_widths = [2.5*_cm, 1.7*_cm, 3.3*_cm, 1.4*_cm, 1.4*_cm, 1.2*_cm, 2.0*_cm, 2.0*_cm]
+
+        def _fmt_q(v):
+            if v is None:
+                return "—"
+            return f"{v:.2e}" if v < 0.001 else f"{v:.4f}"
+
+        def _hn_row(r: dict) -> list:
+            sig_pct = f"{r['sig_hit_count'] / r['sig_total'] * 100:.1f}%" if r.get("sig_total") else "—"
+            bg_pct = f"{r['bg_hit_count'] / r['bg_total'] * 100:.1f}%" if r.get("bg_total") else "—"
+            z_str = f"{r['z_stat']:.2f}" if r.get("z_stat") is not None else "—"
+            q_dens = _fmt_q(r.get("density_p_adjusted"))
+            if r.get("density_significant"):
+                q_dens = f"<b>{q_dens}</b>"
+            return [
+                r.get("protein", "—"),
+                r.get("motif_name", "—"),
+                _REGION_TABLE_LABELS.get(r.get("region", ""), r.get("region", "—")),
+                sig_pct,
+                bg_pct,
+                z_str,
+                _fmt_q(r.get("p_adjusted")),
+                q_dens,
+            ]
+
+        sig_motifs = [
+            r for r in hnrnp_data.get("results", [])
+            if r.get("significant") or r.get("density_significant")
+        ]
         if sig_motifs:
-            # Sort by p_adjusted ascending
+            # Sort by the smaller of the two adjusted p-values
             sig_motifs_sorted = sorted(
                 sig_motifs,
-                key=lambda r: (r.get("p_adjusted") or 1.0, r.get("region", ""), r.get("motif_name", "")),
+                key=lambda r: (
+                    min(r.get("p_adjusted") if r.get("p_adjusted") is not None else 1.0,
+                        r.get("density_p_adjusted") if r.get("density_p_adjusted") is not None else 1.0),
+                    r.get("region", ""), r.get("motif_name", ""),
+                ),
             )
-            _region_labels = {
-                "upstream_exon": "Upstream exon",
-                "upstream_intron": "Upstream intron",
-                "skipped_exon": "Skipped exon",
-                "downstream_intron": "Downstream intron",
-                "downstream_exon": "Downstream exon",
-            }
-            hnrnp_headers = ["Protein", "Motif", "Region", "Sig %", "Bg %", "z", "p (adj)"]
-            hnrnp_rows = [hnrnp_headers]
-            for r in sig_motifs_sorted[:30]:  # top 30
-                sig_pct = f"{r['sig_hit_count'] / r['sig_total'] * 100:.1f}%" if r.get("sig_total") else "—"
-                bg_pct = f"{r['bg_hit_count'] / r['bg_total'] * 100:.1f}%" if r.get("bg_total") else "—"
-                p_adj = r.get("p_adjusted")
-                p_str = f"{p_adj:.2e}" if p_adj is not None and p_adj < 0.001 else (f"{p_adj:.4f}" if p_adj is not None else "—")
-                z_str = f"{r['z_stat']:.2f}" if r.get("z_stat") is not None else "—"
-                hnrnp_rows.append([
-                    r.get("protein", "—"),
-                    r.get("motif_name", "—"),
-                    _region_labels.get(r.get("region", ""), r.get("region", "—")),
-                    sig_pct,
-                    bg_pct,
-                    z_str,
-                    p_str,
-                ])
-            hnrnp_tbl = _make_tbl(hnrnp_rows, [3.0*_cm, 1.8*_cm, 3.5*_cm, 1.8*_cm, 1.8*_cm, 1.5*_cm, 2.0*_cm], S)
+            hnrnp_rows = [_hn_headers] + [_hn_row(r) for r in sig_motifs_sorted[:30]]  # top 30
+            hnrnp_tbl = _make_tbl(hnrnp_rows, _hn_widths, S)
             story += [hnrnp_tbl, sp(0.2)]
+            n_pres = sum(1 for r in sig_motifs if r.get("significant"))
+            n_dens = sum(1 for r in sig_motifs if r.get("density_significant"))
             story.append(p(
-                f"Showing {min(len(sig_motifs_sorted), 30)} of {len(sig_motifs)} significant motif-region "
-                "associations (BH FDR q &lt; 0.05). "
-                "Sig % / Bg % = percentage of events with at least one motif hit.",
+                f"Showing {min(len(sig_motifs_sorted), 30)} of {len(sig_motifs)} motif-region "
+                f"associations significant in at least one test (presence: {n_pres}; density: {n_dens}; "
+                "BH q &lt; 0.05). Sig % / Bg % = percentage of events with at least one motif hit; "
+                "z = presence z-statistic; q presence = BH-adjusted p of the two-proportion z-test; "
+                "q density = BH-adjusted p of the Mann-Whitney U test on per-event densities "
+                "(bold when q &lt; 0.05).",
                 "small",
             ))
         else:
             story.append(p(
-                "No motif-region combinations reached significance after Benjamini-Hochberg FDR correction (q &lt; 0.05).",
+                "No motif-region combinations reached significance in either the presence or the "
+                "density test after Benjamini-Hochberg FDR correction (q &lt; 0.05).",
                 "body",
             ))
 
@@ -2169,47 +2324,33 @@ def _build_pdf(
         story.append(sp(0.3))
 
         # ── Non-significant motifs (complete search overview) ────────────────
-        nonsig_motifs = [r for r in hnrnp_data.get("results", []) if not r.get("significant")]
+        nonsig_motifs = [
+            r for r in hnrnp_data.get("results", [])
+            if not r.get("significant") and not r.get("density_significant")
+        ]
         if nonsig_motifs:
             story.append(sp(0.3))
             story.append(p("All Non-Significant Motif-Region Associations", "h3"))
             story.append(p(
                 "The following motif-region pairs were tested but did not reach significance "
-                "after Benjamini-Hochberg FDR correction (q ≥ 0.05).",
+                "in either test after Benjamini-Hochberg FDR correction (q ≥ 0.05).",
                 "body",
             ))
             nonsig_motifs_sorted = sorted(
                 nonsig_motifs,
-                key=lambda r: (r.get("p_adjusted") or 1.0, r.get("region", ""), r.get("motif_name", "")),
+                key=lambda r: (
+                    min(r.get("p_adjusted") if r.get("p_adjusted") is not None else 1.0,
+                        r.get("density_p_adjusted") if r.get("density_p_adjusted") is not None else 1.0),
+                    r.get("region", ""), r.get("motif_name", ""),
+                ),
             )
-            _region_labels = {
-                "upstream_exon": "Upstream exon",
-                "upstream_intron": "Upstream intron",
-                "skipped_exon": "Skipped exon",
-                "downstream_intron": "Downstream intron",
-                "downstream_exon": "Downstream exon",
-            }
-            nonsig_hnrnp_rows = [["Protein", "Motif", "Region", "Sig %", "Bg %", "z", "p (adj)"]]
-            for r in nonsig_motifs_sorted:
-                sig_pct = f"{r['sig_hit_count'] / r['sig_total'] * 100:.1f}%" if r.get("sig_total") else "—"
-                bg_pct = f"{r['bg_hit_count'] / r['bg_total'] * 100:.1f}%" if r.get("bg_total") else "—"
-                p_adj = r.get("p_adjusted")
-                p_str = f"{p_adj:.2e}" if p_adj is not None and p_adj < 0.001 else (f"{p_adj:.4f}" if p_adj is not None else "—")
-                z_str = f"{r['z_stat']:.2f}" if r.get("z_stat") is not None else "—"
-                nonsig_hnrnp_rows.append([
-                    r.get("protein", "—"),
-                    r.get("motif_name", "—"),
-                    _region_labels.get(r.get("region", ""), r.get("region", "—")),
-                    sig_pct,
-                    bg_pct,
-                    z_str,
-                    p_str,
-                ])
-            nonsig_hnrnp_tbl = _make_tbl(nonsig_hnrnp_rows, [3.0*_cm, 1.8*_cm, 3.5*_cm, 1.8*_cm, 1.8*_cm, 1.5*_cm, 2.0*_cm], S)
+            nonsig_hnrnp_rows = [_hn_headers] + [_hn_row(r) for r in nonsig_motifs_sorted]
+            nonsig_hnrnp_tbl = _make_tbl(nonsig_hnrnp_rows, _hn_widths, S)
             story += [nonsig_hnrnp_tbl, sp(0.2)]
             story.append(p(
                 f"{len(nonsig_motifs)} motif-region associations shown. "
-                "Sig % / Bg % = percentage of events with at least one motif hit.",
+                "Sig % / Bg % = percentage of events with at least one motif hit; "
+                "q presence / q density as above.",
                 "small",
             ))
         story.append(sp())
@@ -2238,14 +2379,15 @@ def _build_pdf(
             "Reactome_2022": "Reactome 2022",
             "WikiPathway_2023_Human": "WikiPathways 2023",
         }
-        # Show top 5 per library
+        # Show top 10 per library (by adjusted p-value)
+        _ENRICHR_TOP_N = 10
         by_lib: dict[str, list] = {}
         for term in enrichr_data.get("terms", []):
             lib = term.get("library", "Unknown")
             by_lib.setdefault(lib, []).append(term)
 
         for lib, terms in by_lib.items():
-            top_terms = sorted(terms, key=lambda t: t.get("adjusted_p_value", 1.0))[:5]
+            top_terms = sorted(terms, key=lambda t: t.get("adjusted_p_value", 1.0))[:_ENRICHR_TOP_N]
             lib_label = _lib_labels.get(lib, lib)
             story.append(p(lib_label, "h3"))
             enr_headers = ["Rank", "Term", "Overlap", "Adj. p-value", "Combined Score"]
@@ -2276,7 +2418,9 @@ def _build_pdf(
             story.append(sp(0.15))
         story.append(p(
             "FDR-adjusted p-values use the Benjamini-Hochberg method (Enrichr internal correction). "
-            "Top 5 terms per library shown. <b>&#9733;</b> Adj. p-value &lt; 0.05.",
+            f"Top {_ENRICHR_TOP_N} terms per library shown (ranked by adjusted p-value). "
+            "Overlap = k/n (k overlapping genes / n genes in the set; n omitted when the "
+            "library GMT could not be retrieved). <b>&#9733;</b> Adj. p-value &lt; 0.05.",
             "small",
         ))
         story.append(sp())
@@ -2412,10 +2556,12 @@ def _build_pdf(
                     f"identified in {group1_label} subjects. Consensus splice-site sequences, "
                     f"PPT score, reading frame, and branch-point detection rate are shown. "
                     f"Red stars (★) indicate features for which a statistically significant "
-                    f"difference (p &lt; 0.05) was found compared to background events "
+                    f"difference (raw p &lt; 0.05) was found compared to background events "
                     f"(non-significant exon-skipping events, filtered by FDR and ΔΨ thresholds). "
-                    f"Each feature was tested individually (Welch's t-test for continuous "
-                    f"variables; two-proportion z-test for categorical variables). "
+                    f"Each feature was tested individually (Welch's t-test and Mann-Whitney U for "
+                    f"continuous variables; two-proportion z-test for categorical variables; "
+                    f"stars reflect the primary test, see the comparison table for BH q-values). "
+                    f"In-frame % is computed over events with a known frame class. "
                     f"No correlation between features and no multiparametric test was performed."
                 ),
             ]))
@@ -2485,10 +2631,17 @@ def _build_pdf(
             p("• <b>PPT:</b> ~47 nt upstream of the skipped exon acceptor site", "body"),
             p("The canonical GT-AG splice site rule (Shapiro &amp; Senapathy, 1987 [2]; "
               "Burge &amp; Karlin, 1997 [3]) is verified at the first two intronic positions "
-              "of the 5'SS (GT at +1/+2) and last two of the 3'SS (AG at -2/-1). "
+              "of the 5'SS (GT at +1/+2) and last two of the 3'SS (AG at -2/-1); when a window "
+              "is truncated (contig end) the site is reported as unknown and excluded from the "
+              "canonical-rate denominators. "
               "The PPT score is the fraction of pyrimidine nucleotides (C, T) in the PPT "
-              "window. The branch point is searched by matching the YNYURAY motif "
-              "(Coolidge et al., 1997 [4]).", "body"),
+              "window. The branch point is searched with the yUnAy / YNYURAY heuristic "
+              "(Coolidge et al., 1997 [4]; Gao et al., 2008): 7-mer candidates are scored "
+              "0–7, the branch adenosine (position 6 of the 7-mer) is mandatory, and only "
+              "candidates whose branch A lies 18–44 nt upstream of the exon start are "
+              "considered (&gt; 95 % of human branch points, Leman et al., 2020). The reported "
+              "branch-point distance is measured from the branch adenosine to the exon start "
+              "(3'SS AG), and the matched 7-mer and its position are stored.", "body"),
         ]
         _n = _next_app_a()
         story += [
@@ -2513,6 +2666,8 @@ def _build_pdf(
               "the position of the premature termination codon (PTC) relative to the last exon-exon "
               "junction (&gt;50 nt upstream rule). Experimental validation is required to confirm NMD.", "body"),
             p("• <b>non_coding:</b> exon entirely within UTR — regulatory impact", "body"),
+            p("• <b>unknown:</b> no MANE annotation available — such events are reported "
+              "separately and excluded from the denominator of all frame percentages.", "body"),
         ]
         _n = _next_app_a()
         story += [
@@ -2535,79 +2690,108 @@ def _build_pdf(
 
     if is_deep and "c" in selected_sections:
         _n = _next_app_a()
+        _tests_a = (comparison or {}).get("statistical_tests", []) if comparison else []
+        _n_tests_a = len(_tests_a)
+        _n_welch = sum(1 for t in _tests_a if t.get("test_name") == "Welch's t-test")
+        _n_mwu = sum(1 for t in _tests_a if t.get("test_name") == "mann_whitney_u")
+        _n_z = sum(1 for t in _tests_a if t.get("test_name") == "Proportion z-test")
+        _pv_txt = (
+            f", p ≤ {deep_analysis.pvalue_threshold}"
+            if getattr(deep_analysis, "pvalue_threshold", None) is not None else ""
+        )
         story += [
             p(f"<b>{_n}. Deep Analysis</b>", "h3"),
             p(f"Events are classified as <b>significant</b> (FDR ≤ {deep_analysis.fdr_threshold}, "
-              f"|ΔΨ| ≥ {deep_analysis.delta_psi_min}) or <b>non-significant</b> (all others). "
+              f"|ΔΨ| ≥ {deep_analysis.delta_psi_min}{_pv_txt}) or <b>non-significant</b> (all others). "
               "Splice features are compared between the two groups using:", "body"),
-            p("• <b>Welch's t-test</b> (unequal variances, two-tailed): mean ΔΨ, exon size, PPT score, PPT T content, PPT C content", "body"),
-            p("• <b>Two-proportion z-test</b> (two-tailed): canonical GT/AG rates (skipped exon "
-              "and flanking exons), in-frame proportion, branch-point detection rate", "body"),
+            p(f"• <b>Welch's t-test</b> (unequal variances, two-tailed; {_n_welch} tests): mean ΔΨ, "
+              "exon size, PPT score, PPT T content, PPT C content, upstream and downstream intron size", "body"),
+            p(f"• <b>Mann-Whitney U test</b> (rank-based, two-tailed, tie-corrected normal approximation; "
+              f"{_n_mwu} tests): the same continuous features, robust to their right-skewed distributions", "body"),
+            p(f"• <b>Two-proportion z-test</b> (two-tailed, pooled; {_n_z} tests): canonical GT/AG rates "
+              "(skipped exon and flanking exons), in-frame proportion (known frames only), "
+              "branch-point detection rate; ≥ 5 events per group required", "body"),
             p("Welch-Satterthwaite degrees of freedom are used for the t-distribution. "
-              "No multiple-testing correction is applied within the comparison (9 tests); "
-              "the user should interpret results in light of the number of comparisons.", "body"),
+              f"The panel comprises {_n_tests_a} tests; raw p-values are reported together with "
+              "Benjamini-Hochberg adjusted q-values computed across the whole panel. The "
+              "significance stars in the figures use the raw p &lt; 0.05 criterion; the "
+              "comparison table flags q &lt; 0.05 with a dagger (†).", "body"),
         ]
 
     if is_deep and "d" in selected_sections:
         _n = _next_app_a()
+        _perm_iters = ", ".join(f"{pt['iterations']:,}" for pt in (permutation_table or [])) or "500"
         story += [
             p(f"<b>{_n}. Permutation Test</b>", "h3"),
-            p("For each significant SE event, sample labels are randomly permuted (keeping "
-              "group sizes fixed) to build a null distribution of ΔΨ. The empirical two-tailed "
-              "p-value is p = (r + 1) / (K + 1), where r is the number of permuted |ΔΨ| values "
-              "≥ the observed |ΔΨ| and K is the number of iterations; the +1 correction avoids "
-              "p = 0 (Phipson &amp; Smyth, 2010 [7]). The test is run at multiple iteration "
-              "counts (50, 100, 250, 500) to assess convergence.", "body"),
+            p("For each significant SE event, sample labels are permuted (keeping group sizes "
+              "fixed) to build a null distribution of ΔΨ. When the number of distinct label "
+              "splits N = C(n1+n2, n1) is ≤ 5000, all splits are enumerated and the exact "
+              "two-tailed p-value is p = r / N, where r is the number of splits whose |ΔΨ| is ≥ "
+              "the observed |ΔΨ| (the observed labelling is one of them, so p ≥ 1/N). Otherwise "
+              "K random permutations are drawn and p = (r + 1) / (K + 1); the +1 correction avoids "
+              "p = 0 (Phipson &amp; Smyth, 2010 [7]). The Monte-Carlo test is run at "
+              f"K = {_perm_iters} iterations to assess convergence, and the minimum attainable "
+              "p-value given the replicate design is reported.", "body"),
         ]
 
     if is_deep and "e" in selected_sections:
         _n = _next_app_a()
+        _hn_n_regions = len(_heatmap_region_order(hnrnp_data or {}))
+        _hn_n_results = len((hnrnp_data or {}).get("results", []))
         story += [
             p(f"<b>{_n}. hnRNP Motif Enrichment Analysis</b>", "h3"),
             p("RNA-binding protein (RBP) motif enrichment is computed in a rMAPS2-inspired "
-              "framework (Hwang et al., 2020 [11]). For each SE event five flanking regions are "
-              "extracted from GRCh38 (samtools faidx): upstream exon (up to 250 nt), upstream "
-              "intron (up to 250 nt after excluding the 6-nt 5'SS signal), skipped exon (full "
-              "sequence), downstream intron (up to 250 nt after excluding the 6-nt 5'SS signal), "
-              "and downstream exon (up to 250 nt). The 20-nt 3'SS consensus zone is also excluded "
-              "from each intronic flank. Minus-strand events are reverse-complemented before scanning. "
-              "<b>Minimum intron length requirement:</b> after applying both exclusion zones "
-              "(6 nt at the 5'SS + 20 nt at the 3'SS = 26 nt total), an intronic region yields "
-              "no extractable sequence if the flanking intron is ≤ 26 nt. Such events are silently "
-              "excluded from the corresponding intronic region analysis only (they still contribute "
-              "to the exonic region analyses). This behaviour is consistent with rMAPS2. As a "
-              "consequence the effective sample size (N) for intronic regions may be lower than "
-              "the total number of SE events; the N reported in each cell of the result table "
-              "reflects the events that actually contributed sequence for that region.", "body"),
+              f"framework (Hwang et al., 2020 [11]). For each SE event {_hn_n_regions} regions are "
+              "extracted from GRCh38 (samtools faidx), following the rMAPS2 design of scanning "
+              "both ends of each flanking intron: (1) upstream exon (up to 250 nt adjacent to the "
+              "intron), (2) upstream intron, 5'SS side (up to 250 nt after the 6-nt 5'SS signal), "
+              "(3) upstream intron, 3'SS side (up to 250 nt before the 20-nt 3'SS consensus zone, "
+              "i.e. the PPT / PTB / hnRNP C territory immediately upstream of the skipped exon), "
+              "(4) skipped exon (full sequence), (5) downstream intron, 5'SS side (up to 250 nt "
+              "after the 6-nt 5'SS signal of the skipped exon), (6) downstream intron, 3'SS side "
+              "(up to 250 nt before the 20-nt 3'SS zone of the downstream exon), and (7) downstream "
+              "exon (up to 250 nt). Minus-strand events are reverse-complemented before scanning. "
+              "In short introns the two windows of the same intron are clipped so they do not "
+              "overlap; after the exclusion zones (6 nt + 20 nt = 26 nt) an intron ≤ 26 nt yields "
+              "no intronic sequence. Such events are excluded from the corresponding intronic "
+              "region only (they still contribute to the exonic regions), consistently with "
+              "rMAPS2; the N reported per cell reflects the events that actually contributed "
+              "sequence for that region.", "body"),
             p("Nineteen consensus motifs for eight protein families (hnRNP A1/A2, E (PCBP1/E1 "
               "and PCBP2/E2), F/H, K, C, L, M, PTB/I) are matched using IUPAC-degenerate pattern "
               "search derived from CISBP-RNA (Ray et al., 2013 [12]), Martinez-Contreras et al. "
               "(2006 [13]), and for hnRNP E (PCBP1/E1 CCWWHCC = CC[AT][AT][ACT]CC; PCBP2/E2 CCYYCCH = "
               "CC[CT][CT]CC[ACT], both from rMAPS2 Supplementary Table S2, Homo sapiens): "
               "Chkheidze et al. (1999 [14]) and Makeyev &amp; Liebhaber (2002 [15]). "
-              "For each motif-region pair, the hit rate (fraction of events with ≥ 1 match) is "
-              "compared between the significant and background groups using a two-proportion z-test "
-              "(pooled proportion). Benjamini-Hochberg FDR correction is applied across all 95 "
-              "(motif × region) pairs; associations with q &lt; 0.05 are reported as significant. "
-              "This differs from rMAPS2, which uses a Wilcoxon rank-sum test on sliding-window "
-              "densities; our approach tests binary hit rates across genomic sub-regions.", "body"),
+              "For each motif-region pair two statistics are computed between the significant and "
+              "background groups: (a) the <b>presence</b> rate (fraction of events with ≥ 1 match) "
+              "with a pooled two-proportion z-test, and (b) the per-event motif <b>density</b> "
+              "(matched nucleotides / region length) with a Mann-Whitney U test, which keeps its "
+              "power when short motifs (AGG, GGG, UUUU, CUCU…) are present in nearly every 250-nt "
+              "region. Benjamini-Hochberg FDR correction is applied separately to each family of "
+              f"p-values across all {_hn_n_results} tested (motif × region) pairs; associations "
+              "with q &lt; 0.05 are reported as significant. rMAPS2 instead uses a Wilcoxon "
+              "rank-sum test on 50-nt sliding-window densities.", "body"),
             p("<b>Summary — SpliceAnalyzer vs. rMAPS2:</b> rMAPS2 characterises positional RBP "
               "binding preferences through nucleotide-resolution sliding-window density plots and "
               "rank-based non-parametric statistics, making it well-suited for visualising where "
-              "along a splicing window a motif is enriched. SpliceAnalyzer instead adopts a "
-              "region-centric binary enrichment model: each of the five predefined genomic "
-              "sub-regions is treated as a unit, hit rates (fraction of events containing ≥ 1 "
-              "motif match) are compared between the significant and background event sets via a "
-              "two-proportion z-test, and false discovery rate control is applied with "
-              "Benjamini-Hochberg FDR correction across all motif–region pairs. This design trades positional resolution "
-              "for statistical clarity and direct interpretability in the context of discrete "
-              "regulatory zones (exonic body, proximal/distal intronic flanks), providing a "
-              "complementary, region-level view of hnRNP motif associations.", "body"),
+              "along a splicing window a motif is enriched. SpliceAnalyzer adopts a region-centric "
+              f"model: each of the {_hn_n_regions} predefined genomic sub-regions is treated as a "
+              "unit, presence rates are compared with a two-proportion z-test and per-event "
+              "densities with a Mann-Whitney U test, and false discovery rate control is applied "
+              "with Benjamini-Hochberg correction across all motif–region pairs. This design "
+              "trades positional resolution for statistical clarity and direct interpretability in "
+              "the context of discrete regulatory zones (exonic body, 5'SS-proximal and "
+              "3'SS-proximal intronic windows), providing a complementary, region-level view of "
+              "hnRNP motif associations.", "body"),
             p(f"<b>{_n}b. Regulatory Effect Annotations</b>", "h3"),
             p("The heatmap displays the established regulatory effect (ESE, ESS, ISE, ISS) "
               "for each protein × region pair when supported by strong published evidence. "
               "Silencer annotations (ESS/ISS, orange frame) and enhancer annotations "
               "(ESE/ISE, green frame) are derived from the following peer-reviewed sources:", "body"),
+            p("Annotations are given per protein family and intron/exon; for the two windows "
+              "of the same intron (5'SS side and 3'SS side) the same intronic assignment applies "
+              "unless stated otherwise.", "body"),
             p("• <b>hnRNP A1/A2:</b> ESS in exons, ISS in introns — "
               "Zhu et al. 2001 [16]; Damgaard et al. 2002 [17]; Kashima et al. 2007 [18]", "body"),
             p("• <b>hnRNP F/H:</b> ESS in exons, ISE in downstream intron — "
@@ -2809,8 +2993,12 @@ def _build_pdf(
               "nucleotides (C, T) in the ~47 nt window upstream of the acceptor site. "
               "Individual T content and C content are also reported as the fraction of "
               "thymine and cytosine bases respectively in the same window. "
-              "The branch point is detected by matching the YNYURAY motif within the "
-              "PPT window (Coolidge et al., 1997).", "body"),
+              "The branch point is detected with the yUnAy / YNYURAY heuristic within the "
+              "PPT window (Coolidge et al., 1997; Gao et al., 2008): each 7-mer is scored "
+              "0–7 for agreement with the consensus, the branch adenosine is mandatory, and "
+              "only candidates whose branch A lies 18–44 nt upstream of the exon start are "
+              "retained; the best-scoring candidate (score ≥ 5) is reported with its distance "
+              "measured from the branch A to the exon start.", "body"),
         ]
 
     if is_deep and "c" in selected_sections:
@@ -2824,9 +3012,17 @@ def _build_pdf(
             p("&nbsp;&nbsp;&nbsp;df = (s<sub>1</sub><super>2</super>/n<sub>1</sub> + s<sub>2</sub><super>2</super>/n<sub>2</sub>)<super>2</super> "
               "/ [(s<sub>1</sub><super>2</super>/n<sub>1</sub>)<super>2</super>/(n<sub>1</sub>-1) "
               "+ (s<sub>2</sub><super>2</super>/n<sub>2</sub>)<super>2</super>/(n<sub>2</sub>-1)]", "code"),
+            p("• <b>Mann-Whitney U test</b>: for the same continuous features, as a "
+              "distribution-free companion to Welch's test. Values of both groups are pooled and "
+              "mid-ranked; U<sub>1</sub> = R<sub>1</sub> − n<sub>1</sub>(n<sub>1</sub>+1)/2 and "
+              "the two-tailed p-value uses the normal approximation with tie correction and a "
+              "0.5 continuity correction:", "body"),
+            p("&nbsp;&nbsp;&nbsp;z = (U<sub>1</sub> − n<sub>1</sub>n<sub>2</sub>/2 ∓ 0.5) / "
+              "sqrt[ n<sub>1</sub>n<sub>2</sub>/12 × ((N+1) − Σ(t<super>3</super> − t)/(N(N−1))) ]", "code"),
             p("• <b>Two-proportion z-test</b>: for proportions (canonical GT, canonical AG, "
-              "upstream GT, downstream AG, in-frame %, branch-point detection). "
-              "This is a large-sample normal approximation, not an exact test:", "body"),
+              "upstream GT, downstream AG, in-frame % of known frames, branch-point detection). "
+              "This is a large-sample normal approximation, not an exact test; ≥ 5 events per "
+              "group are required, otherwise the test is not run:", "body"),
             p("&nbsp;&nbsp;&nbsp;z = (p<sub>1</sub> - p<sub>2</sub>) "
               "/ sqrt[p(1-p)(1/n<sub>1</sub> + 1/n<sub>2</sub>)]", "code"),
             p("where p is the pooled proportion across both groups. "
@@ -2835,27 +3031,41 @@ def _build_pdf(
             p("All p-values are two-tailed. The numerically evaluated regularized incomplete "
               "beta function (Lentz's continued-fraction algorithm) is used to evaluate the "
               "t-distribution upper-tail probability P(T ≥ |t|). "
-              "No multiple-testing correction is applied across this metric panel; "
-              "results should be treated as exploratory with inflated family-wise "
-              "false-positive risk across the full set of tests.", "body"),
+              "Multiple testing: Benjamini-Hochberg q-values are computed across the whole "
+              f"panel ({len((comparison or {}).get('statistical_tests', []))} tests, "
+              "m = number of evaluable tests):", "body"),
+            p("&nbsp;&nbsp;&nbsp;q<sub>(i)</sub> = min<sub>j ≥ i</sub> ( m · p<sub>(j)</sub> / j )", "code"),
+            p("Raw p &lt; 0.05 (★) is reported for continuity with the interactive view; "
+              "q &lt; 0.05 (†) controls the expected false discovery rate at 5 % across the "
+              "panel and is the criterion to prefer when several features are examined.", "body"),
         ]
 
     if is_deep and "d" in selected_sections:
         _cn = _next_app_c()
+        _perm_iters_c = ", ".join(f"{pt['iterations']:,}" for pt in (permutation_table or [])) or "500"
         story += [
             p(f"<b>C.{_cn} Permutation Test</b>", "h3"),
             p("For each significant SE event, sample-label permutation generates a null ΔΨ "
-              "distribution.  The empirical p-value is: p = (r + 1) / (K + 1), where r is "
-              "the number of permuted |ΔΨ| ≥ observed |ΔΨ| and K is the number of iterations.  "
-              "The +1 correction avoids p = 0 (Phipson &amp; Smyth, 2010 [7]).  "
-              "The test is run at 50, 100, 250 and 500 iterations to demonstrate convergence.", "body"),
+              "distribution.  With n<sub>1</sub> and n<sub>2</sub> replicates per group there are "
+              "N = C(n<sub>1</sub>+n<sub>2</sub>, n<sub>1</sub>) distinct label splits.  When N ≤ 5000 "
+              "all splits are enumerated and the p-value is exact:", "body"),
+            p("&nbsp;&nbsp;&nbsp;p = r / N &nbsp;&nbsp;(r = number of splits with |ΔΨ*| ≥ |ΔΨ<sub>obs</sub>|, "
+              "including the observed one)", "code"),
+            p("Otherwise K random permutations are drawn (Monte-Carlo) and", "body"),
+            p("&nbsp;&nbsp;&nbsp;p = (r + 1) / (K + 1)", "code"),
+            p("where the +1 correction avoids p = 0 (Phipson &amp; Smyth, 2010 [7]).  "
+              f"The Monte-Carlo test is run at K = {_perm_iters_c} iterations to demonstrate "
+              "convergence.  The smallest attainable p-value is 1/N for exact enumeration "
+              "(e.g. 0.05 with 3 vs 3 replicates, N = 20; 0.167 with 2 vs 2, N = 6) and "
+              "1/(K+1) for Monte-Carlo sampling; it is reported in the permutation section and "
+              "must be considered when reading the fraction of events below 0.05 or 0.01.", "body"),
         ]
 
     if is_deep and "e" in selected_sections:
         _cn = _next_app_c()
         story += [
-            p(f"<b>C.{_cn} hnRNP Motif Enrichment — Two-Proportion z-Test</b>", "h3"),
-            p("For each motif m in region r, let p^<sub>1</sub> = x<sub>1</sub> / n<sub>1</sub> "
+            p(f"<b>C.{_cn} hnRNP Motif Enrichment — Presence z-Test and Density Mann-Whitney Test</b>", "h3"),
+            p("<b>(a) Presence.</b> For each motif m in region r, let p^<sub>1</sub> = x<sub>1</sub> / n<sub>1</sub> "
               "and p^<sub>2</sub> = x<sub>2</sub> / n<sub>2</sub> be the hit rates "
               "in the significant and background groups respectively. "
               "The pooled proportion is p^ = (x<sub>1</sub> + x<sub>2</sub>) / "
@@ -2866,10 +3076,16 @@ def _build_pdf(
             p("Two-tailed p-values are computed from the normal CDF via the exact identity "
               "Φ(x) = 0.5 × erfc(−x / √2); note that the two-proportion z-test itself is "
               "a large-sample normal approximation, not an exact test. "
-              "Raw p-values are adjusted across all testable (motif × region) pairs "
-              "using the Benjamini-Hochberg FDR procedure as a discovery-oriented screen (q &lt; 0.05). "
-              "This large-sample approximation is applied only when group sizes are sufficient "
-              "for stable proportion estimates; groups with fewer than 5 events are skipped.", "body"),
+              "It is applied only when group sizes are sufficient for stable proportion "
+              "estimates: ≥ 5 events per group are required, otherwise the pair is not tested.", "body"),
+            p("<b>(b) Density.</b> For every event the motif density d = (matched nucleotides) / "
+              "(region length) is computed; the densities of the significant and background "
+              "groups are compared with a two-sided Mann-Whitney U test (mid-ranks, tie-corrected "
+              "normal approximation, ≥ 5 events per group). Unlike the presence test, this "
+              "statistic does not saturate when a short motif occurs in almost every region.", "body"),
+            p("Raw p-values of each test are adjusted separately across all testable (motif × "
+              "region) pairs using the Benjamini-Hochberg FDR procedure as a discovery-oriented "
+              "screen (q &lt; 0.05); the report table lists both q-values.", "body"),
         ]
 
     if is_deep and "f" in selected_sections:
@@ -3004,7 +3220,9 @@ async def export_deep_analysis_pdf(
             "not_significant": _compute_group_stats(nonsig_events, nonsig_feats).model_dump(),
             "statistical_tests": [
                 {"feature": t.feature, "test_name": t.test_name,
-                 "statistic": t.statistic, "p_value": t.p_value, "significant": t.significant}
+                 "statistic": t.statistic, "p_value": t.p_value,
+                 "q_value": t.q_value, "significant": t.significant,
+                 "significant_fdr": t.significant_fdr}
                 for t in stat_tests
             ],
         }
@@ -3013,21 +3231,27 @@ async def export_deep_analysis_pdf(
     async def _compute_hnrnp() -> dict | None:
         """Run hnRNP motif enrichment on SE events; returns plain dict or None."""
         try:
-            from app.services.hnrnp_motifs import SERegions, define_se_regions, compare_groups, scan_group, REGULATORY_EFFECTS
+            from app.services.hnrnp_motifs import (
+                REGION_NAMES, SERegions, define_se_regions, compare_groups, scan_group,
+                REGULATORY_EFFECTS,
+            )
             from app.services.sequence import extract_regions_batch, reverse_complement
             from app.config import settings
 
+            n_regions = len(REGION_NAMES)
             se_sig = [e for e in sig_events if e.event_type == "SE"]
             se_bg = [e for e in nonsig_events if e.event_type == "SE"]
 
             def _build_regions(evs: list) -> list:
+                """Same region definition as deep_analyses.get_hnrnp_motifs
+                (define_se_regions → REGION_NAMES order)."""
                 if not evs:
                     return []
                 all_bed: list = []
                 strands: list[str] = []
                 for ev in evs:
                     if not ev.chr or ev.exon_start is None or ev.exon_end is None:
-                        for _ in range(5):
+                        for _ in range(n_regions):
                             all_bed.append(("", 0, 0))
                         strands.append(ev.strand or "+")
                         continue
@@ -3037,18 +3261,19 @@ async def export_deep_analysis_pdf(
                         ev.upstream_es, ev.upstream_ee,
                         ev.downstream_es, ev.downstream_ee,
                     )
+                    if len(bed) != n_regions:
+                        raise RuntimeError(
+                            f"define_se_regions returned {len(bed)} regions, expected {n_regions}"
+                        )
                     all_bed.extend(bed)
                     strands.append(ev.strand or "+")
                 seqs = extract_regions_batch(all_bed, settings.GRCH38_FASTA)
                 result: list = []
                 for idx, strand in enumerate(strands):
-                    s = seqs[idx * 5: idx * 5 + 5]
+                    s = seqs[idx * n_regions: idx * n_regions + n_regions]
                     if strand == "-":
                         s = [reverse_complement(x) if x else "" for x in s]
-                    result.append(SERegions(
-                        upstream_exon=s[0], upstream_intron=s[1],
-                        skipped_exon=s[2], downstream_intron=s[3], downstream_exon=s[4],
-                    ))
+                    result.append(SERegions(**dict(zip(REGION_NAMES, s))))
                 return result
 
             sig_regions, bg_regions = await asyncio.gather(
@@ -3063,6 +3288,7 @@ async def export_deep_analysis_pdf(
             return {
                 "n_sig_events": len(se_sig),
                 "n_bg_events": len(se_bg),
+                "regions": list(REGION_NAMES),
                 "results": [
                     {
                         "motif_name": r.motif_name,
@@ -3078,6 +3304,10 @@ async def export_deep_analysis_pdf(
                         "p_value": r.p_value,
                         "p_adjusted": r.p_adjusted,
                         "significant": r.significant,
+                        "density_u_stat": getattr(r, "density_u_stat", None),
+                        "density_p_value": getattr(r, "density_p_value", None),
+                        "density_p_adjusted": getattr(r, "density_p_adjusted", None),
+                        "density_significant": bool(getattr(r, "density_significant", False)),
                         "regulatory_effect": REGULATORY_EFFECTS.get(r.protein, {}).get(r.region),
                     }
                     for r in enrichment
@@ -3131,28 +3361,42 @@ async def export_deep_analysis_pdf(
             logger.warning("Enrichr computation skipped in PDF (non-fatal): %s", exc)
             return None
 
-    # ── Permutation test (single run at 500 iterations) ─────────────────
+    # ── Permutation test (four Monte-Carlo sizes, seed 42) ─────────────
+    # The report text states the test is run at 50, 100, 250 and 500 iterations
+    # to assess convergence; the 500-iteration row is the reference used for
+    # the summary (last row).  Exact enumeration (≤ 5000 label splits) is
+    # independent of K, so those events give identical rows.
     from app.services.permutation import run_permutation
 
+    _PERM_ITERATIONS = (50, 100, 250, 500)
     sig_features_list = [features.get(e.id) for e in sig_events]
+
+    def _run_perm_table() -> list[dict]:
+        rows: list[dict] = []
+        for k in _PERM_ITERATIONS:
+            perm_res = run_permutation(
+                sig_events,
+                sig_features_list,
+                n_iterations=k,
+                only_se=True,
+                seed=42,
+            )
+            rows.append({
+                "iterations": k,
+                "n_tested": perm_res.n_events_tested,
+                "pct_p05": perm_res.pct_p05,
+                "pct_p01": perm_res.pct_p01,
+                "exact_fraction": getattr(perm_res, "exact_fraction", None),
+                "min_p_attainable": getattr(perm_res, "min_p_attainable", None),
+                "n_replicates_g1": getattr(perm_res, "n_replicates_g1", None),
+                "n_replicates_g2": getattr(perm_res, "n_replicates_g2", None),
+            })
+        return rows
 
     async def _compute_permutation() -> list[dict]:
         if not sig_events:
             return []
-        perm_res = await asyncio.to_thread(
-            run_permutation,
-            sig_events,
-            sig_features_list,
-            n_iterations=500,
-            only_se=True,
-            seed=42,
-        )
-        return [{
-            "iterations": 500,
-            "n_tested": perm_res.n_events_tested,
-            "pct_p05": perm_res.pct_p05,
-            "pct_p01": perm_res.pct_p01,
-        }]
+        return await asyncio.to_thread(_run_perm_table)
 
     # Run expensive analyses concurrently — only when their section is selected
     tasks: list = []
@@ -3175,7 +3419,11 @@ async def export_deep_analysis_pdf(
     hnrnp_data = result_map.get("e")
     enrichr_data = result_map.get("f")
 
-    svg_dir = os.path.join("/data", "svg_exports", str(deep_analysis_id))
+    # Optional SVG side-dump of every figure (disabled unless SVG_EXPORT_DIR is set)
+    svg_dir = (
+        os.path.join(_settings.SVG_EXPORT_DIR, str(deep_analysis_id))
+        if _settings.SVG_EXPORT_DIR else None
+    )
 
     pdf_bytes = await asyncio.to_thread(
         _build_pdf, analysis, events, features, group1_label, group2_label,

@@ -43,15 +43,6 @@ const STRINGDB_TAB: TabDef = {
 };
 
 const EXTRA_TABS: Record<string, TabDef> = {
-  pathways: {
-    mode: "pathways",
-    labelKey: "sidebarNav.tabs.pathways",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-      </svg>
-    ),
-  },
   motifs: {
     mode: "motifs",
     labelKey: "sidebarNav.tabs.motifs",
@@ -103,7 +94,7 @@ export function SidebarNav({
   const tabs = [
     ...BASE_TABS,
     ...(showStringDB ? [STRINGDB_TAB] : []),
-    ...["pathways", "motifs", "splice", "hnrnp", "enrichr"]
+    ...["motifs", "splice", "hnrnp", "enrichr"]
       .filter((k) => activeModules?.has(k))
       .map((k) => EXTRA_TABS[k]),
   ];

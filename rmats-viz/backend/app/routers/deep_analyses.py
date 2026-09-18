@@ -983,6 +983,7 @@ async def get_hnrnp_motifs(
     return HnRNPMotifResponse(
         n_sig_events=len(sig_events),
         n_bg_events=len(bg_events),
+        regions=list(REGION_NAMES),
         results=[
             MotifEnrichmentItem(
                 motif_name=r.motif_name,
@@ -998,6 +999,10 @@ async def get_hnrnp_motifs(
                 p_value=r.p_value,
                 p_adjusted=r.p_adjusted,
                 significant=r.significant,
+                density_u_stat=getattr(r, "density_u_stat", None),
+                density_p_value=getattr(r, "density_p_value", None),
+                density_p_adjusted=getattr(r, "density_p_adjusted", None),
+                density_significant=bool(getattr(r, "density_significant", False)),
                 regulatory_effect=REGULATORY_EFFECTS.get(r.protein, {}).get(r.region),
             )
             for r in enrichment

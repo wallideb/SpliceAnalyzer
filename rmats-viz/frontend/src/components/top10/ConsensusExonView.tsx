@@ -15,7 +15,8 @@
  *  • acceptor_sites.consensus → séquence consensus 3'SS (23 nt)
  *  • ppt.mean_score          → score PPT moyen
  *
- * Réutilise ExonDiagram sans aucune modification.
+ * Réutilise ExonDiagram ; l'arc est tracé en pointillés (prop `dashed`)
+ * lorsque le taux moyen de sites canoniques est < 95 % — aucun FDR fictif.
  */
 
 import { ExonDiagram } from "./ExonDiagram";
@@ -64,16 +65,12 @@ export function ConsensusExonView({ data }: ConsensusExonViewProps) {
 
   const hasConsensus = fasta_available && donor_sites.consensus && acceptor_sites.consensus;
 
-  // Build a pseudo-FDR for the arc display — use pct_canonical as a proxy
-  // Map combined canonical percentage to a "significance" score:
-  // 100% canonical → pseudo-FDR 0.001 (very dark arc)
-  // 50% canonical  → pseudo-FDR 0.5 (light arc)
+  // No FDR exists for a consensus exon (E6): the arc is drawn dashed when the
+  // mean canonical-site rate (GT donor + AG acceptor) is below 95 %.
   const meanCanonical = hasConsensus
     ? (donor_sites.pct_canonical + acceptor_sites.pct_canonical) / 2
     : 0;
-  const pseudoFdr = hasConsensus
-    ? Math.max(0.001, 1 - meanCanonical / 100)
-    : null;
+  const arcDashed = !hasConsensus || meanCanonical < 95;
 
   return (
     <div className="space-y-4">
@@ -118,7 +115,8 @@ export function ConsensusExonView({ data }: ConsensusExonViewProps) {
           upstreamIntronSize={upstream_intron_sizes.mean !== null ? Math.round(upstream_intron_sizes.mean) : null}
           downstreamIntronSize={downstream_intron_sizes.mean !== null ? Math.round(downstream_intron_sizes.mean) : null}
           incLevelDifference={mean_delta_psi}
-          fdr={pseudoFdr}
+          fdr={null}
+          dashed={arcDashed}
           pValue={null}
           strand={null}
           donorIsGt={hasConsensus ? donor_sites.pct_canonical >= 50 : null}

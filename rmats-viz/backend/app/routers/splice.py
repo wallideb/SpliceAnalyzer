@@ -669,7 +669,7 @@ async def get_compute_progress(
     # Task is done when all events are computed OR the background task has
     # finished (even with partial failures or total crash — otherwise the
     # frontend polls forever waiting for n_computed to reach n_se).
-    task_running = analysis_id in _active_computes
+    task_running = compute_status == "running"
     done = n_computed >= n_se or not task_running
 
     return {
@@ -677,6 +677,8 @@ async def get_compute_progress(
         "n_computed": n_computed,
         "pct": round(n_computed / n_se * 100, 1) if n_se > 0 else 0,
         "done": done,
+        "status": compute_status,
+        "error": compute_error if compute_status == "error" else None,
     }
 
 
@@ -692,14 +694,18 @@ async def get_splice_feature(event_id: uuid.UUID):
     connection is released before slow I/O (samtools / Ensembl / MANE).
     This prevents pool exhaustion when 10+ cards load in parallel.
 
-    Uses ``_ENDPOINT_SEM`` to cap total concurrent requests.  When the
-    semaphore is full, returns HTTP 503 so the frontend can retry later.
+    Uses ``_ENDPOINT_SEM`` to cap total concurrent requests.  When no slot
+    frees up within 0.5 s, returns HTTP 503 so the frontend can retry later.
     """
-    if not _ENDPOINT_SEM._value:  # noqa: SLF001 – fast non-blocking check
+    try:
+        await asyncio.wait_for(_ENDPOINT_SEM.acquire(), timeout=0.5)
+    except asyncio.TimeoutError:
         raise HTTPException(503, "Server busy computing splice features, retry shortly")
 
-    async with _ENDPOINT_SEM:
+    try:
         return await _get_splice_feature_inner(event_id)
+    finally:
+        _ENDPOINT_SEM.release()
 
 
 async def _get_splice_feature_inner(event_id: uuid.UUID) -> SpliceFeatureResponse:

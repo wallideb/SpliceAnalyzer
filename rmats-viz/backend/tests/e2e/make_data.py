@@ -17,7 +17,13 @@ import os
 import random
 import sys
 
-import pysam
+import shutil
+import subprocess
+
+try:  # pysam is optional: samtools (SAMTOOLS_BIN or on PATH) is used otherwise
+    import pysam
+except ImportError:  # pragma: no cover
+    pysam = None
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 os.makedirs(OUT, exist_ok=True)
@@ -113,7 +119,13 @@ with open(fa_path, "w") as fh:
             fh.write(s[i:i + 60] + "\n")
 if os.path.exists(fa_path + ".fai"):
     os.remove(fa_path + ".fai")
-pysam.faidx(fa_path)
+if pysam is not None:
+    pysam.faidx(fa_path)
+else:
+    _samtools = os.environ.get("SAMTOOLS_BIN") or shutil.which("samtools")
+    if not _samtools:
+        sys.exit("neither pysam nor samtools is available to index the synthetic FASTA")
+    subprocess.run([_samtools, "faidx", fa_path], check=True)
 
 # ---------------------------------------------------------------------------
 # MANE GFF3 for genes 1-3 (gene 2 has a MANE_Plus_Clinical transcript listed FIRST)

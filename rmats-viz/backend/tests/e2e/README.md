@@ -15,12 +15,11 @@ and that is asserted too.
 ```bash
 # from the repository root, stack started with `docker compose up -d`
 docker compose exec db psql -U rmats -d rmatsdb -c "CREATE DATABASE e2edb OWNER rmats;"
-docker compose exec backend pip install -q pytest
 docker compose exec backend python -m pytest tests -q
 docker compose exec -e DATABASE_URL=postgresql+asyncpg://rmats:rmats@db:5432/e2edb backend sh -c \
   'alembic upgrade head && alembic check && cd tests/e2e && python make_data.py && SAMTOOLS_BIN=samtools python run_e2e.py | tail -3'
 ```
-The backend image ships the real `samtools`, so `SAMTOOLS_BIN=samtools` bypasses the pysam wrapper.
+The backend image ships the real `samtools` and `pytest`; `SAMTOOLS_BIN=samtools` bypasses the pysam wrapper and pysam is not needed inside the container (the scripts fall back to `samtools faidx`).
 
 ## Requirements (running on the host instead)
 - PostgreSQL 16 binaries (`initdb`, `pg_ctl`, `psql`), run as a non-root user.

@@ -15,5 +15,8 @@ openpyxl==3.1.2
 reportlab==4.2.2
 requests==2.32.3
 urllib3>=1.21.1,<2.5
+# Test runner (kept in the image so `docker compose exec backend python -m pytest tests`
+# works without network access inside the container).
+pytest>=8,<9
 # System dependency (not installable via pip): samtools >= 1.10 must be on
 # PATH (or set SAMTOOLS_BIN) for FASTA sequence extraction — see Dockerfile.

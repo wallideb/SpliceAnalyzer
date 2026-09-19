@@ -32,13 +32,37 @@ if os.path.exists(os.environ["MANE_CACHE_DB"]):
 sys.path.insert(0, BACKEND)
 os.chdir(BACKEND)
 
-import pysam  # noqa: E402
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+
+try:  # pysam is optional: samtools is the fallback oracle
+    import pysam  # noqa: E402
+except ImportError:  # pragma: no cover
+    pysam = None
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 
 from app.main import app  # noqa: E402
 
 EXP = json.load(open(os.path.join(DATA, "expected.json")))
-GENOME = pysam.FastaFile(os.path.join(DATA, "genome.fa"))
+_FA = os.path.join(DATA, "genome.fa")
+
+
+class _SamtoolsFasta:
+    """Minimal stand-in for pysam.FastaFile using the samtools binary."""
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+        self.bin = os.environ.get("SAMTOOLS_BIN") or shutil.which("samtools")
+        if not self.bin:
+            sys.exit("neither pysam nor samtools is available for the sequence oracle")
+
+    def fetch(self, chrom: str, start: int, end: int) -> str:
+        out = subprocess.run([self.bin, "faidx", self.path, f"{chrom}:{start + 1}-{end}"],
+                             check=True, capture_output=True, text=True).stdout
+        return "".join(line.strip() for line in out.splitlines() if not line.startswith(">"))
+
+
+GENOME = pysam.FastaFile(_FA) if pysam is not None else _SamtoolsFasta(_FA)
 
 RESULTS: list[dict] = []
 
@@ -578,7 +602,9 @@ async def run(c: AsyncClient) -> None:
         await asyncio.sleep(0.5)
     check("h. GET after background delete -> 404", r.status_code == 404, r.status_code)
     left = psql(f"select (select count(*) from splicing_events where analysis_id='{aid}')||'|'||(select count(*) from deep_analyses where analysis_id='{aid}')"
-                f"||'|'||(select count(*) from event_splice_feature)||'|'||(select count(*) from deep_analysis_events)||'|'||(select count(*) from sample_groups where analysis_id='{aid}')")
+                f"||'|'||(select count(*) from event_splice_feature f join splicing_events e on e.id=f.event_id where e.analysis_id='{aid}')"
+                f"||'|'||(select count(*) from deep_analysis_events x join deep_analyses d on d.id=x.deep_analysis_id where d.analysis_id='{aid}')"
+                f"||'|'||(select count(*) from sample_groups where analysis_id='{aid}')")
     check("h. child rows removed (events|deep|features|dae|groups)", left == "0|0|0|0|0", left)
     r = await c.delete(f"/api/v1/analyses/{aid}")
     check("h. DELETE again -> 404", r.status_code == 404, r.status_code)

@@ -37,6 +37,7 @@ from app.schemas.deep_analysis import (
 )
 from app.schemas.event import SplicingEventResponse
 from app.services.splice_features import compute_pwm, iupac_consensus, ppt_t_content, ppt_c_content
+from app.services import stats as _stats
 
 logger = logging.getLogger(__name__)
 
@@ -468,117 +469,15 @@ def _regularized_beta(x: float, a: float, b: float, max_iter: int = 200) -> floa
     raise ArithmeticError("Incomplete beta continued fraction did not converge")
 
 
-def _proportion_z_test(k1: int, n1: int, k2: int, n2: int) -> tuple[float | None, float | None]:
-    """Standard pooled two-proportion z-test for H0: p1 = p2.
-
-    Uses the pooled proportion p_pool = (k1+k2)/(n1+n2) to estimate the common
-    proportion under H0, giving SE = sqrt(p_pool*(1-p_pool)*(1/n1+1/n2)).
-    The two-tailed p-value is 2*(1 - Phi(|z|)).
-
-    This is a large-sample normal approximation, not an exact test.  For small
-    expected counts Fisher's exact test is generally preferred.  No continuity
-    correction is applied.  Groups with fewer than 5 observations are not
-    tested (None, None).  SE = 0 (and None is returned) whenever p_pool is 0
-    or 1, i.e. all observations across both groups are failures or all are
-    successes; the test is undefined in that case.
-    """
-    if n1 < _MIN_GROUP_N or n2 < _MIN_GROUP_N:
-        return None, None
-    p1 = k1 / n1
-    p2 = k2 / n2
-    p_pool = (k1 + k2) / (n1 + n2)
-    se = math.sqrt(p_pool * (1 - p_pool) * (1 / n1 + 1 / n2)) if 0 < p_pool < 1 else 0
-    if se == 0:
-        return None, None
-    z = (p1 - p2) / se
-    # Two-tailed p-value from normal distribution
-    p = 2 * (1 - _normal_cdf(abs(z)))
-    return round(z, 4), round(p, 4)
-
-
-def _normal_cdf(x: float) -> float:
-    """Standard normal CDF via the identity Phi(x) = 0.5 * erfc(-x / sqrt(2)).
-
-    The identity is mathematically exact; the numerical result depends on the
-    precision of math.erfc (Python's C-library implementation), not on any
-    hand-coded Abramowitz-Stegun approximation.
-    """
-    return 0.5 * math.erfc(-x / math.sqrt(2))
-
-
-def _mann_whitney_u(a: list[float], b: list[float]) -> tuple[float | None, float | None]:
-    """Two-sided Mann-Whitney U test (normal approximation with tie correction).
-
-    Returns (U, p) where U is the statistic of sample *a* (U1), or (None, None)
-    when a group has fewer than ``_MIN_GROUP_N`` values or every value is tied.
-
-    Ranks are mid-ranks; the variance of U is corrected for ties:
-        σ² = n1·n2/12 · [(N + 1) − Σ(t³ − t) / (N(N − 1))]
-    A continuity correction of 0.5 is applied, as in R's wilcox.test and
-    scipy.stats.mannwhitneyu(use_continuity=True).  Rank-based, so it is
-    suited to right-skewed variables (exon/intron sizes, PPT scores).
-    """
-    n1, n2 = len(a), len(b)
-    if n1 < _MIN_GROUP_N or n2 < _MIN_GROUP_N:
-        return None, None
-    n = n1 + n2
-    pooled = sorted(((float(v), 0) for v in a), key=lambda t: t[0])
-    pooled = sorted(pooled + [(float(v), 1) for v in b], key=lambda t: t[0])
-
-    ranks = [0.0] * n
-    tie_term = 0.0
-    i = 0
-    while i < n:
-        j = i
-        while j + 1 < n and pooled[j + 1][0] == pooled[i][0]:
-            j += 1
-        t = j - i + 1
-        mid_rank = (i + 1 + j + 1) / 2.0
-        for k in range(i, j + 1):
-            ranks[k] = mid_rank
-        if t > 1:
-            tie_term += t ** 3 - t
-        i = j + 1
-
-    r1 = sum(rank for rank, (_, grp) in zip(ranks, pooled) if grp == 0)
-    u1 = r1 - n1 * (n1 + 1) / 2.0
-    mu = n1 * n2 / 2.0
-    sigma2 = n1 * n2 / 12.0 * ((n + 1) - tie_term / (n * (n - 1)))
-    if sigma2 <= 0.0 or not math.isfinite(sigma2):
-        return u1, None  # all values tied → no ordering information
-    diff = u1 - mu
-    # Continuity correction toward the mean
-    if diff > 0:
-        diff -= 0.5
-    elif diff < 0:
-        diff += 0.5
-    z = diff / math.sqrt(sigma2)
-    p = min(1.0, 2.0 * (1.0 - _normal_cdf(abs(z))))
-    return u1, p
-
-
-def _bh_adjust(p_values: list[float | None]) -> list[float | None]:
-    """Benjamini-Hochberg adjusted p-values (q-values).
-
-    ``None`` entries (tests that could not be run) are ignored for m and
-    returned as ``None``.  q_(i) = min_{j ≥ i} ( m · p_(j) / j ), clipped to 1.
-    """
-    indexed = [(p, i) for i, p in enumerate(p_values) if p is not None]
-    out: list[float | None] = [None] * len(p_values)
-    m = len(indexed)
-    if m == 0:
-        return out
-    indexed.sort(key=lambda t: t[0])
-    running_min = 1.0
-    for rank in range(m, 0, -1):
-        p, idx = indexed[rank - 1]
-        q = min(running_min, p * m / rank)
-        running_min = q
-        out[idx] = min(1.0, q)
-    return out
-
-
-_MIN_GROUP_N = 5  # minimum observations per group for the z / U tests
+# Proportion z-test, Mann-Whitney U, normal CDF and Benjamini-Hochberg are the
+# single implementations of services/stats.py (shared with the hnRNP motif
+# module so both report identical statistics); the private names are kept
+# for the tests and the docstrings live there.
+_normal_cdf = _stats.normal_cdf
+_proportion_z_test = _stats.proportion_z_test
+_mann_whitney_u = _stats.mann_whitney_u
+_bh_adjust = _stats.bh_adjust
+_MIN_GROUP_N = _stats.MIN_GROUP_N  # minimum observations per group for the z / U tests
 
 
 def _compute_stat_tests(
@@ -842,17 +741,9 @@ async def get_hnrnp_motifs(
 ):
     """Run hnRNP motif enrichment: compare motif frequency in significant
     vs non-significant SE events (rMAPS2-inspired analysis)."""
-    from app.services import hnrnp_motifs as hm
     from app.services.hnrnp_motifs import (
-        REGION_NAMES, SERegions, define_se_regions, compare_groups, scan_group,
-        REGULATORY_EFFECTS,
+        REGION_NAMES, build_se_regions, compare_groups, scan_group, REGULATORY_EFFECTS,
     )
-    from app.services.sequence import extract_regions_batch, reverse_complement
-    from app.config import settings
-
-    _FIVE_SS_EXCL = getattr(hm, "_FIVE_SS_EXCL", 6)
-    _THREE_SS_EXCL = getattr(hm, "_THREE_SS_EXCL", 20)
-    n_regions = len(REGION_NAMES)
 
     deep = (
         await db.execute(
@@ -881,106 +772,12 @@ async def get_hnrnp_motifs(
     for ev, is_sig in rows:
         (sig_events if is_sig else bg_events).append(ev)
 
-    def _build_regions(events: list[SplicingEvent], label: str = "") -> list[SERegions]:
-        """Extract the genomic regions (``REGION_NAMES`` order) per event and
-        fetch sequences in one batch."""
-        if not events:
-            return []
-        all_bed_regions: list[tuple[str, int, int]] = []
-        strands: list[str] = []
-
-        n_missing_coords = 0
-        n_null_up_ee = 0   # + strand: upstream_ee missing
-        n_null_up_es = 0   # - strand: upstream_es missing
-        n_null_dn_es = 0   # + strand: downstream_es missing
-        n_null_dn_ee = 0   # - strand: downstream_ee missing
-        n_short_up_intron = 0
-        n_short_dn_intron = 0
-
-        for ev in events:
-            strand = ev.strand or "+"
-            if not ev.chr or ev.exon_start is None or ev.exon_end is None:
-                n_missing_coords += 1
-                for _ in range(n_regions):
-                    all_bed_regions.append(("", 0, 0))
-                strands.append(strand)
-                continue
-
-            # Diagnose why intron regions might be empty for this event
-            if strand == "+":
-                if ev.upstream_ee is None:
-                    n_null_up_ee += 1
-                else:
-                    up_intron = ev.exon_start - ev.upstream_ee
-                    if up_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
-                        n_short_up_intron += 1
-                if ev.downstream_es is None:
-                    n_null_dn_es += 1
-                else:
-                    dn_intron = ev.downstream_es - ev.exon_end
-                    if dn_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
-                        n_short_dn_intron += 1
-            else:
-                # Minus strand: rMATS "downstream" exon (higher coords) is 5′ flanking.
-                # Upstream intron spans [exon_end, downstream_es); downstream intron spans [upstream_ee, exon_start).
-                if ev.downstream_es is None:
-                    n_null_up_es += 1
-                else:
-                    up_intron = ev.downstream_es - ev.exon_end
-                    if up_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
-                        n_short_up_intron += 1
-                if ev.upstream_ee is None:
-                    n_null_dn_ee += 1
-                else:
-                    dn_intron = ev.exon_start - ev.upstream_ee
-                    if dn_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
-                        n_short_dn_intron += 1
-
-            bed = define_se_regions(
-                ev.chr, strand,
-                ev.exon_start, ev.exon_end,
-                ev.upstream_es, ev.upstream_ee,
-                ev.downstream_es, ev.downstream_ee,
-            )
-            if len(bed) != n_regions:
-                raise RuntimeError(
-                    f"define_se_regions returned {len(bed)} regions, expected {n_regions}"
-                )
-            all_bed_regions.extend(bed)
-            strands.append(strand)
-
-        n = len(events)
-        tag = f"[{label}] " if label else ""
-        if n_missing_coords:
-            logger.warning("%shnRNP: %d/%d events skipped — missing chr/exon_start/exon_end", tag, n_missing_coords, n)
-        if n_null_up_ee or n_null_up_es:
-            logger.warning("%shnRNP: %d/%d events — null upstream flanking coord (upstream_ee/es) → no upstream intron",
-                           tag, n_null_up_ee + n_null_up_es, n)
-        if n_null_dn_es or n_null_dn_ee:
-            logger.warning("%shnRNP: %d/%d events — null downstream flanking coord (downstream_es/ee) → no downstream intron",
-                           tag, n_null_dn_es + n_null_dn_ee, n)
-        if n_short_up_intron:
-            logger.warning("%shnRNP: %d/%d events — upstream intron ≤ %d nt (exclusion zones consume it) → no upstream intron",
-                           tag, n_short_up_intron, n, _FIVE_SS_EXCL + _THREE_SS_EXCL)
-        if n_short_dn_intron:
-            logger.warning("%shnRNP: %d/%d events — downstream intron ≤ %d nt → no downstream intron",
-                           tag, n_short_dn_intron, n, _FIVE_SS_EXCL + _THREE_SS_EXCL)
-        logger.info("%shnRNP region extraction: %d events total", tag, n)
-
-        seqs = extract_regions_batch(all_bed_regions, settings.GRCH38_FASTA)
-
-        results: list[SERegions] = []
-        for idx, strand in enumerate(strands):
-            s = seqs[idx * n_regions : idx * n_regions + n_regions]
-            if strand == "-":
-                s = [reverse_complement(x) if x else "" for x in s]
-            results.append(SERegions(**dict(zip(REGION_NAMES, s))))
-        return results
-
-    # Extract regions for both groups concurrently (two independent samtools calls)
+    # Extract regions for both groups concurrently (two independent samtools
+    # calls); build_se_regions is the single region-extraction implementation
+    # shared with the PDF export.
     sig_regions, bg_regions = await asyncio.gather(
-        asyncio.to_thread(_build_regions, sig_events, "sig"),
-        asyncio.to_thread(_build_regions, bg_events, "bg"),
+        asyncio.to_thread(build_se_regions, sig_events, None, "sig"),
+        asyncio.to_thread(build_se_regions, bg_events, None, "bg"),
     )
 
     # Scan both groups concurrently; compare_groups is fast (pure Python)

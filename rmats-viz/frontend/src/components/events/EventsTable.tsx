@@ -13,12 +13,21 @@ import { useT } from "@/contexts/LanguageContext";
 export type EventsSortBy = NonNullable<EventsQuery["sort_by"]>;
 export type EventsSortDir = "asc" | "desc";
 
-/** Column ids that the backend can sort on (see EventsQuery.sort_by). */
-const SERVER_SORTABLE: ReadonlySet<string> = new Set<EventsSortBy>([
-  "fdr",
-  "gene_symbol",
-  "abs_inc_level_diff",
-]);
+/**
+ * Table column id → backend sort key (see EventsQuery.sort_by). The ΔΨ column
+ * is `inc_level_difference` but the server sorts on |ΔΨ| (`abs_inc_level_diff`).
+ */
+const COLUMN_TO_SORT: Readonly<Record<string, EventsSortBy>> = {
+  fdr: "fdr",
+  gene_symbol: "gene_symbol",
+  inc_level_difference: "abs_inc_level_diff",
+};
+const SORT_TO_COLUMN: Readonly<Record<EventsSortBy, string>> = {
+  fdr: "fdr",
+  p_value: "p_value",
+  gene_symbol: "gene_symbol",
+  abs_inc_level_diff: "inc_level_difference",
+};
 
 /** Default direction when a column is first clicked. */
 const DEFAULT_DIR: Record<EventsSortBy, EventsSortDir> = {
@@ -65,7 +74,7 @@ export function EventsTable({
 
   // Sorting is performed by the server; we only mirror the current sort so the
   // header indicator reflects it (manualSorting → no client-side re-ordering).
-  const sorting: SortingState = sortBy ? [{ id: sortBy, desc: sortDir === "desc" }] : [];
+  const sorting: SortingState = sortBy ? [{ id: SORT_TO_COLUMN[sortBy], desc: sortDir === "desc" }] : [];
 
   const table = useReactTable({
     data,
@@ -79,8 +88,8 @@ export function EventsTable({
   const totalCols = columns.length;
 
   const handleHeaderClick = (columnId: string) => {
-    if (!onSortChange || !SERVER_SORTABLE.has(columnId)) return;
-    const col = columnId as EventsSortBy;
+    const col = COLUMN_TO_SORT[columnId];
+    if (!onSortChange || !col) return;
     if (sortBy === col) {
       onSortChange(col, sortDir === "asc" ? "desc" : "asc");
     } else {
@@ -135,7 +144,7 @@ export function EventsTable({
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {hg.headers.map((header) => {
-                  const sortable = !!onSortChange && SERVER_SORTABLE.has(header.column.id);
+                  const sortable = !!onSortChange && header.column.id in COLUMN_TO_SORT;
                   const sorted = header.column.getIsSorted();
                   return (
                     <th

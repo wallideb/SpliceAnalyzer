@@ -58,6 +58,8 @@ export interface MotifEnrichmentItem {
 export interface HnRNPMotifResponse {
   n_sig_events: number;
   n_bg_events: number;
+  /** Region names in scanning order, as reported by the backend (7 regions). */
+  regions?: string[];
   results: MotifEnrichmentItem[];
 }
 
@@ -167,9 +169,11 @@ export function HnRNPMotifPanel({ deepAnalysisId }: HnRNPMotifPanelProps) {
     return Array.from(new Set(data.results.map((r) => r.protein)));
   }, [data]);
 
-  // Regions actually present in the data (REGION_ORDER first, then any unknown)
+  // Regions in scanning order: the backend list when provided, otherwise the
+  // regions actually present in the data (REGION_ORDER first, then any unknown)
   const regions = useMemo<string[]>(() => {
     if (!data) return [...REGION_ORDER];
+    if (data.regions && data.regions.length > 0) return [...data.regions];
     const present = new Set(data.results.map((r) => r.region));
     const known = REGION_ORDER.filter((r) => present.has(r));
     const unknown = Array.from(present).filter((r) => !(REGION_ORDER as readonly string[]).includes(r));

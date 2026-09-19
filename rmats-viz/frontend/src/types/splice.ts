@@ -3,6 +3,11 @@
  * Mirrors app/schemas/splice.py
  */
 
+/** Index of the branch adenosine inside the matched 7-mer YNYURAY (backend `_BP_A_INDEX`). */
+export const BP_A_OFFSET = 5;
+/** `ppt_seq` spans [exon_start-50, exon_start-3): its last base is 4 nt before the exon. */
+export const PPT_OFFSET_TO_EXON = 3;
+
 export interface SpliceFeatureResponse {
   event_id: string;
   event_type: string | null;
@@ -34,7 +39,10 @@ export interface SpliceFeatureResponse {
   /** Distance (nt) from the branch adenosine to the exon start (3′SS). */
   bp_distance: number | null;
   bp_score: number | null;
-  /** 0-based index of the branch adenosine within `ppt_seq` (null if not found). */
+  /**
+   * 0-based index of the FIRST base of the matched 7-mer within `ppt_seq`
+   * (null if not found). The branch adenosine is at `bp_position + BP_A_OFFSET`.
+   */
   bp_position: number | null;
   /** The 7-mer (YNYURAY) matched at the branch point (null if not found). */
   bp_motif: string | null;

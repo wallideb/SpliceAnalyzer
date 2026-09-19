@@ -9,14 +9,18 @@
  *   A/G (purines) with the shared A colour (lib/colors.ts, E7).
  * • A horizontal pyrimidine-fraction bar shows ppt_score globally.
  * • The longest consecutive pyrimidine run is annotated.
- * • The branch-point adenosine is marked at `bp_position` (index in ppt_seq);
- *   `bp_distance` is the distance (nt) from that adenosine to the exon start.
- * • Position numbers count backwards from the end of the window.
+ * • The branch-point adenosine is marked at `bp_position + BP_A_OFFSET`
+ *   (`bp_position` = index of the matched 7-mer in ppt_seq); `bp_distance`
+ *   is the distance (nt) from that adenosine to the exon start.
+ * • Position numbers are relative to the exon start (−1 = last intronic
+ *   base); the window ends PPT_OFFSET_TO_EXON nt before the exon, so the
+ *   last displayed base is −(PPT_OFFSET_TO_EXON + 1).
  */
 
 import { ScienceNote } from "@/components/ScienceNote";
 import { useT } from "@/contexts/LanguageContext";
 import { BASE_COLORS } from "@/lib/colors";
+import { BP_A_OFFSET, PPT_OFFSET_TO_EXON } from "@/types/splice";
 
 // Two-colour scheme derived from the shared palette.
 const PYRIMIDINE_COLOR = BASE_COLORS.C;
@@ -65,7 +69,7 @@ export function PPTTrack({
   bpFound: boolean | null;
   /** Distance (nt) from the branch adenosine to the exon start (3′SS). */
   bpDistance: number | null;
-  /** 0-based index of the branch adenosine within `pptSeq`. */
+  /** 0-based index of the matched 7-mer within `pptSeq` (branch A at +BP_A_OFFSET). */
   bpPosition?: number | null;
   /** Matched branch-point 7-mer. */
   bpMotif?: string | null;
@@ -77,16 +81,22 @@ export function PPTTrack({
   const seqLen   = seq.length;
   const run      = longestPyrRun(seq);
 
+  // Position (nt) of displayed index i relative to the exon start
+  // (−1 = last intronic base). The window ends PPT_OFFSET_TO_EXON nt before
+  // the exon, so this equals −bp_distance at the branch adenosine.
+  const posOf = (i: number) => -(seqLen - i) - PPT_OFFSET_TO_EXON;
+
   // Index of the branch adenosine in the displayed sequence. Prefer the
-  // explicit position; fall back to the legacy end-anchored mapping.
-  const bpIdx: number | null =
+  // explicit 7-mer position (+ offset of the A); fall back to the distance.
+  const rawBpIdx: number | null =
     bpFound === true
       ? bpPosition != null
-        ? bpPosition
+        ? bpPosition + BP_A_OFFSET
         : bpDistance != null
-          ? seqLen - bpDistance
+          ? seqLen + PPT_OFFSET_TO_EXON - bpDistance
           : null
       : null;
+  const bpIdx = rawBpIdx !== null && rawBpIdx >= 0 && rawBpIdx < seqLen ? rawBpIdx : null;
 
   const scoreLabel =
     pptScore === null ? null :
@@ -124,7 +134,7 @@ export function PPTTrack({
         {/* Position number row (every 5 nt) */}
         <div className="flex gap-[2px] mb-0.5">
           {seq.split("").map((_, i) => {
-            const posFromSS = -(seqLen - i);
+            const posFromSS = posOf(i);
             const showLabel = posFromSS % 5 === 0 || i === 0 || i === seqLen - 1;
             return (
               <span
@@ -141,7 +151,7 @@ export function PPTTrack({
         <div className="flex gap-[2px]">
           {seq.split("").map((base, i) => {
             const isPyr = isPyrimidine(base);
-            const posFromSS = -(seqLen - i);
+            const posFromSS = posOf(i);
             const isBpSite = bpIdx === i;
             return (
               <span
@@ -200,7 +210,7 @@ export function PPTTrack({
               Branch point
             </span>
           )}
-          <span className="ml-auto italic">positions relative to 3&apos;SS →</span>
+          <span className="ml-auto italic">positions relative to the exon start (3&apos;SS) →</span>
         </div>
       </div>
 
@@ -227,7 +237,7 @@ export function PPTTrack({
               <strong className="text-foreground tabular-nums">{pptLongestRun} nt</strong>
               {" "}(positions{" "}
               <code className="font-mono">
-                {-(seqLen - run.start)}…{-(seqLen - run.start - run.length + 1)}
+                {posOf(run.start)}…{posOf(run.start + run.length - 1)}
               </code>
               )
             </p>

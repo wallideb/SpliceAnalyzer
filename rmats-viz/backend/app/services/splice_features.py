@@ -45,7 +45,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from app.services.sequence import SpliceWindows
@@ -190,10 +190,9 @@ class SpliceFeatureResult:
     # GT-AG (flanking exons)
     upstream_donor_is_gt: bool | None = None
     downstream_acceptor_is_ag: bool | None = None
-    # PPT
+    # PPT (T / C content are not persisted: the routers recompute them from
+    # ``ppt_seq`` with ``ppt_t_content`` / ``ppt_c_content`` when needed)
     ppt_score: float | None = None
-    ppt_t_content: float | None = None
-    ppt_c_content: float | None = None
     ppt_longest_run: int | None = None
     # branch-point
     bp_motif_found: bool = False
@@ -300,8 +299,6 @@ def compute_features(
     # PPT
     if windows.ppt_seq:
         res.ppt_score = round(ppt_score(windows.ppt_seq), 4)
-        res.ppt_t_content = round(ppt_t_content(windows.ppt_seq), 4)
-        res.ppt_c_content = round(ppt_c_content(windows.ppt_seq), 4)
         res.ppt_longest_run = longest_y_run(windows.ppt_seq)
 
     # Branch-point.  ppt_seq = [exon_start-50, exon_start-3) → the window

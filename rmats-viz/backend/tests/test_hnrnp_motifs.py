@@ -236,13 +236,15 @@ def test_proportion_z_test_small_group_guard():
 def test_mann_whitney_known_vectors():
     u, p = _mann_whitney_u([1, 2, 3, 4, 5], [6, 7, 8, 9, 10])
     assert u == 0.0
-    assert p < 0.01
+    # scipy mannwhitneyu(method="asymptotic", use_continuity=True) → 0.01218
+    assert p == pytest.approx(0.01218, abs=1e-3)
     u2, p2 = _mann_whitney_u([6, 7, 8, 9, 10], [1, 2, 3, 4, 5])
     assert u2 == 25.0 and p2 == pytest.approx(p)          # symmetric
     u, p = _mann_whitney_u([0.1, 0.2, 0.3, 0.4, 0.5, 0.6], [0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
     assert u == pytest.approx(18.0) and p == pytest.approx(1.0)
-    # All values tied → zero variance → p = 1
-    assert _mann_whitney_u([0.0] * 6, [0.0] * 8) == (24.0, 1.0)
+    # All values tied → zero variance → test undefined (U reported, p None),
+    # so the pair is not counted in the BH family (same as the z-test)
+    assert _mann_whitney_u([0.0] * 6, [0.0] * 8) == (24.0, None)
     # Small-group guard
     assert _mann_whitney_u([1, 2, 3, 4], [5, 6, 7, 8, 9]) == (None, None)
     assert _mann_whitney_u([], [1, 2, 3, 4, 5]) == (None, None)
@@ -251,12 +253,13 @@ def test_mann_whitney_known_vectors():
 def test_mann_whitney_tie_correction_matches_reference():
     # By hand: U_a = #(a_i > b_j) + 0.5 #(a_i = b_j) = 9; tie blocks of size
     # 2,3,4,3,2 give sum(t^3 - t) = 120, var = 49/12 * (15 - 120/182) = 58.558,
-    # z = (9 - 24.5) / sqrt(var) = -2.0256, two-sided p = 0.0428
+    # with the 0.5 continuity correction z = (9 - 24.5 + 0.5) / sqrt(var)
+    # = -1.9602, two-sided p = 0.04997 (R wilcox.test / scipy use_continuity=True)
     a = [1, 1, 2, 2, 3, 3, 4]
     b = [2, 3, 3, 4, 4, 5, 5]
     u, p = _mann_whitney_u(a, b)
     assert u == pytest.approx(9.0)
-    assert p == pytest.approx(0.0428, abs=5e-4)
+    assert p == pytest.approx(0.04997, abs=5e-4)
     # Ranks ignore scale: the result is identical after a monotone transform
     u_t, p_t = _mann_whitney_u([x * 100 for x in a], [x * 100 for x in b])
     assert u_t == u and p_t == pytest.approx(p)
@@ -371,3 +374,51 @@ def test_compare_groups_end_to_end_with_scan_group():
 def test_dead_helpers_removed():
     assert not hasattr(hm, "count_motif_occurrences")
     assert not hasattr(hm, "motif_density")
+
+
+def test_stats_helpers_are_shared_with_deep_analyses_router():
+    """D18: one implementation of z / U / BH for the router and the motif module."""
+    from app.routers import deep_analyses as da
+    from app.services import stats
+    assert da._mann_whitney_u is hm._mann_whitney_u is stats.mann_whitney_u
+    assert da._proportion_z_test is hm._proportion_z_test is stats.proportion_z_test
+    assert da._normal_cdf is hm._normal_cdf is stats.normal_cdf
+    assert da._bh_adjust is stats.bh_adjust and hm._bh_adjust_optional is stats.bh_adjust
+    a = [0.1, 0.0, 0.3, 0.0, 0.2, 0.5, 0.0]
+    b = [0.0, 0.0, 0.1, 0.0, 0.0, 0.05]
+    assert da._mann_whitney_u(a, b) == hm._mann_whitney_u(a, b)
+    assert da._proportion_z_test(7, 20, 3, 25) == hm._proportion_z_test(7, 20, 3, 25)
+
+
+def test_build_se_regions_batches_and_orients(monkeypatch):
+    """build_se_regions asks for 7 regions per event in REGION_NAMES order and
+    reverse-complements − strand sequences; events without coordinates get
+    seven empty regions."""
+    from types import SimpleNamespace as NS
+    captured: dict = {}
+
+    def fake_extract(regions, fasta_path=None):
+        captured["regions"] = list(regions)
+        out = []
+        for chrom, s, e in regions:
+            out.append("" if e <= s else ("ACGT" * ((e - s) // 4 + 1))[: e - s])
+        return out
+
+    monkeypatch.setattr(hm, "extract_regions_batch", fake_extract)
+    plus = NS(chr=CHR, strand="+", exon_start=1000, exon_end=1100,
+              upstream_es=500, upstream_ee=600, downstream_es=1500, downstream_ee=1600)
+    minus = NS(chr=CHR, strand="-", exon_start=1000, exon_end=1100,
+               upstream_es=500, upstream_ee=600, downstream_es=1500, downstream_ee=1600)
+    none = NS(chr=None, strand="+", exon_start=None, exon_end=None,
+              upstream_es=None, upstream_ee=None, downstream_es=None, downstream_ee=None)
+    out = hm.build_se_regions([plus, minus, none], fasta_path="/dev/null", label="t")
+    assert len(out) == 3
+    n = len(REGION_NAMES)
+    assert len(captured["regions"]) == 3 * n
+    assert captured["regions"][:n] == define_se_regions(CHR, "+", 1000, 1100, 500, 600, 1500, 1600)
+    assert captured["regions"][n:2 * n] == define_se_regions(CHR, "-", 1000, 1100, 500, 600, 1500, 1600)
+    assert captured["regions"][2 * n:] == [("", 0, 0)] * n
+    # + strand: sequence as fetched; − strand: reverse complement of the fetch
+    assert out[0].skipped_exon == ("ACGT" * 26)[:100]
+    assert out[1].skipped_exon == hm.reverse_complement(("ACGT" * 26)[:100])
+    assert all(getattr(out[2], r) == "" for r in REGION_NAMES)

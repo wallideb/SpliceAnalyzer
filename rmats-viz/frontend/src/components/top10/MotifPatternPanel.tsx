@@ -276,6 +276,10 @@ export function MotifPatternPanel({ events, analysisId, deepAnalysisId, fdrThres
   const MAX_POLLS = 60;
   const [isPolling, setIsPolling] = useState(false);
   const pollCount = useRef(0);
+  // Timestamp of the last compute request: progress data cached before it
+  // (e.g. `done: true` from a previous run) must not stop the new poll.
+  const pollStartedAt = useRef(0);
+  const [computeFailure, setComputeFailure] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["splice-patterns", analysisId, fdrThreshold, absDeltaPsiMin, deepAnalysisId],
@@ -289,7 +293,7 @@ export function MotifPatternPanel({ events, analysisId, deepAnalysisId, fdrThres
   });
 
   // Background-compute progress (only polled while waiting)
-  const { data: progress, isError: progressError } = useQuery({
+  const { data: progress, isError: progressError, dataUpdatedAt: progressUpdatedAt } = useQuery({
     queryKey: ["compute-progress", analysisId],
     queryFn: () => {
       pollCount.current += 1;
@@ -321,22 +325,29 @@ export function MotifPatternPanel({ events, analysisId, deepAnalysisId, fdrThres
       setIsPolling(false);
       return;
     }
-    if (progress?.done) {
+    // Only trust progress fetched after this compute request started.
+    const fresh = progress !== undefined && progressUpdatedAt >= pollStartedAt.current;
+    if (fresh && progress.done) {
       setIsPolling(false);
+      if (progress.status === "error") setComputeFailure(progress.error ?? "unknown error");
       // Background task finished (or crashed): fetch the patterns once more.
       qc.invalidateQueries({ queryKey: ["splice-patterns", analysisId] });
       return;
     }
-    if (pollCount.current >= MAX_POLLS) {
+    // Safety net when the status is unknown; never give up while the backend
+    // still reports the task as running.
+    if (pollCount.current >= MAX_POLLS && !(fresh && progress.status === "running")) {
       setIsPolling(false);
     }
-  }, [isPolling, data, progress, progressError, qc, analysisId]);
+  }, [isPolling, data, progress, progressError, progressUpdatedAt, qc, analysisId]);
 
   const compute = useMutation({
     mutationFn: () => computeSpliceFeatures(analysisId),
     onSuccess: () => {
       // Compute now returns 202 immediately; poll until background task finishes
       pollCount.current = 0;
+      pollStartedAt.current = Date.now();
+      setComputeFailure(null);
       setIsPolling(true);
     },
   });
@@ -405,6 +416,11 @@ export function MotifPatternPanel({ events, analysisId, deepAnalysisId, fdrThres
         </button>
         {compute.isError && (
           <p className="text-xs text-red-500">{t("motifPanel.computeError")}</p>
+        )}
+        {computeFailure && (
+          <p className="text-xs text-red-500 max-w-md break-words">
+            {t("motifPanel.computeFailed", { error: computeFailure })}
+          </p>
         )}
       </div>
     );

@@ -66,8 +66,8 @@ For each motif in each region, we compute:
     This is a large-sample normal approximation; it is only run when both
     groups contain at least 5 events.
   - Density test: a Mann-Whitney U test (normal approximation with tie
-    correction, no continuity correction) on the per-event densities of the
-    two groups.  Presence saturates for short motifs (AGG, GGG, TTTT, CTCT
+    correction and a 0.5 continuity correction, ``services/stats``) on the
+    per-event densities of the two groups.  Presence saturates for short motifs (AGG, GGG, TTTT, CTCT
     are present in almost every 250-nt window of both groups), whereas the
     density still discriminates; rMAPS2 uses the same rank test on
     per-window densities.
@@ -101,12 +101,15 @@ References
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Sequence
 
-import numpy as np
+from app.services import stats as _stats
+from app.services.sequence import extract_regions_batch, reverse_complement
+
+logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Motif definitions
@@ -243,7 +246,7 @@ _FLANK_LEN = 250
 
 # Minimum group size for the normal-approximation tests (presence z-test and
 # Mann-Whitney U); below this the approximations are unreliable.
-_MIN_GROUP_SIZE = 5
+_MIN_GROUP_SIZE = _stats.MIN_GROUP_N
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -493,7 +496,8 @@ def compare_groups(
       (large-sample normal approximation; None when either group has fewer
       than ``_MIN_GROUP_SIZE`` events or the pooled proportion is 0 or 1);
     - density test: Mann-Whitney U on the per-event densities (normal
-      approximation with tie correction; same minimum group size).
+      approximation with tie and continuity corrections; same minimum group
+      size; None when every pooled density is tied).
 
     Multiple-testing correction: Benjamini-Hochberg FDR across all testable
     pairs, run separately for the two p-value families on the *unrounded*
@@ -546,109 +550,115 @@ def compare_groups(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Stats helpers
+# Stats helpers — single implementation shared with routers/deep_analyses
+# (see services/stats.py); the private names are kept for the tests.
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _bh_adjust_optional(p_values: list[float | None]) -> list[float | None]:
-    """BH-adjust the non-None entries, returning None where the input was None."""
-    idx = [i for i, p in enumerate(p_values) if p is not None]
-    out: list[float | None] = [None] * len(p_values)
-    if idx:
-        q_values = _bh_adjust([p_values[i] for i in idx])  # type: ignore[misc]
-        for i, q in zip(idx, q_values):
-            out[i] = q
-    return out
+_normal_cdf = _stats.normal_cdf
+_proportion_z_test = _stats.proportion_z_test
+_mann_whitney_u = _stats.mann_whitney_u
+_bh_adjust_optional = _stats.bh_adjust
 
 
 def _bh_adjust(p_values: list[float]) -> list[float]:
-    """Benjamini-Hochberg FDR adjustment.
+    """BH q-values for a list without ``None`` (thin wrapper, kept for tests)."""
+    return [q for q in _stats.bh_adjust(p_values) if q is not None]
 
-    Returns q-values in the same order as the input.  BH adjusted p-values
-    are computed by sorting ascending on raw p-value, applying the BH scale
-    factor at each rank, then enforcing monotonicity via a cumulative minimum
-    scanned from the largest rank back to the smallest (q[rank i] <= q[rank i+1]).
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Region extraction for a list of events (shared by the API router and the PDF)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def build_se_regions(
+    events: list,
+    fasta_path: str | None = None,
+    label: str = "",
+) -> list[SERegions]:
+    """Extract the seven ``REGION_NAMES`` sequences of every SE event in one
+    batched ``samtools faidx`` call.
+
+    *events* expose the rMATS attributes (``chr``, ``strand``, ``exon_start``,
+    ``exon_end``, ``upstream_es/ee``, ``downstream_es/ee``).  Events without
+    chr / exon coordinates get seven empty regions; − strand sequences are
+    reverse-complemented so every region is in transcript orientation.
+    Diagnostics (missing flanks, introns consumed by the exclusion zones) are
+    logged under *label*.
     """
-    n = len(p_values)
-    if n == 0:
+    if not events:
         return []
-    order = sorted(range(n), key=lambda i: p_values[i])
-    adjusted = [0.0] * n
-    for rank, idx in enumerate(order, start=1):
-        adjusted[idx] = p_values[idx] * n / rank
-    # Enforce monotonicity: cumulative minimum from largest rank back to smallest
-    min_q = 1.0
-    for idx in reversed(order):
-        min_q = min(min_q, adjusted[idx])
-        adjusted[idx] = min_q
-    return adjusted
+    from app.config import settings
 
+    n_regions = len(REGION_NAMES)
+    all_bed: list[tuple[str, int, int]] = []
+    strands: list[str] = []
 
-def _proportion_z_test(
-    k1: int, n1: int, k2: int, n2: int,
-) -> tuple[float | None, float | None]:
-    """Standard pooled two-proportion z-test for H0: p1 = p2.
+    n_missing_coords = 0
+    n_null_up = 0      # transcript-upstream flanking coordinate missing
+    n_null_dn = 0      # transcript-downstream flanking coordinate missing
+    n_short_up = 0
+    n_short_dn = 0
+    min_intron = _FIVE_SS_EXCL + _THREE_SS_EXCL
 
-    Returns (z_stat, raw_p_value) or (None, None) when the test is undefined:
-    either group smaller than ``_MIN_GROUP_SIZE`` events (the normal
-    approximation is unreliable), or pooled proportion of 0 or 1.
-    Caller is responsible for multiple-testing correction.
-    """
-    if n1 < _MIN_GROUP_SIZE or n2 < _MIN_GROUP_SIZE:
-        return None, None
-    p1 = k1 / n1
-    p2 = k2 / n2
-    p_pool = (k1 + k2) / (n1 + n2)
-    if p_pool <= 0 or p_pool >= 1:
-        return None, None
-    se = math.sqrt(p_pool * (1 - p_pool) * (1 / n1 + 1 / n2))
-    if se == 0:
-        return None, None
-    z = (p1 - p2) / se
-    p = 2 * (1 - _normal_cdf(abs(z)))
-    return z, p
+    for ev in events:
+        strand = ev.strand or "+"
+        if not ev.chr or ev.exon_start is None or ev.exon_end is None:
+            n_missing_coords += 1
+            all_bed.extend([("", 0, 0)] * n_regions)
+            strands.append(strand)
+            continue
 
+        # Intron A = [upstream_ee, exon_start), intron B = [exon_end, downstream_es);
+        # on the − strand A is transcript-downstream and B transcript-upstream.
+        len_a = (ev.exon_start - ev.upstream_ee) if ev.upstream_ee is not None else None
+        len_b = (ev.downstream_es - ev.exon_end) if ev.downstream_es is not None else None
+        up_len, dn_len = (len_a, len_b) if strand == "+" else (len_b, len_a)
+        if up_len is None:
+            n_null_up += 1
+        elif up_len <= min_intron:
+            n_short_up += 1
+        if dn_len is None:
+            n_null_dn += 1
+        elif dn_len <= min_intron:
+            n_short_dn += 1
 
-def _mann_whitney_u(
-    a: Sequence[float], b: Sequence[float],
-) -> tuple[float | None, float | None]:
-    """Two-sided Mann-Whitney U test for H0: the distributions of a and b are equal.
+        bed = define_se_regions(
+            ev.chr, strand,
+            ev.exon_start, ev.exon_end,
+            ev.upstream_es, ev.upstream_ee,
+            ev.downstream_es, ev.downstream_ee,
+        )
+        if len(bed) != n_regions:
+            raise RuntimeError(
+                f"define_se_regions returned {len(bed)} regions, expected {n_regions}"
+            )
+        all_bed.extend(bed)
+        strands.append(strand)
 
-    Returns (U_a, raw_p_value), where U_a is the U statistic of sample *a*
-    (number of (a_i, b_j) pairs with a_i > b_j, ties counting 1/2).  The
-    p-value is the normal approximation with the tie correction of the
-    variance (no continuity correction).  Returns (None, None) when either
-    sample has fewer than ``_MIN_GROUP_SIZE`` values, and (U_a, 1.0) when all
-    values are tied (zero variance → no evidence against H0).
-    """
-    n1, n2 = len(a), len(b)
-    if n1 < _MIN_GROUP_SIZE or n2 < _MIN_GROUP_SIZE:
-        return None, None
-    combined = np.concatenate([
-        np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64),
-    ])
-    n = n1 + n2
-    # Average ranks (1-based) with ties: rank of a tied block = mean of its positions
-    _, inverse, counts = np.unique(combined, return_inverse=True, return_counts=True)
-    cum = np.cumsum(counts)
-    avg_rank = cum - (counts - 1) / 2.0
-    ranks = avg_rank[inverse.ravel()]
-    r1 = float(ranks[:n1].sum())
-    u1 = r1 - n1 * (n1 + 1) / 2.0
-    mu = n1 * n2 / 2.0
-    tie_term = float(np.sum(counts.astype(np.float64) ** 3 - counts))
-    var = n1 * n2 / 12.0 * ((n + 1) - tie_term / (n * (n - 1)))
-    if var <= 0:
-        return u1, 1.0
-    z = (u1 - mu) / math.sqrt(var)
-    p = 2 * (1 - _normal_cdf(abs(z)))
-    return u1, min(1.0, max(0.0, p))
+    n = len(events)
+    tag = f"[{label}] " if label else ""
+    if n_missing_coords:
+        logger.warning("%shnRNP: %d/%d events skipped — missing chr/exon_start/exon_end",
+                       tag, n_missing_coords, n)
+    if n_null_up:
+        logger.warning("%shnRNP: %d/%d events — null upstream flanking coord → no upstream intron",
+                       tag, n_null_up, n)
+    if n_null_dn:
+        logger.warning("%shnRNP: %d/%d events — null downstream flanking coord → no downstream intron",
+                       tag, n_null_dn, n)
+    if n_short_up:
+        logger.warning("%shnRNP: %d/%d events — upstream intron ≤ %d nt (exclusion zones consume it)",
+                       tag, n_short_up, n, min_intron)
+    if n_short_dn:
+        logger.warning("%shnRNP: %d/%d events — downstream intron ≤ %d nt (exclusion zones consume it)",
+                       tag, n_short_dn, n, min_intron)
+    logger.info("%shnRNP region extraction: %d events", tag, n)
 
+    seqs = extract_regions_batch(all_bed, fasta_path or settings.GRCH38_FASTA)
 
-def _normal_cdf(x: float) -> float:
-    """Standard normal CDF via the identity Phi(x) = 0.5 * erfc(-x / sqrt(2)).
-
-    The identity is mathematically exact; the numerical result depends on the
-    precision of math.erfc (Python's C-library implementation), not on any
-    hand-coded approximation.
-    """
-    return 0.5 * math.erfc(-x / math.sqrt(2))
+    out: list[SERegions] = []
+    for idx, strand in enumerate(strands):
+        s = seqs[idx * n_regions : idx * n_regions + n_regions]
+        if strand == "-":
+            s = [reverse_complement(x) if x else "" for x in s]
+        out.append(SERegions(**dict(zip(REGION_NAMES, s))))
+    return out

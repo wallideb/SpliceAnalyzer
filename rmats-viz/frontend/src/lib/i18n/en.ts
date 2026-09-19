@@ -56,6 +56,11 @@ export const en = {
         "These labels will appear in the IncLevel1 / IncLevel2 columns.",
       selectedGenes: "Selected candidate gene(s)",
     },
+    warnings: {
+      title: "Import notes",
+      subtitle: "The analysis was created, but the import reported the following:",
+      open: "Open the analysis",
+    },
     loading: {
       title: "Analysis in progress…",
       subtitle:
@@ -257,6 +262,7 @@ export const en = {
     computing: "Computing…",
     computingDesc: "Fetching splice-site sequences via Ensembl REST — this may take a few tens of seconds.",
     computeError: "Computation error. Please retry.",
+    computeFailed: "The background computation ended with an error: {{error}}",
     thresholds: "Significance thresholds:",
     significantOnly: "significant events only",
     modify: "Modify",

@@ -1,10 +1,19 @@
 #!/bin/bash
 # =============================================================================
-# setup_genome_fasta.sh
+# setup_grch38_fasta.sh
 # Download the full GRCh38 genome FASTA (UCSC IDs, no ALT contigs) and index
 # with samtools.
 #
+# This script is the ONLY provisioning path for the reference genome: the
+# backend no longer downloads it at startup (it only logs whether
+# GRCH38_FASTA and its .fai index exist, and checks again on every request,
+# so no restart is needed once the files are in place).  Run it once on the
+# host; the directory is mounted at /data inside the backend container
+# (GRCH38_FASTA=/data/GRCh38.fa by default).
+#
 # If the FASTA already exists but the .fai index is missing, only indexing runs.
+# Without a local samtools you can index from the container instead:
+#   docker compose exec backend samtools faidx /data/GRCh38.fa
 #
 # Usage:
 #   bash setup_grch38_fasta.sh

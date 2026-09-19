@@ -33,4 +33,6 @@ export interface UploadResponse {
   analysis_id: string;
   status: string;
   event_count: number;
+  /** Human-readable import notes from the backend (e.g. empty file, no events imported). */
+  warnings: string[];
 }

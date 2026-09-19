@@ -19,6 +19,7 @@
 import { useState } from "react";
 import { useT } from "@/contexts/LanguageContext";
 import { baseColor } from "@/lib/colors";
+import { BP_A_OFFSET } from "@/types/splice";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,7 +58,7 @@ export interface ExonDiagramProps {
   bpFound?: boolean | null;
   /** Distance (nt) from the branch adenosine to the exon start (3′SS). */
   bpDistance?: number | null;
-  /** 0-based index of the branch adenosine within `pptSeq` (places the BP marker). */
+  /** 0-based index of the matched 7-mer within `pptSeq`; the branch A is at +BP_A_OFFSET. */
   bpPosition?: number | null;
   /** Matched branch-point 7-mer (shown in the tooltip). */
   bpMotif?: string | null;
@@ -415,15 +416,16 @@ export function ExonDiagram({
     ? (PPT_BAR_X2 - PPT_BAR_X1) * Math.min(1, Math.max(0, pptScore))
     : 0;
 
-  // Branch-point circle position: index of the branch A within ppt_seq mapped
-  // onto the PPT bar (left = 5′ end of the window, right = 3′SS); falls back
-  // to 38 % of the bar when the backend did not report a position.
+  // Branch-point circle position: index of the branch A within ppt_seq
+  // (bp_position is the 7-mer start, the adenosine sits at +BP_A_OFFSET)
+  // mapped onto the PPT bar (left = 5′ end of the window, right = 3′SS);
+  // falls back to 38 % of the bar when the backend did not report a position.
   const pptLen = pptSeq?.length ?? 0;
   const bpCX =
     bpPosition != null && pptLen > 0
       ? PPT_BAR_X1 +
         (PPT_BAR_X2 - PPT_BAR_X1) *
-          ((Math.min(Math.max(bpPosition, 0), pptLen - 1) + 0.5) / pptLen)
+          ((Math.min(Math.max(bpPosition + BP_A_OFFSET, 0), pptLen - 1) + 0.5) / pptLen)
       : PPT_BAR_X1 + (PPT_BAR_X2 - PPT_BAR_X1) * 0.38;
 
   // Donor site indicator bounds — at right edge of skipped exon (5'SS donor)

@@ -19,6 +19,9 @@ export default function NewAnalysisPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
+  // Import notes returned by the backend (UploadResponse.warnings); when
+  // present the analysis exists but the user is told before navigating.
+  const [uploadWarnings, setUploadWarnings] = useState<{ id: string; warnings: string[] } | null>(null);
 
   const canNext = name.trim() && files.length > 0;
 
@@ -36,6 +39,11 @@ export default function NewAnalysisPage() {
         mutated_genes: mutatedGenes,
         files,
       });
+      if (res.warnings && res.warnings.length > 0) {
+        setUploadWarnings({ id: res.analysis_id, warnings: res.warnings });
+        setLoading(false);
+        return;
+      }
       router.push(`/analyses/${res.analysis_id}`);
     } catch (e) {
       setError((e as Error).message);
@@ -45,6 +53,30 @@ export default function NewAnalysisPage() {
 
   if (loading) {
     return <DnaLoadingScreen />;
+  }
+
+  if (uploadWarnings) {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl px-5 py-4 space-y-3">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">{t("newAnalysis.warnings.title")}</p>
+          <p className="text-xs text-amber-800/80 dark:text-amber-300/80">{t("newAnalysis.warnings.subtitle")}</p>
+          <ul className="list-disc pl-5 space-y-1 text-xs text-amber-900 dark:text-amber-200">
+            {uploadWarnings.warnings.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+          <div className="flex justify-end">
+            <button
+              onClick={() => router.push(`/analyses/${uploadWarnings.id}`)}
+              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm"
+            >
+              {t("newAnalysis.warnings.open")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -41,7 +41,12 @@ export interface ComputeProgress {
   n_se_events: number;
   n_computed: number;
   pct: number;
+  /** True when the background task is not running any more (even on failure). */
   done: boolean;
+  /** Mirrors analyses.compute_status; null when unknown. */
+  status: "idle" | "running" | "done" | "error" | null;
+  /** Failure message when status === "error", otherwise null. */
+  error: string | null;
 }
 
 export function getComputeProgress(analysisId: string): Promise<ComputeProgress> {

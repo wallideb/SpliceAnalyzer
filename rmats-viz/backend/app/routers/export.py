@@ -2447,8 +2447,9 @@ def _build_pdf(
                 feat = features.get(ev.id)
                 gt_ag = "—"
                 if feat:
-                    gt = "GT" if feat.donor_is_gt else "!GT"
-                    ag = "AG" if feat.acceptor_is_ag else "!AG"
+                    # None = window unavailable / truncated (unknown), not "!GT"
+                    gt = "?" if feat.donor_is_gt is None else ("GT" if feat.donor_is_gt else "!GT")
+                    ag = "?" if feat.acceptor_is_ag is None else ("AG" if feat.acceptor_is_ag else "!AG")
                     gt_ag = f"{gt}/{ag}"
                 top_rows.append([
                     ev.gene_symbol or "—",
@@ -2751,9 +2752,11 @@ def _build_pdf(
               "after the 6-nt 5'SS signal of the skipped exon), (6) downstream intron, 3'SS side "
               "(up to 250 nt before the 20-nt 3'SS zone of the downstream exon), and (7) downstream "
               "exon (up to 250 nt). Minus-strand events are reverse-complemented before scanning. "
-              "In short introns the two windows of the same intron are clipped so they do not "
-              "overlap; after the exclusion zones (6 nt + 20 nt = 26 nt) an intron ≤ 26 nt yields "
-              "no intronic sequence. Such events are excluded from the corresponding intronic "
+              "Each window is clipped to the intron body minus the exclusion zones, so in introns "
+              "shorter than 526 nt the 5'SS-side and 3'SS-side windows of the same intron overlap "
+              "(the shared nucleotides are scanned in both windows, as in rMAPS2, and the two "
+              "windows are not independent tests); after the exclusion zones (6 nt + 20 nt = "
+              "26 nt) an intron ≤ 26 nt yields no intronic sequence. Such events are excluded from the corresponding intronic "
               "region only (they still contribute to the exonic regions), consistently with "
               "rMAPS2; the N reported per cell reflects the events that actually contributed "
               "sequence for that region.", "body"),
@@ -3232,53 +3235,17 @@ async def export_deep_analysis_pdf(
         """Run hnRNP motif enrichment on SE events; returns plain dict or None."""
         try:
             from app.services.hnrnp_motifs import (
-                REGION_NAMES, SERegions, define_se_regions, compare_groups, scan_group,
+                REGION_NAMES, build_se_regions, compare_groups, scan_group,
                 REGULATORY_EFFECTS,
             )
-            from app.services.sequence import extract_regions_batch, reverse_complement
-            from app.config import settings
 
-            n_regions = len(REGION_NAMES)
             se_sig = [e for e in sig_events if e.event_type == "SE"]
             se_bg = [e for e in nonsig_events if e.event_type == "SE"]
 
-            def _build_regions(evs: list) -> list:
-                """Same region definition as deep_analyses.get_hnrnp_motifs
-                (define_se_regions → REGION_NAMES order)."""
-                if not evs:
-                    return []
-                all_bed: list = []
-                strands: list[str] = []
-                for ev in evs:
-                    if not ev.chr or ev.exon_start is None or ev.exon_end is None:
-                        for _ in range(n_regions):
-                            all_bed.append(("", 0, 0))
-                        strands.append(ev.strand or "+")
-                        continue
-                    bed = define_se_regions(
-                        ev.chr, ev.strand or "+",
-                        ev.exon_start, ev.exon_end,
-                        ev.upstream_es, ev.upstream_ee,
-                        ev.downstream_es, ev.downstream_ee,
-                    )
-                    if len(bed) != n_regions:
-                        raise RuntimeError(
-                            f"define_se_regions returned {len(bed)} regions, expected {n_regions}"
-                        )
-                    all_bed.extend(bed)
-                    strands.append(ev.strand or "+")
-                seqs = extract_regions_batch(all_bed, settings.GRCH38_FASTA)
-                result: list = []
-                for idx, strand in enumerate(strands):
-                    s = seqs[idx * n_regions: idx * n_regions + n_regions]
-                    if strand == "-":
-                        s = [reverse_complement(x) if x else "" for x in s]
-                    result.append(SERegions(**dict(zip(REGION_NAMES, s))))
-                return result
-
+            # Same region extraction as deep_analyses.get_hnrnp_motifs
             sig_regions, bg_regions = await asyncio.gather(
-                asyncio.to_thread(_build_regions, se_sig),
-                asyncio.to_thread(_build_regions, se_bg),
+                asyncio.to_thread(build_se_regions, se_sig, None, "pdf-sig"),
+                asyncio.to_thread(build_se_regions, se_bg, None, "pdf-bg"),
             )
             sig_scan, bg_scan = await asyncio.gather(
                 asyncio.to_thread(scan_group, sig_regions),

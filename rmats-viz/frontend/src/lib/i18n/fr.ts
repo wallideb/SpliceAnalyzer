@@ -57,6 +57,11 @@ export const fr: Translations = {
         "Ces labels apparaîtront dans les colonnes IncLevel1 / IncLevel2.",
       selectedGenes: "Gène(s) candidat(s) sélectionné(s)",
     },
+    warnings: {
+      title: "Remarques d'import",
+      subtitle: "L'analyse a été créée, mais l'import a signalé les points suivants :",
+      open: "Ouvrir l'analyse",
+    },
     loading: {
       title: "Analyse en cours…",
       subtitle:
@@ -259,6 +264,7 @@ export const fr: Translations = {
     computing: "Calcul en cours…",
     computingDesc: "Requêtes aux sites d'épissage via Ensembl REST — cette opération peut prendre quelques dizaines de secondes.",
     computeError: "Erreur lors du calcul. Réessayez.",
+    computeFailed: "Le calcul en arrière-plan s'est terminé avec une erreur : {{error}}",
     thresholds: "Seuils de significativité :",
     significantOnly: "événements significatifs uniquement",
     modify: "Modifier",

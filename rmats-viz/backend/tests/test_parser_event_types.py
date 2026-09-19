@@ -414,3 +414,10 @@ def test_coverage_missing_count_columns_returns_unchanged():
     assert len(out) == 1
     assert out.attrs["n_dropped_low_coverage"] == 0
     assert out.attrs["n_dropped_missing_counts"] == 0
+
+
+def test_parse_empty_payload_returns_empty_dataframe():
+    """Zero-byte or whitespace-only uploads must not raise EmptyDataError."""
+    for payload in (b"", b"\n", b"  \r\n\t\n"):
+        df = parse_rmats_file(payload, "SE", uuid.uuid4())
+        assert df.empty

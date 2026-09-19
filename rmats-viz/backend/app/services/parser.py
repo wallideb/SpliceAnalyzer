@@ -329,12 +329,21 @@ def parse_rmats_file(
     ``exon_*`` / ``upstream_*`` / ``downstream_*`` columns are derived from
     the long and flanking exons.
     """
-    df = pd.read_csv(
-        io.BytesIO(content),
-        sep="\t",
-        na_values=["NA", "nan", ""],
-        dtype=str,  # read everything as str first, coerce later
-    )
+    if not content.strip():
+        logger.warning("Empty file for event type %s", event_type)
+        return pd.DataFrame()
+
+    try:
+        df = pd.read_csv(
+            io.BytesIO(content),
+            sep="\t",
+            na_values=["NA", "nan", ""],
+            dtype=str,  # read everything as str first, coerce later
+        )
+    except pd.errors.EmptyDataError:
+        # No columns to parse (zero-byte or whitespace-only payload).
+        logger.warning("Empty file for event type %s", event_type)
+        return pd.DataFrame()
 
     if df.empty:
         logger.warning("Empty file for event type %s", event_type)
@@ -613,6 +622,9 @@ async def parse_and_store(
     n_parsed = 0
 
     for filename, content in files:
+        if not content.strip():
+            logger.warning("File %s is empty, skipped", filename)
+            continue
         event_type = detect_event_type(filename)
         counting_mode = detect_counting_mode(filename)
         if event_type is None:

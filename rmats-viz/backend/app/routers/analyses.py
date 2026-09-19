@@ -143,8 +143,8 @@ async def create_analysis(
     try:
         file_data = [(f.filename or f"file_{i}", await f.read()) for i, f in enumerate(files)]
         for fname, payload in file_data:
-            if not payload:
-                warnings.append(f"File '{fname}' is empty")
+            if not payload.strip():
+                warnings.append(f"File '{fname}' is empty, skipped")
         event_count = await parse_and_store(file_data, analysis_id, db)
         analysis.status = "ready"
         await db.commit()

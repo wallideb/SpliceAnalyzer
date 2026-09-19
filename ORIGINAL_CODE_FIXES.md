@@ -264,3 +264,29 @@ Fix: use `.returning(SplicingEvent.id)` and sum the returned rows, or count afte
 4. A8 + A9 + A12 + A13 + A14 (analysis/report correctness).
 5. B1–B9 (text/code consistency) and README.
 6. C1–C14, then D and E as time allows.
+
+---
+
+## Status after the fix pass (branch `claude/compassionate-cerf-5o8rar`, 2026-09-19)
+
+Verified by two independent adversarial reviews (backend, frontend), the `code-review` skill at high effort, and the test suites (backend pytest, frontend `tsc` + `next build`).
+
+| Item | Status | Notes |
+|---|---|---|
+| A1–A14, A16 | **done** | see the per-file summaries in the commit history; A12 changes `bp_distance` semantics (branch A → exon start, 18–44 nt window) |
+| A15 | **partial** | mean over available replicates, NA ignored, per-reason counts logged; annotation-only (`fromGTF`) rows mixed with count files are still dropped (counted, no longer silent); counts not yet returned in `UploadResponse` |
+| B1–B6, B9 | **done** | PDF/README text derived from code (test count = `len(tests)`, 50/100/250/500 actually run unless all events are enumerated exactly, ≥ 5 events per group enforced, top 10) |
+| B7, B8 | **done** | README rewritten to match the code |
+| C1–C5, C7–C10, C14 | **done** | |
+| C6 | **not done** | upload parsing still synchronous in the request (design change deferred; `error_message` now stores parser errors) |
+| C11, C12 | **done** | |
+| C13 | **partial** | PanelApp: in-process 6 h cache; STRING: per-pair calls deduplicated only |
+| D1–D22 | **done** | D18 completed by the review: one shared `services/stats.py` (z-test, Mann-Whitney U with tie + continuity correction, BH, normal CDF), one `build_se_regions` |
+| E1 | **done** | rMAPS2 seven-region design (both ends of each intron) |
+| E2 | **partial** | density Mann-Whitney U added per (motif, region) with its own BH family; the ΔΨ-sign split and the 50-nt sliding-window map are not implemented |
+| E3 | **done** | 20 tests (7 Welch + 7 MWU + 6 z), BH `q_value` / `significant_fdr` |
+| E4 (MaxEntScan), E5 (PTC/NMD by translation) | **not done** | new features, not defects; specified in `SPLICEANALYZER_IN_BROWSER_SPEC.md` §8.3 and §8.5 |
+| E6–E11 | **done** | |
+| E12 | **not done** | `sample_names` still unused (cosmetic) |
+
+Additional defects found and fixed by the review pass (not in the original list): two divergent Mann-Whitney implementations (different p-values for the same data); branch-point marker placed 5 nt too far 5′ in the UI (`bp_position` is the 7-mer start, the adenosine is at +5); `None` canonical flags printed as "!GT/!AG" in the PDF; PDF text claiming non-overlapping intron windows; EventsTable server-sort mapping; stale compute-progress cache stopping the poll; upload warnings not displayed; hnRNP `regions` list not typed; empty uploaded file failing the whole upload; per-worker startup reset killing running computations (stale-heartbeat rule); `TimeoutExpired` blanking a whole FASTA chunk; duplicated Ensembl chromosome mapping; inconsistent branch-point denominators (now `ppt_seq` eligibility everywhere).

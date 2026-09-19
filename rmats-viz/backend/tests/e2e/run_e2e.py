@@ -101,14 +101,28 @@ def expected_windows(chrom, strand, es, ee, ues, uee, des, dee):
 
 
 def psql(sql: str) -> str:
-    r = subprocess.run(
-        ["runuser", "-u", "pgtest", "--", "/usr/lib/postgresql/16/bin/psql", "-h", "/tmp", "-p", "5433",
-         "-d", "rmatsdb", "-At", "-c", sql],
-        capture_output=True, text=True,
-    )
-    if r.returncode != 0:
-        raise RuntimeError(r.stderr)
-    return r.stdout.strip()
+    """Run one SQL statement against DATABASE_URL and return the first column of
+    the first row as text (psql -At style; multi-column rows are joined with '|').
+
+    Uses asyncpg in a helper thread so it works from inside the running event
+    loop and needs no psql binary (the backend image has none)."""
+    import asyncpg  # noqa: E402
+    import concurrent.futures
+
+    dsn = os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://")
+
+    async def _run() -> str:
+        conn = await asyncpg.connect(dsn)
+        try:
+            rows = await conn.fetch(sql)
+        finally:
+            await conn.close()
+        if not rows:
+            return ""
+        return "\n".join("|".join("" if v is None else str(v) for v in r.values()) for r in rows)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(lambda: asyncio.run(_run())).result()
 
 
 GENES = {g["idx"]: g for g in EXP["genes"]}
@@ -453,7 +467,7 @@ async def run(c: AsyncClient) -> None:
     check("i. stale 'running' row (heartbeat > 30 min) is re-claimed", "started" in r.json()["message"].lower(), r.json()["message"])
     while not (await c.get(f"/api/v1/splice/progress/{aid}")).json()["done"]:
         await asyncio.sleep(0.3)
-    st = psql(f"select compute_status, compute_error is null, (now()-updated_at) < interval '1 minute' from analyses where id='{aid}'")
+    st = psql(f"select compute_status, compute_error is null, (now()-updated_at) < interval '1 minute' from analyses where id='{aid}'").replace("True", "t").replace("False", "f")
     check("i. re-claimed run finished: status done, no error, heartbeat refreshed (psql)", st == "done|t|t", st)
     n_feat = int(psql(f"select count(*) from event_splice_feature where event_id in (select id from splicing_events where analysis_id='{aid}')"))
     check("i. all SE features present again after re-run", n_feat == EXP["n_se_kept"], n_feat, EXP["n_se_kept"])
@@ -618,5 +632,8 @@ if __name__ == "__main__":
         RESULTS.append({"name": "UNHANDLED EXCEPTION", "pass": False, "observed": traceback.format_exc()[-800:]})
     json.dump(RESULTS, open(os.path.join(HERE, "results.json"), "w"), indent=1, default=str)
     n_fail = sum(1 for r in RESULTS if not r["pass"])
+    for r in RESULTS:
+        if not r["pass"]:
+            print(f"  FAILED: {r['name']} | observed={str(r.get('observed'))[:200]} | expected={str(r.get('expected'))[:120]}")
     print(f"\n{len(RESULTS) - n_fail}/{len(RESULTS)} assertions passed, {n_fail} failed")
     sys.exit(1 if n_fail else 0)

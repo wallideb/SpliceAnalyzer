@@ -113,8 +113,13 @@ def _db_conn() -> sqlite3.Connection:
         return conn
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, timeout=30)
-    conn.execute("PRAGMA journal_mode=WAL")
+    # busy_timeout first: switching to WAL needs a brief exclusive lock, and
+    # several annotation threads open their connection at the same moment.
     conn.execute("PRAGMA busy_timeout=30000")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError as exc:  # another connection holds the lock
+        logger.debug("journal_mode=WAL not applied on this connection: %s", exc)
     _ensure_schema(conn, path)
     _local.conn = conn
     _local.conn_path = path

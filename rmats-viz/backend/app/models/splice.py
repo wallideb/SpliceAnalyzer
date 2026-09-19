@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    String, Text, Integer, BigInteger, Double, Boolean,
+    DateTime, String, Text, Integer, BigInteger, Double, Boolean,
     ForeignKey, UniqueConstraint, Index, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -75,4 +75,6 @@ class EventSpliceFeature(Base):
     #   None       — rMATS coordinates used as-is (no MANE correction)
     mane_exon_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
-    computed_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    # TIMESTAMPTZ NOT NULL (0003 / 0018); compared with an aware ``now()`` by the
+    # MANE retry logic of the splice router.
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

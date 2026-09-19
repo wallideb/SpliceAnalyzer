@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Text, Integer, ForeignKey, UniqueConstraint, func
+from sqlalchemy import DateTime, String, Text, Integer, ForeignKey, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
@@ -19,8 +19,12 @@ class Analysis(Base):
     #   'idle' | 'running' | 'done' | 'error'
     compute_status: Mapped[str] = mapped_column(String(20), nullable=False, default="idle", server_default="idle")
     compute_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+    # TIMESTAMPTZ NOT NULL (0001 created the columns as timestamptz; 0018 added
+    # NOT NULL); updated_at doubles as the splice-compute heartbeat.
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now(),
+    )
 
     sample_groups: Mapped[list["SampleGroup"]] = relationship(
         "SampleGroup", back_populates="analysis", cascade="all, delete-orphan"

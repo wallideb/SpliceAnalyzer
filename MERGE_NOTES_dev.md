@@ -2,7 +2,7 @@
 
 **Title:** Fix ingestion, sequence, statistics and report defects (ORIGINAL_CODE_FIXES A–E); add in-browser migration spec
 
-**Scope:** 18 commits, 83 files (+8 541 / −3 163). Backend (FastAPI/Python), frontend (Next.js), README, two Alembic migrations (0016, 0017), 119 backend tests (was 12), frontend `tsc` + `next build` clean. Two independent adversarial reviews plus a high-effort automated code review were run and their findings fixed (see `ORIGINAL_CODE_FIXES.md`, "Status after the fix pass").
+**Scope:** 18 commits, 83 files (+8 541 / −3 163). Backend (FastAPI/Python), frontend (Next.js), README, three Alembic migrations (0016, 0017, 0018), 129 backend tests (was 12), frontend `tsc` + `next build` clean. Two independent adversarial reviews plus a high-effort automated code review were run and their findings fixed (see `ORIGINAL_CODE_FIXES.md`, "Status after the fix pass").
 
 ## Summary of changes
 
@@ -38,7 +38,7 @@
 - README fully realigned (methodology §1–§13, configuration, API reference, feature reference, references, troubleshooting); `ORIGINAL_CODE_FIXES.md` (defect list with status), `SPLICEANALYZER_IN_BROWSER_SPEC.md` (in-browser re-implementation brief), `check_cors.sh`; CRLF fixed in `setup_mane_gff3.sh` (the script did not run under bash).
 
 ## Deployment checklist
-1. `alembic upgrade head` (0016 adds 9 columns and recreates `uq_splicing_event_identity`; 0017 adds `compute_status`, `compute_error`, `bp_position`, `bp_motif`). The new constraint is a superset of the old columns, so no existing row can violate it.
+1. `alembic upgrade head` (0016 adds 9 columns and recreates `uq_splicing_event_identity`; 0017 adds `compute_status`, `compute_error`, `bp_position`, `bp_motif`; 0018 back-fills and sets NOT NULL on `analyses.created_at/updated_at`, `deep_analyses.created_at`, `event_splice_feature.computed_at`, a pre-existing drift between the ORM models and the schema). The new constraint is a superset of the old columns, so no existing row can violate it; `alembic check` reports no drift after 0018.
 2. **Recompute splice features** for existing analyses (`POST /api/v1/splice/compute/{analysis_id}`) or truncate `event_splice_feature`: stored branch-point values use the old semantics and are not invalidated automatically.
 3. **Re-import** analyses containing A3SS/A5SS files (their events were dropped or stored without coordinates before this change).
 4. The backend no longer downloads the GRCh38 FASTA: run `data/setup_grch38_fasta.sh` (or provide `/data/GRCh38.fa` + `.fai`) before starting; check `GET /api/v1/debug/fasta`.
@@ -48,8 +48,9 @@
 ## Verification performed
 - Backend: `python -m pytest tests -q` → 119 passed (parser, event types, sequence/features/MANE, hnRNP, permutation, stats, PDF smoke build); `python -c "import app.main"`; `compileall`.
 - Frontend: `npx tsc --noEmit`; `npx next build` (6 routes); i18n key parity script (460 keys, identical trees).
-- Migrations: linear chain 0001 → 0017; model/migration column parity checked by review.
-- Not verified here (needs a running stack): end-to-end upload → compute → export on real rMATS output; Ensembl/Enrichr/STRING/PanelApp live calls; PostgreSQL execution of the `RETURNING` insert and the `CASE` ordering (compiled against the PostgreSQL dialect only).
+- Migrations: linear chain 0001 → 0018; `alembic check` clean; upgrade from an empty database, downgrade to 0015 and to base, re-upgrade, all verified on a real PostgreSQL 16.
+- End-to-end on a real PostgreSQL 16 (in-process ASGI client, synthetic GRCh38-like FASTA with planted GT/AG/branch points, synthetic MANE GFF3 with a Plus Clinical transcript listed first, rMATS files of the five types with JC+JCEC duplicates, NA replicates, decimal commas, near-duplicates, NAGNAG/RI/MXE pairs, an empty summary.txt): 124/124 assertions — expected event count 67 after filters and dedup, type-aware dedup, A3SS/A5SS derived coordinates on both strands, natural chromosome order, 58/58 splice windows identical to an independent extraction with MANE-corrected boundaries, planted branch points found at 25 nt with `bp_position`/`bp_motif` consistent, MANE Select chosen over Plus Clinical, frame classes by CDS length, 20 comparison tests with q-values, 133 hnRNP pairs over 7 regions, exact permutation (3v3 → 20 splits, min p 0.05; 2v3 → 10 splits), pagination, p-value threshold effect, compute-status lifecycle incl. stale-heartbeat re-claim and the 409 export gate, Excel and PDF exports, cascade delete, graceful behaviour of every external API when the network is unavailable.
+- Not verified here: live Ensembl/Enrichr/STRING/PanelApp/MyGene/UniProt calls (network blocked in the sandbox; only their failure paths ran), parsing of the genuine NCBI MANE GFF3 file (a GENCODE-style synthetic file was used), the real `samtools` binary (emulated with a pysam wrapper), a multi-worker uvicorn deployment (the status lifecycle was driven through SQL), and the frontend in a browser (type-checked and built only).
 
 ## Risk assessment: which results change, and by how much
 

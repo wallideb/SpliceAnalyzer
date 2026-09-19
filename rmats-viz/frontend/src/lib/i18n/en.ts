@@ -436,7 +436,7 @@ export const en = {
       title: "Method — hnRNP motif enrichment analysis",
       body:
         "Inspired by rMAPS2 (Hwang et al., NAR 2020; 48:W300-W306), this analysis scans seven " +
-        "genomic regions around each skipped exon (50-nt flanks of the upstream and downstream exons, " +
+        "genomic regions around each skipped exon (up to 250-nt flanks of the upstream and downstream exons, " +
         "the skipped exon body, and for each flanking intron the 250 nt after the 5′ss and the 250 nt " +
         "before the 3′ss) for 19 known hnRNP RNA-binding protein " +
         "consensus motifs across eight protein families. Motifs include hnRNP A1/A2 (TAGG, TAGGG, TAGGGA, AGG), " +

@@ -28,7 +28,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,6 +76,14 @@ router = APIRouter(prefix="/splice", tags=["splice"])
 # EventSpliceFeature.computed_at as the timestamp of the last attempt.
 _MANE_RETRY_TTL = timedelta(hours=24)
 
+# Heartbeat staleness.  While a computation is 'running' the background task
+# bumps ``analyses.updated_at`` after every processed chunk (see
+# ``_heartbeat``).  A 'running' row whose updated_at is older than this is
+# treated as orphaned (worker crashed / container restarted) and may be reset
+# on startup (main.py lifespan) or re-claimed by a new POST /splice/compute.
+# Must comfortably exceed the wall time of one chunk (_COMPUTE_CHUNK events).
+COMPUTE_STALE_AFTER = timedelta(minutes=30)
+
 
 async def _set_compute_status(analysis_id: uuid.UUID, status: str, error: str | None = None) -> None:
     """Persist the background-compute state for an analysis (own session)."""
@@ -89,6 +97,20 @@ async def _set_compute_status(analysis_id: uuid.UUID, status: str, error: str | 
             await db.commit()
     except Exception:
         logger.exception("Failed to set compute_status=%s for %s", status, analysis_id)
+
+
+async def _heartbeat(analysis_id: uuid.UUID) -> None:
+    """Refresh ``updated_at`` on a 'running' row so it is not considered stale."""
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Analysis)
+                .where(Analysis.id == analysis_id, Analysis.compute_status == "running")
+                .values(updated_at=func.now())
+            )
+            await db.commit()
+    except Exception:
+        logger.exception("Failed to refresh compute heartbeat for %s", analysis_id)
 
 
 async def get_compute_status(db: AsyncSession, analysis_id: uuid.UUID) -> str | None:
@@ -541,6 +563,7 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                             )
                         n_computed += len(bulk_rows)
                     await db.commit()
+                    await _heartbeat(analysis_id)
                     if chunk_start % 1000 == 0:
                         logger.info("Compute progress: %d/%d", n_computed, n_total)
                 except Exception as chunk_exc:
@@ -564,8 +587,7 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
         final_error = f"Background compute crashed: {exc!r}"
         logger.error("Background compute task crashed for %s: %s", analysis_id, exc)
         if not isinstance(exc, Exception):
-            # Record the state, then let cancellation propagate.
-            await _set_compute_status(analysis_id, final_status, final_error)
+            # Let cancellation propagate; the finally block records the state.
             raise
     finally:
         await _set_compute_status(analysis_id, final_status, final_error)
@@ -594,11 +616,19 @@ async def compute_splice_features(
 
     # Don't start a duplicate task if one is already running (e.g. page refresh).
     # Atomic claim: only the request that flips 'running' on a non-running row
-    # starts the task (safe with concurrent requests / several workers).
+    # starts the task (safe with concurrent requests / several workers).  A
+    # 'running' row whose heartbeat (updated_at) is older than
+    # COMPUTE_STALE_AFTER belongs to a dead worker and may be re-claimed.
     claim = await db.execute(
         update(Analysis)
-        .where(Analysis.id == analysis_id, Analysis.compute_status != "running")
-        .values(compute_status="running", compute_error=None)
+        .where(
+            Analysis.id == analysis_id,
+            or_(
+                Analysis.compute_status != "running",
+                Analysis.updated_at < func.now() - COMPUTE_STALE_AFTER,
+            ),
+        )
+        .values(compute_status="running", compute_error=None, updated_at=func.now())
         .returning(Analysis.id)
     )
     claimed = claim.scalar_one_or_none()
@@ -900,6 +930,7 @@ async def get_splice_patterns(
     ppt_runs: list[int] = []
     fc_counts: Counter[str] = Counter()
     bp_found_count = 0
+    n_with_ppt_seq = 0  # bp_found denominator: BP is searched in ppt_seq
     n_with_seq = 0
     delta_psi_list: list[float] = []
     delta_psi_significant: list[float] = []
@@ -946,6 +977,13 @@ async def get_splice_patterns(
         if feat.downstream_intron_size is not None:
             down_sizes.append(feat.downstream_intron_size)
 
+        # BP — eligibility is a non-empty PPT sequence (the branch point is
+        # searched in ppt_seq), independent of donor_seq.
+        if feat.ppt_seq:
+            n_with_ppt_seq += 1
+            if feat.bp_motif_found:
+                bp_found_count += 1
+
         # Sequence-dependent metrics
         if feat.donor_seq:
             n_with_seq += 1
@@ -968,9 +1006,6 @@ async def get_splice_patterns(
                 ppt_scores.append(feat.ppt_score)
             if feat.ppt_longest_run is not None:
                 ppt_runs.append(feat.ppt_longest_run)
-            # BP
-            if feat.bp_motif_found:
-                bp_found_count += 1
             # Flanking exon splice sites
             if feat.upstream_donor_seq:
                 n_with_up_seq += 1
@@ -1065,7 +1100,7 @@ async def get_splice_patterns(
         unknown    = fc_counts["unknown"],
     )
 
-    bp_pct = round(bp_found_count / n_with_seq * 100, 1) if n_with_seq else None
+    bp_pct = round(bp_found_count / n_with_ppt_seq * 100, 1) if n_with_ppt_seq else None
 
     return PatternAnalysisResponse(
         analysis_id                 = str(analysis_id),

@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text, update
+from sqlalchemy import func, text, update
 
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
@@ -76,12 +76,19 @@ async def lifespan(app: FastAPI):
         logger.exception("Failed to reset orphaned 'deleting' analyses on startup")
 
     # Likewise, a splice-feature computation that was 'running' when the
-    # process died can never finish: mark it so the UI stops polling.
+    # process died can never finish: mark it so the UI stops polling.  This
+    # lifespan runs once per uvicorn worker, so only rows whose heartbeat
+    # (updated_at, refreshed after every chunk by the background task) is
+    # older than splice.COMPUTE_STALE_AFTER are reset — a computation that is
+    # alive in another worker keeps its heartbeat fresh and is left alone.
     try:
         async with AsyncSessionLocal() as db:
             result = await db.execute(
                 update(Analysis)
-                .where(Analysis.compute_status == "running")
+                .where(
+                    Analysis.compute_status == "running",
+                    Analysis.updated_at < func.now() - splice.COMPUTE_STALE_AFTER,
+                )
                 .values(
                     compute_status="error",
                     compute_error="Splice feature computation interrupted by restart — please re-run",
@@ -92,8 +99,8 @@ async def lifespan(app: FastAPI):
             await db.commit()
             if interrupted:
                 logger.warning(
-                    "Reset %d interrupted splice computations to 'error': %s",
-                    len(interrupted), interrupted,
+                    "Reset %d stale (heartbeat > %s) splice computations to 'error': %s",
+                    len(interrupted), splice.COMPUTE_STALE_AFTER, interrupted,
                 )
     except Exception:
         logger.exception("Failed to reset interrupted splice computations on startup")

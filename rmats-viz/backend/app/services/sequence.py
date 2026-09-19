@@ -52,6 +52,7 @@ import subprocess
 from dataclasses import dataclass
 
 from app.config import settings
+from app.services.mane import _ensembl_chrom
 
 logger = logging.getLogger(__name__)
 
@@ -182,17 +183,21 @@ def _faidx_chunk(
     sam_regions: list[str],
     out: list[str],
     invalid: list[str],
+    timed_out: list[str] | None = None,
 ) -> bool:
     """Run ``samtools faidx`` for the regions at *chunk_idx*, filling *out*.
 
-    On ``CalledProcessError`` the chunk is split in halves and retried
-    recursively down to single regions so that only the invalid regions are
-    blanked (they are collected in *invalid*).
+    On ``CalledProcessError`` or ``TimeoutExpired`` the chunk is split in
+    halves and retried recursively down to single regions so that only the
+    invalid (or individually timing-out) regions are blanked; rejected regions
+    are collected in *invalid*, timed-out ones are counted in *timed_out*.
 
     Returns False when samtools itself is unavailable (callers stop).
     """
     if not chunk_idx:
         return True
+    if timed_out is None:
+        timed_out = []
     chunk_regions = [sam_regions[i] for i in chunk_idx]
     try:
         result = subprocess.run(
@@ -205,25 +210,28 @@ def _faidx_chunk(
     except FileNotFoundError as exc:
         logger.warning("samtools not found: %s", exc)
         return False
-    except subprocess.TimeoutExpired:
-        logger.warning(
-            "Batch samtools faidx timed out (%d regions, first=%s)",
-            len(chunk_regions), chunk_regions[0],
-        )
-        return True
-    except subprocess.CalledProcessError as exc:
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as exc:
         if len(chunk_idx) == 1:
-            invalid.append(chunk_regions[0])
-            logger.debug(
-                "samtools faidx rejected region %s (rc=%d): %s",
-                chunk_regions[0], exc.returncode,
-                exc.stderr.strip() if exc.stderr else "(no stderr)",
-            )
+            if isinstance(exc, subprocess.TimeoutExpired):
+                timed_out.append(chunk_regions[0])
+                logger.debug("samtools faidx timed out on region %s", chunk_regions[0])
+            else:
+                invalid.append(chunk_regions[0])
+                logger.debug(
+                    "samtools faidx rejected region %s (rc=%d): %s",
+                    chunk_regions[0], exc.returncode,
+                    exc.stderr.strip() if exc.stderr else "(no stderr)",
+                )
             return True
+        if isinstance(exc, subprocess.TimeoutExpired):
+            logger.warning(
+                "Batch samtools faidx timed out (%d regions, first=%s) — retrying in halves",
+                len(chunk_regions), chunk_regions[0],
+            )
         mid = len(chunk_idx) // 2
-        if not _faidx_chunk(fasta, chunk_idx[:mid], sam_regions, out, invalid):
+        if not _faidx_chunk(fasta, chunk_idx[:mid], sam_regions, out, invalid, timed_out):
             return False
-        return _faidx_chunk(fasta, chunk_idx[mid:], sam_regions, out, invalid)
+        return _faidx_chunk(fasta, chunk_idx[mid:], sam_regions, out, invalid, timed_out)
 
     seqs = _parse_faidx_output(result.stdout, len(chunk_idx))
     for idx, seq in zip(chunk_idx, seqs):
@@ -274,13 +282,20 @@ def extract_regions_batch(
 
     out = [""] * len(regions)
     invalid: list[str] = []
+    timed_out: list[str] = []
 
     # Process in chunks to stay within OS ARG_MAX limits.
     for chunk_start in range(0, len(valid_indices), _SAMTOOLS_CHUNK):
         chunk_idx = valid_indices[chunk_start : chunk_start + _SAMTOOLS_CHUNK]
-        if not _faidx_chunk(fasta, chunk_idx, sam_regions, out, invalid):
+        if not _faidx_chunk(fasta, chunk_idx, sam_regions, out, invalid, timed_out):
             break  # samtools unavailable — nothing more to do
 
+    if timed_out:
+        logger.warning(
+            "samtools faidx timed out on %d of %d regions (blanked): %s%s",
+            len(timed_out), len(valid_indices), ", ".join(timed_out[:10]),
+            " ..." if len(timed_out) > 10 else "",
+        )
     if invalid:
         preview = ", ".join(invalid[:10])
         logger.warning(
@@ -555,9 +570,7 @@ def _fetch_ensembl_seq(chrom: str, start: int, end: int) -> str:
         return ""
 
     # Convert UCSC-style chr names to Ensembl (strip 'chr', map M → MT)
-    ens = chrom[3:] if chrom.startswith("chr") else chrom
-    if ens == "M":
-        ens = "MT"
+    ens = _ensembl_chrom(chrom)
 
     region = f"{ens}:{start + 1}..{end}"
     url = (

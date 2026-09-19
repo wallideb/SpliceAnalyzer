@@ -14,19 +14,22 @@ export type EventsSortBy = NonNullable<EventsQuery["sort_by"]>;
 export type EventsSortDir = "asc" | "desc";
 
 /**
- * Table column id → backend sort key (see EventsQuery.sort_by). The ΔΨ column
- * is `inc_level_difference` but the server sorts on |ΔΨ| (`abs_inc_level_diff`).
+ * Table column id → backend sort key (see EventsQuery.sort_by). The server has
+ * no signed ΔΨ sort, so both the ΔΨ (`inc_level_difference`) and the |ΔΨ|
+ * (`abs_inc_level_diff`) columns sort on |ΔΨ| (`abs_inc_level_diff`).
  */
 const COLUMN_TO_SORT: Readonly<Record<string, EventsSortBy>> = {
   fdr: "fdr",
   gene_symbol: "gene_symbol",
   inc_level_difference: "abs_inc_level_diff",
+  abs_inc_level_diff: "abs_inc_level_diff",
 };
-const SORT_TO_COLUMN: Readonly<Record<EventsSortBy, string>> = {
-  fdr: "fdr",
-  p_value: "p_value",
-  gene_symbol: "gene_symbol",
-  abs_inc_level_diff: "inc_level_difference",
+/** Backend sort key → table column id(s) that should show the sort indicator. */
+const SORT_TO_COLUMNS: Readonly<Record<EventsSortBy, readonly string[]>> = {
+  fdr: ["fdr"],
+  p_value: ["p_value"],
+  gene_symbol: ["gene_symbol"],
+  abs_inc_level_diff: ["abs_inc_level_diff", "inc_level_difference"],
 };
 
 /** Default direction when a column is first clicked. */
@@ -74,7 +77,9 @@ export function EventsTable({
 
   // Sorting is performed by the server; we only mirror the current sort so the
   // header indicator reflects it (manualSorting → no client-side re-ordering).
-  const sorting: SortingState = sortBy ? [{ id: SORT_TO_COLUMN[sortBy], desc: sortDir === "desc" }] : [];
+  const sorting: SortingState = sortBy
+    ? SORT_TO_COLUMNS[sortBy].map((id) => ({ id, desc: sortDir === "desc" }))
+    : [];
 
   const table = useReactTable({
     data,

@@ -183,7 +183,7 @@ class PatternAnalysisResponse(BaseModel):
     acceptor_sites: SiteStats
     ppt: PPTStats
     frame: FrameStats
-    bp_found_pct: float | None = None   # % events with a branch-point match
+    bp_found_pct: float | None = None   # % events with a branch-point match (of events with a PPT sequence)
     # Flanking exon splice sites
     upstream_donor_sites: SiteStats | None = None
     downstream_acceptor_sites: SiteStats | None = None

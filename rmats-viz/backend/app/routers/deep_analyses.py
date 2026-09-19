@@ -575,10 +575,14 @@ def _compute_stat_tests(
     k2 = sum(1 for f in ns_frame if f.frame_class == "in_frame")
     _add("in_frame_pct", "Proportion z-test", *_proportion_z_test(k1, len(sig_frame), k2, len(ns_frame)))
 
-    # 7. Branch point found — proportion z-test
-    k1 = sum(1 for f in sig_with_seq if f.bp_motif_found)
-    k2 = sum(1 for f in ns_with_seq if f.bp_motif_found)
-    _add("bp_found", "Proportion z-test", *_proportion_z_test(k1, len(sig_with_seq), k2, len(ns_with_seq)))
+    # 7. Branch point found — proportion z-test.  Denominator = events with a
+    # PPT sequence (the branch point is searched in ppt_seq), consistent with
+    # bp_found_pct in _compute_group_stats and with the export tables.
+    sig_with_ppt = [f for f in sig_feats if f.ppt_seq]
+    ns_with_ppt = [f for f in nonsig_feats if f.ppt_seq]
+    k1 = sum(1 for f in sig_with_ppt if f.bp_motif_found)
+    k2 = sum(1 for f in ns_with_ppt if f.bp_motif_found)
+    _add("bp_found", "Proportion z-test", *_proportion_z_test(k1, len(sig_with_ppt), k2, len(ns_with_ppt)))
 
     # 8. Upstream donor GT (flanking exon) — proportion z-test
     k1, n1 = _prop(sig_feats, "upstream_donor_is_gt", "upstream_donor_seq", 9)
@@ -653,9 +657,11 @@ def _compute_group_stats(
     # Frame
     fc = Counter(f.frame_class or "unknown" for f in feats)
 
-    # Branch point
-    bp_total = len(feats_with_seq)
-    bp_found = sum(1 for f in feats_with_seq if f.bp_motif_found)
+    # Branch point — denominator = events with a PPT sequence (the branch
+    # point is searched in ppt_seq), consistent with _compute_stat_tests.
+    feats_with_ppt = [f for f in feats if f.ppt_seq]
+    bp_total = len(feats_with_ppt)
+    bp_found = sum(1 for f in feats_with_ppt if f.bp_motif_found)
 
     # Mean ΔΨ
     dpsi = [ev.inc_level_difference for ev in events if ev.inc_level_difference is not None]

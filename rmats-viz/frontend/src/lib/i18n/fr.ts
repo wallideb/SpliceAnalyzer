@@ -439,7 +439,7 @@ export const fr: Translations = {
       title: "Méthode — Analyse d'enrichissement de motifs hnRNP",
       body:
         "Inspirée de rMAPS2 (Hwang et al., NAR 2020 ; 48:W300-W306), cette analyse recherche " +
-        "dans sept régions génomiques autour de chaque exon sauté (50 nt flanquants des exons amont " +
+        "dans sept régions génomiques autour de chaque exon sauté (jusqu'à 250 nt flanquants des exons amont " +
         "et aval, corps de l'exon sauté, et pour chaque intron flanquant les 250 nt après le 5′ss " +
         "et les 250 nt avant le 3′ss) 19 motifs consensus connus de protéines " +
         "de liaison à l'ARN de la famille hnRNP, réparties en huit familles protéiques. " +

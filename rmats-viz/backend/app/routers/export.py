@@ -293,9 +293,9 @@ async def export_deep_analysis_excel(
             g.get("symbol", "") for g in (analysis.mutated_genes or []) if g.get("symbol")
         ]
         if mutated_genes_list:
-            # STRING's /network endpoint scores one pair per call, so keep
-            # per-pair calls but query each unordered pair once (deduplicated,
-            # case-insensitive) under the shared concurrency cap.
+            # The STRING pair endpoint (get_interaction) is queried once per
+            # (gene, mutated-gene candidate) pair after deduplication of
+            # unordered, case-insensitive pairs, under the shared concurrency cap.
             _seen_pairs: set[frozenset[str]] = set()
             pairs: list[tuple[str, str]] = []
             for sym in unique_symbols:
@@ -1475,8 +1475,9 @@ def _build_pdf(
         the "Significant Events" section in deep-analysis reports.
     permutation_table : list[dict] | None
         ΔΨ permutation results at multiple iteration counts.
-        Each dict: {"iterations": int, "n_tested": int,
-                     "pct_p05": float, "pct_p01": float}.
+        Each dict: {"iterations": int, "label": str | None, "n_tested": int,
+                     "pct_p05": float, "pct_p01": float, "exact_fraction": float}.
+        A single row with a "label" means all events were enumerated exactly.
     hnrnp_data : dict | None
         Result from hnRNP motif enrichment analysis.
         Keys: n_sig_events, n_bg_events, results (list of enrichment items).
@@ -2183,7 +2184,7 @@ def _build_pdf(
         for pt in permutation_table:
             ef = pt.get("exact_fraction")
             perm_rows.append([
-                f"{pt['iterations']:,}",
+                pt.get("label") or f"{pt['iterations']:,}",
                 f"{pt['n_tested']:,}",
                 f"{pt['pct_p05']:.1f}%" if pt.get("pct_p05") is not None else "—",
                 f"{pt['pct_p01']:.1f}%" if pt.get("pct_p01") is not None else "—",
@@ -2599,11 +2600,16 @@ def _build_pdf(
           "junction coverage (IJC + SJC) is computed in both sample groups. Events "
           "whose mean coverage falls below <b>10 reads</b> in either group are "
           "discarded to ensure reliable Ψ estimates.", "body"),
-        p("• <b>Boundary-based deduplication:</b> Within each (event type, gene, "
-          "chromosome, strand) group, when two or more splicing events shared at least "
-          "one boundary (skipped-exon start or end) within <b>±50 bp</b>, they were "
-          "collapsed by retaining the event with the lowest FDR (ties broken by "
-          "largest |ΔΨ|).", "body"),
+        p("• <b>Type-aware deduplication:</b> Within each (event type, gene, "
+          "chromosome, strand) group, near-duplicate events were collapsed by retaining "
+          "the event with the lowest FDR (ties broken by largest |ΔΨ|). The "
+          "near-duplicate rule depends on the event type: <b>SE</b> — at least one "
+          "skipped-exon boundary (start <i>or</i> end) within <b>±50 bp</b>; <b>RI</b> — "
+          "both boundaries of the retained intron within ±50 bp (<i>and</i>); <b>MXE</b> — "
+          "all four boundaries (first <i>and</i> second exon start/end) within ±50 bp, a "
+          "different second exon being a distinct event; <b>A3SS / A5SS</b> — exact "
+          "identity of the long, short and flanking exon coordinates only (i.e. the "
+          "JC / JCEC merge), so alternative sites a few nt apart are kept.", "body"),
         p("These steps reduce redundancy and low-confidence calls, yielding a curated "
           "set of splicing events that is used throughout the rest of the pipeline.", "body"),
     ]
@@ -2721,7 +2727,7 @@ def _build_pdf(
 
     if is_deep and "d" in selected_sections:
         _n = _next_app_a()
-        _perm_iters = ", ".join(f"{pt['iterations']:,}" for pt in (permutation_table or [])) or "500"
+        _perm_exact_only = bool(permutation_table) and all(pt.get("label") for pt in permutation_table)
         story += [
             p(f"<b>{_n}. Permutation Test</b>", "h3"),
             p("For each significant SE event, sample labels are permuted (keeping group sizes "
@@ -2731,8 +2737,11 @@ def _build_pdf(
               "the observed |ΔΨ| (the observed labelling is one of them, so p ≥ 1/N). Otherwise "
               "K random permutations are drawn and p = (r + 1) / (K + 1); the +1 correction avoids "
               "p = 0 (Phipson &amp; Smyth, 2010 [7]). The Monte-Carlo test is run at "
-              f"K = {_perm_iters} iterations to assess convergence, and the minimum attainable "
-              "p-value given the replicate design is reported.", "body"),
+              "K = 50/100/250/500 iterations to assess convergence unless all events were "
+              "enumerated exactly"
+              + (" (the case here: a single exact-enumeration row is reported)" if _perm_exact_only else "")
+              + ", and the minimum attainable p-value given the replicate design is "
+              "reported.", "body"),
         ]
 
     if is_deep and "e" in selected_sections:
@@ -3045,7 +3054,7 @@ def _build_pdf(
 
     if is_deep and "d" in selected_sections:
         _cn = _next_app_c()
-        _perm_iters_c = ", ".join(f"{pt['iterations']:,}" for pt in (permutation_table or [])) or "500"
+        _perm_exact_only_c = bool(permutation_table) and all(pt.get("label") for pt in permutation_table)
         story += [
             p(f"<b>C.{_cn} Permutation Test</b>", "h3"),
             p("For each significant SE event, sample-label permutation generates a null ΔΨ "
@@ -3057,8 +3066,10 @@ def _build_pdf(
             p("Otherwise K random permutations are drawn (Monte-Carlo) and", "body"),
             p("&nbsp;&nbsp;&nbsp;p = (r + 1) / (K + 1)", "code"),
             p("where the +1 correction avoids p = 0 (Phipson &amp; Smyth, 2010 [7]).  "
-              f"The Monte-Carlo test is run at K = {_perm_iters_c} iterations to demonstrate "
-              "convergence.  The smallest attainable p-value is 1/N for exact enumeration "
+              "The Monte-Carlo test is run at K = 50/100/250/500 iterations to demonstrate "
+              "convergence unless all events were enumerated exactly"
+              + (" (the case here: a single exact-enumeration row is reported)" if _perm_exact_only_c else "")
+              + ".  The smallest attainable p-value is 1/N for exact enumeration "
               "(e.g. 0.05 with 3 vs 3 replicates, N = 20; 0.167 with 2 vs 2, N = 6) and "
               "1/(K+1) for Monte-Carlo sampling; it is reported in the permutation section and "
               "must be considered when reading the fraction of events below 0.05 or 0.01.", "body"),
@@ -3328,19 +3339,21 @@ async def export_deep_analysis_pdf(
             logger.warning("Enrichr computation skipped in PDF (non-fatal): %s", exc)
             return None
 
-    # ── Permutation test (four Monte-Carlo sizes, seed 42) ─────────────
+    # ── Permutation test (Monte-Carlo convergence table, seed 42) ───────
     # The report text states the test is run at 50, 100, 250 and 500 iterations
     # to assess convergence; the 500-iteration row is the reference used for
     # the summary (last row).  Exact enumeration (≤ 5000 label splits) is
-    # independent of K, so those events give identical rows.
+    # independent of K, so when every event is enumerated exactly
+    # (exact_fraction == 1.0) the 500-iteration run is reported as a single
+    # "exact enumeration" row instead of four identical rows.
     from app.services.permutation import run_permutation
 
     _PERM_ITERATIONS = (50, 100, 250, 500)
+    _PERM_REFERENCE_K = 500
     sig_features_list = [features.get(e.id) for e in sig_events]
 
     def _run_perm_table() -> list[dict]:
-        rows: list[dict] = []
-        for k in _PERM_ITERATIONS:
+        def _row(k: int) -> dict:
             perm_res = run_permutation(
                 sig_events,
                 sig_features_list,
@@ -3348,8 +3361,9 @@ async def export_deep_analysis_pdf(
                 only_se=True,
                 seed=42,
             )
-            rows.append({
+            return {
                 "iterations": k,
+                "label": None,
                 "n_tested": perm_res.n_events_tested,
                 "pct_p05": perm_res.pct_p05,
                 "pct_p01": perm_res.pct_p01,
@@ -3357,7 +3371,14 @@ async def export_deep_analysis_pdf(
                 "min_p_attainable": getattr(perm_res, "min_p_attainable", None),
                 "n_replicates_g1": getattr(perm_res, "n_replicates_g1", None),
                 "n_replicates_g2": getattr(perm_res, "n_replicates_g2", None),
-            })
+            }
+
+        ref = _row(_PERM_REFERENCE_K)
+        if ref.get("exact_fraction") == 1.0:
+            ref["label"] = "exact enumeration (all label permutations)"
+            return [ref]
+        rows = [_row(k) for k in _PERM_ITERATIONS if k != _PERM_REFERENCE_K]
+        rows.append(ref)  # reference row last
         return rows
 
     async def _compute_permutation() -> list[dict]:

@@ -23,7 +23,7 @@ BACKEND = os.path.abspath(os.path.join(HERE, "..", ".."))
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://rmats:rmats@127.0.0.1:5433/rmatsdb")
 os.environ["GRCH38_FASTA"] = os.path.join(DATA, "genome.fa")
-os.environ["SAMTOOLS_BIN"] = os.path.join(HERE, "samtools")
+os.environ.setdefault("SAMTOOLS_BIN", os.path.join(HERE, "samtools"))
 os.environ["MANE_GFF3"] = os.path.join(DATA, "MANE.GRCh38.ensembl_genomic.gff.gz")
 os.environ["MANE_CACHE_DB"] = os.path.join(HERE, "mane_cache.db")
 os.environ.pop("SVG_EXPORT_DIR", None)

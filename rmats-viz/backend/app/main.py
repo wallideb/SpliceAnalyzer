@@ -157,7 +157,8 @@ async def debug_fasta():
     }
     # samtools version
     try:
-        r = subprocess.run([samtools_bin, "--version"], capture_output=True, text=True, timeout=5)
+        r = subprocess.run([samtools_bin, "--version"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=5)
         info["samtools_version"] = r.stdout.split("\n")[0]
         info["samtools_rc"] = r.returncode
     except FileNotFoundError:
@@ -174,7 +175,7 @@ async def debug_fasta():
         try:
             r2 = subprocess.run(
                 [samtools_bin, "faidx", fasta, "chr1:1000000-1000010"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
             )
             info["faidx_test_rc"] = r2.returncode
             info["faidx_test_out"] = r2.stdout.strip()

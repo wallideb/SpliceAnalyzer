@@ -55,45 +55,69 @@ _HEADERS = {"Accept": "application/json"}
 _local = threading.local()
 
 
+_schema_lock = threading.Lock()
+_schema_ready_for: str | None = None  # cache path whose schema has been initialised
+
+
+def _ensure_schema(conn: sqlite3.Connection, path: str) -> None:
+    """Create (or migrate) the cache tables exactly once per process.
+
+    The schema check used to run unguarded in every thread-local connection:
+    with the 8-worker annotation pool on a fresh cache file, one thread could
+    see "no table yet", issue ``DROP TABLE IF EXISTS`` and destroy the table
+    another thread had just created and was writing to ("no such table:
+    mane_cache"), leaving a few events with frame_class 'unknown'.  The
+    process-wide lock serialises the initialisation; the old (strand-less)
+    schema is dropped only when it actually exists.
+    """
+    global _schema_ready_for
+    if _schema_ready_for == path:
+        return
+    with _schema_lock:
+        if _schema_ready_for == path:
+            return
+        cols = [row[1] for row in conn.execute("PRAGMA table_info(mane_cache)")]
+        if cols and "strand" not in cols:
+            # Schema migration (v2): strand is part of the primary key so that
+            # minus-strand exon_rank values are recomputed correctly.
+            conn.execute("DROP TABLE mane_cache")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS mane_cache (
+                gene_id TEXT NOT NULL,
+                strand TEXT NOT NULL DEFAULT '+',
+                exon_start INTEGER NOT NULL,
+                exon_end INTEGER NOT NULL,
+                transcript_id TEXT,
+                exon_rank INTEGER,
+                frame_region TEXT,
+                frame_class TEXT,
+                cds_exon_length INTEGER,
+                PRIMARY KEY (gene_id, strand, exon_start, exon_end)
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS mane_exon_cache (
+                transcript_id TEXT PRIMARY KEY,
+                n_exons INTEGER,
+                exons_json TEXT
+            )"""
+        )
+        conn.commit()
+        _schema_ready_for = path
+
+
 def _db_conn() -> sqlite3.Connection:
+    path = str(Path(settings.MANE_CACHE_DB))
     conn = getattr(_local, "conn", None)
-    if conn is not None:
+    if conn is not None and getattr(_local, "conn_path", None) == path:
         return conn
-    path = Path(settings.MANE_CACHE_DB)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=30)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
-    # Schema migration: add strand column to primary key (v2).
-    # If the old schema (without strand) exists, drop it so that minus-strand
-    # exon_rank values are recomputed correctly.
-    try:
-        conn.execute("SELECT strand FROM mane_cache LIMIT 1")
-    except sqlite3.OperationalError:
-        conn.execute("DROP TABLE IF EXISTS mane_cache")
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS mane_cache (
-            gene_id TEXT NOT NULL,
-            strand TEXT NOT NULL DEFAULT '+',
-            exon_start INTEGER NOT NULL,
-            exon_end INTEGER NOT NULL,
-            transcript_id TEXT,
-            exon_rank INTEGER,
-            frame_region TEXT,
-            frame_class TEXT,
-            cds_exon_length INTEGER,
-            PRIMARY KEY (gene_id, strand, exon_start, exon_end)
-        )"""
-    )
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS mane_exon_cache (
-            transcript_id TEXT PRIMARY KEY,
-            n_exons INTEGER,
-            exons_json TEXT
-        )"""
-    )
-    conn.commit()
+    _ensure_schema(conn, path)
     _local.conn = conn
+    _local.conn_path = path
     return conn
 
 

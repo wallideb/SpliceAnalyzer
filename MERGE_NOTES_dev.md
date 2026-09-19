@@ -2,7 +2,7 @@
 
 **Title:** Fix ingestion, sequence, statistics and report defects (ORIGINAL_CODE_FIXES A–E); add in-browser migration spec
 
-**Scope:** 18 commits, 83 files (+8 541 / −3 163). Backend (FastAPI/Python), frontend (Next.js), README, three Alembic migrations (0016, 0017, 0018), 129 backend tests (was 12), frontend `tsc` + `next build` clean. Two independent adversarial reviews plus a high-effort automated code review were run and their findings fixed (see `ORIGINAL_CODE_FIXES.md`, "Status after the fix pass").
+**Scope:** 18 commits, 83 files (+8 541 / −3 163). Backend (FastAPI/Python), frontend (Next.js), README, three Alembic migrations (0016, 0017, 0018), 131 backend tests (was 12), frontend `tsc` + `next build` clean. Two independent adversarial reviews plus a high-effort automated code review were run and their findings fixed (see `ORIGINAL_CODE_FIXES.md`, "Status after the fix pass").
 
 ## Summary of changes
 
@@ -17,6 +17,7 @@
 - FASTA batch parser no longer shifts sequences after an empty record; failed or timed-out `samtools` chunks are retried by halving so only invalid regions are blanked; negative starts clamped; full-IUPAC reverse complement; one `splice_window_coords()` function for the three extraction paths.
 - Branch point: yUnAy/YNYTRAY scan restricted to 18–44 nt upstream of the 3′SS, branch adenosine mandatory, distance measured from the adenosine to the exon start (was: motif centre to the end of the PPT window, 3 nt short), tie → closest to the 3′SS; new `bp_position`, `bp_motif` fields (persisted).
 - PWM frequencies exclude non-ACGT from the denominator; canonical flags are `None` (unknown) for truncated windows instead of `False`.
+- MANE SQLite cache: schema initialisation is now serialised by a process-wide lock (a race between the 8 annotation threads on a fresh cache file could drop the table under another thread and leave a few events with `frame_class = unknown` on the first compute; reproduced 5/124 and 2/124 failures on the end-to-end scenario, 0 after the fix over 4 runs).
 - MANE: Ensembl fallback filters CDS by transcript `Parent` and uses the union of CDS segments; local GFF3 indexes the `tag=MANE_Select` transcript (MANE Plus Clinical kept separately); `chr` prefix handling fixed.
 
 ### Statistics (`services/stats.py` new, `hnrnp_motifs.py`, `permutation.py`, `routers/deep_analyses.py`)

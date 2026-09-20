@@ -66,6 +66,11 @@ export const fr: Translations = {
       title: "Analyse en cours…",
       subtitle:
         "Veuillez patienter, suppression des duplicats et priorisation des événements d'épissage…",
+      uploading: "Envoi des fichiers… {{percent}} %",
+      uploadHint:
+        "Les fichiers sont envoyés par petits morceaux afin que les sorties rMATS volumineuses passent les proxys limitant la taille des requêtes.",
+      sending: "Envoi de {{file}} ({{sent}} / {{total}})",
+      processing: "Traitement en cours… {{total}} reçus, le serveur analyse et enregistre les événements.",
     },
   },
   analysisDetail: {

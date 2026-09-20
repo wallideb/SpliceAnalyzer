@@ -348,6 +348,8 @@ Copy `.env.example` to `.env` and adjust as needed:
 | `MANE_CACHE_DB` | `/data/mane_cache.db` | SQLite cache for Ensembl MANE lookups |
 | `MANE_GFF3` | `/data/MANE.GRCh38.ensembl_genomic.gff.gz` | Local MANE GFF3 annotation file |
 | `SVG_EXPORT_DIR` | *(unset)* | Optional directory where the deep-analysis PDF export also writes every figure as a standalone SVG (one sub-directory per deep analysis). Unset (default) &rarr; no SVG side files are written |
+| `UPLOAD_TMP_DIR` | `/tmp/spliceanalyzer_uploads` | Directory where the chunked browser uploads (`POST /api/v1/analyses/uploads`) are assembled, one sub-directory per upload session |
+| `UPLOAD_SESSION_TTL_HOURS` | `24` | Upload sessions older than this (never finalized or aborted) are purged, best effort, whenever a new session is opened |
 
 > **MANE cache behavior:** Successful Ensembl lookups are cached in `mane_cache.db` (SQLite with WAL journal mode) to avoid repeated API calls. Failed lookups (network errors, no MANE transcript found) are **not** cached there and are retried on the next compute run; the per-event endpoint (`GET /splice/feature/{id}`) additionally retries a missing MANE annotation at most once per 24 h, using the feature row's `computed_at` as a negative-result timestamp.
 
@@ -363,7 +365,9 @@ Copy `.env.example` to `.env` and adjust as needed:
 2. Drag and drop one or more rMATS output files (e.g., `SE.MATS.JC.txt`, `A5SS.MATS.JCEC.txt`)
 3. The event type and the counting mode (JC / JCEC) are inferred from the `<TYPE>.MATS.<JC|JCEC>.txt` token of the filename (the upload zone shows a badge for each); files whose name is uninformative are classified from their header by the backend
 4. Define sample group names for your conditions
-5. Click **Create** &mdash; the parser ingests the TSV, filters low-coverage events (&lt;10X), deduplicates with the per-type rules of [§2](#2-ingestion-deduplication), and stores events in PostgreSQL. The response reports the number of rows actually inserted and any `warnings`, which the upload page displays before opening the analysis
+5. Click **Create** &mdash; the browser sends the files in **512 KB chunks** (progress bar with the percentage of bytes sent and the current file), then the parser ingests the TSV, filters low-coverage events (&lt;10X), deduplicates with the per-type rules of [§2](#2-ingestion-deduplication), and stores events in PostgreSQL ("Processing…"). The response reports the number of rows actually inserted and any `warnings`, which the upload page displays before opening the analysis
+
+> **Why chunks?** Reverse proxies in front of the API &mdash; the GitHub Codespaces port-forwarding proxy, a default nginx `client_max_body_size` &mdash; reject request bodies larger than about 1 MB with HTTP 413, while rMATS outputs are typically 10–100 MB. The browser therefore opens an upload session, `PUT`s each file as a sequence of ≤ 512 KB raw chunks (sequential, retried up to 3 times; the server acknowledges a resent last chunk without appending it) and finalizes with the analysis metadata. Files are assembled under `UPLOAD_TMP_DIR` and the session directory is removed after finalize or abort, or purged after `UPLOAD_SESSION_TTL_HOURS`. The single-shot `POST /api/v1/analyses` (whole files in one multipart request) is unchanged and remains the simplest option for `curl` / API clients that talk to the backend directly.
 
 ### Browsing Events
 
@@ -858,14 +862,31 @@ The backend exposes a versioned REST API under `/api/v1`. Full interactive docum
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/v1/analyses` | Create a new analysis (multipart file upload) |
+| `POST` | `/api/v1/analyses` | Create a new analysis (single-shot multipart file upload; used by `curl` / API clients) |
+| `POST` | `/api/v1/analyses/uploads` | Open a chunked-upload session &rarr; `{"upload_id"}` (used by the browser: proxies often cap request bodies at ~1 MB, so files are sent in ≤ 512 KB pieces). Stale sessions (`UPLOAD_SESSION_TTL_HOURS`) are purged here |
+| `PUT` | `/api/v1/analyses/uploads/{upload_id}/chunk?filename=&index=&total=` | Append one raw chunk (`Content-Type: application/octet-stream`, max 4 MiB &rarr; 413) to `filename` (basename, `[A-Za-z0-9._-]` only &rarr; 422). Chunks must be sequential: `index` must equal the number already received (409 with the `expected` index otherwise); resending the last received chunk returns 200 without appending, so retries are idempotent. Returns `{filename, received_chunks, total_chunks, received_bytes}` |
+| `POST` | `/api/v1/analyses/uploads/{upload_id}/finalize` | Same form fields as `POST /api/v1/analyses` minus the files, plus `files` = JSON list of the uploaded filenames to import (in order). Every listed file must be complete (409 naming the incomplete file). Assembles the files, creates the analysis exactly like the single-shot endpoint (201 + `UploadResponse`) and removes the session directory, also on failure |
+| `DELETE` | `/api/v1/analyses/uploads/{upload_id}` | Abort a session and remove its partial files (204; 404 if unknown) |
 | `GET` | `/api/v1/analyses` | List all analyses (ordered by `created_at` DESC) |
 | `GET` | `/api/v1/analyses/{id}` | Get analysis details + sample groups |
 | `DELETE` | `/api/v1/analyses/{id}` | Delete analysis and all associated data asynchronously (returns 204 immediately; deletion runs in a background task with explicit ordered deletes; status set to `deleting` during cleanup, reset to `error` on failure) |
 | `GET` | `/api/v1/analyses/{id}/events` | Paginated, filterable event list |
 | `GET` | `/api/v1/analyses/{id}/events/manhattan` | Lightweight points for the Manhattan plot in natural chromosome order (chr1 … chr22, X, Y, M, then other contigs); all FDR &lt; 0.05 events kept, the rest uniformly sampled above 50 000 points |
 
-The upload response (`UploadResponse`) contains `analysis_id`, `status`, `event_count` (rows actually inserted) and `warnings` (list of human-readable notes, e.g. an empty file or "no events were imported").
+The upload response (`UploadResponse`, returned by both `POST /api/v1/analyses` and `…/finalize`) contains `analysis_id`, `status`, `event_count` (rows actually inserted) and `warnings` (list of human-readable notes, e.g. an empty file or "no events were imported").
+
+Chunked upload from the command line (what the browser does with 512 KB pieces):
+
+```bash
+SID=$(curl -s -X POST localhost:8000/api/v1/analyses/uploads | jq -r .upload_id)
+split -b 512k -d SE.MATS.JC.txt part_ && N=$(ls part_* | wc -l) && i=0
+for p in part_*; do
+  curl -s -X PUT -H 'Content-Type: application/octet-stream' --data-binary @"$p" \
+    "localhost:8000/api/v1/analyses/uploads/$SID/chunk?filename=SE.MATS.JC.txt&index=$i&total=$N"; i=$((i+1))
+done
+curl -s -X POST "localhost:8000/api/v1/analyses/uploads/$SID/finalize" \
+  -F name="My cohort" -F group1_label=Patients -F group2_label=Controls -F files='["SE.MATS.JC.txt"]'
+```
 
 **Event query parameters:**
 

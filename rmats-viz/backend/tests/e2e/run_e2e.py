@@ -27,6 +27,7 @@ os.environ.setdefault("SAMTOOLS_BIN", os.path.join(HERE, "samtools"))
 os.environ["MANE_GFF3"] = os.path.join(DATA, "MANE.GRCh38.ensembl_genomic.gff.gz")
 os.environ["MANE_CACHE_DB"] = os.path.join(HERE, "mane_cache.db")
 os.environ.pop("SVG_EXPORT_DIR", None)
+os.environ.setdefault("UPLOAD_TMP_DIR", os.path.join(HERE, "uploads_tmp"))
 if os.path.exists(os.environ["MANE_CACHE_DB"]):
     os.remove(os.environ["MANE_CACHE_DB"])
 sys.path.insert(0, BACKEND)
@@ -167,6 +168,46 @@ async def run(c: AsyncClient) -> None:
           [g["group_label"] for g in r.json()["sample_groups"]])
     r = await c.get("/api/v1/analyses")
     check("a. GET /analyses lists it", any(a["id"] == aid for a in r.json()), len(r.json()))
+
+    # ── a2. chunked upload (browser path: ≤ 512 KB requests, here 200 KB) ──
+    CHUNK = 200 * 1024
+    r = await c.post("/api/v1/analyses/uploads")
+    check("a2. POST /analyses/uploads -> 201 with upload_id", r.status_code == 201 and "upload_id" in r.json(), r.status_code, 201)
+    uid = r.json()["upload_id"]
+    n_chunks = n_ok = 0
+    sizes_ok = True
+    n_expected = sum(max(1, math.ceil(os.path.getsize(os.path.join(DATA, n)) / CHUNK)) for n in names)
+    for n in names:
+        blob = open(os.path.join(DATA, n), "rb").read()
+        total = max(1, math.ceil(len(blob) / CHUNK))          # an empty file is one empty chunk
+        last = None
+        for i in range(total):
+            piece = blob[i * CHUNK:(i + 1) * CHUNK]
+            last = await c.put(f"/api/v1/analyses/uploads/{uid}/chunk",
+                               params={"filename": n, "index": i, "total": total},
+                               content=piece, headers={"Content-Type": "application/octet-stream"})
+            n_chunks += 1
+            n_ok += last.status_code == 200
+        body = last.json() if last.status_code == 200 else {}
+        sizes_ok &= body.get("received_bytes") == len(blob) and body.get("received_chunks") == body.get("total_chunks") == total
+    check("a2. every 200 KB chunk accepted (200), count == client-side slicing", n_ok == n_chunks == n_expected, (n_ok, n_chunks), n_expected)
+    check("a2. received_bytes / chunks reported per file == client sizes", sizes_ok)
+    r = await c.put(f"/api/v1/analyses/uploads/{uid}/chunk", params={"filename": names[0], "index": 5, "total": 2},
+                    content=b"x", headers={"Content-Type": "application/octet-stream"})
+    check("a2. chunk with a different total -> 422", r.status_code == 422, r.status_code)
+    r = await c.post(f"/api/v1/analyses/uploads/{uid}/finalize", data={**data, "name": "e2e chunked", "files": json.dumps(names)})
+    check("a2. POST finalize -> 201", r.status_code == 201, (r.status_code, r.text[:200]), 201)
+    up2 = r.json()
+    aid2 = up2["analysis_id"]
+    check("a2. chunked event_count == single-shot event_count == expected", up2["event_count"] == up["event_count"] == EXP["event_count"],
+          up2["event_count"], EXP["event_count"])
+    check("a2. chunked warnings == single-shot warnings (empty summary.txt)", up2["warnings"] == up["warnings"], up2["warnings"])
+    check("a2. upload session directory removed after finalize", not os.path.exists(os.path.join(os.environ["UPLOAD_TMP_DIR"], uid)))
+    r = await c.get(f"/api/v1/analyses/{aid2}")
+    check("a2. GET chunked analysis: status ready, groups round-trip", r.status_code == 200 and r.json()["status"] == "ready"
+          and [g["group_label"] for g in r.json()["sample_groups"]] == ["Patients", "Controls"], r.json().get("status"))
+    r = await c.delete(f"/api/v1/analyses/{aid2}")
+    check("a2. DELETE chunked analysis -> 204", r.status_code == 204, r.status_code)
 
     # ── b. events ──────────────────────────────────────────────────────
     r = await c.get(f"/api/v1/analyses/{aid}/events", params={"page_size": 200})

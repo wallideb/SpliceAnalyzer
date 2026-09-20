@@ -23,6 +23,16 @@ class Settings(BaseSettings):
     # None (default) disables the side-dump entirely.
     SVG_EXPORT_DIR: str | None = None
 
+    # ── Chunked upload ───────────────────────────────────────────────────────
+    # Browsers upload rMATS files through POST /analyses/uploads in ≤ 512 KB
+    # requests (reverse proxies such as the Codespaces port forwarder or a
+    # default nginx reject bodies > 1 MB with 413).  Chunks are assembled in
+    # one sub-directory per upload session under this directory ...
+    UPLOAD_TMP_DIR: str = "/tmp/spliceanalyzer_uploads"
+    # ... and sessions older than this are purged (best effort) whenever a new
+    # session is created, so an abandoned browser tab cannot fill the disk.
+    UPLOAD_SESSION_TTL_HOURS: int = 24
+
     @property
     def cors_origins_list(self) -> List[str]:
         try:

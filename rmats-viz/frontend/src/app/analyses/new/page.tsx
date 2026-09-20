@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { FileUploadZone } from "@/components/upload/FileUploadZone";
 import { GroupMappingDialog } from "@/components/upload/GroupMappingDialog";
 import { GeneAutocomplete } from "@/components/genes/GeneAutocomplete";
-import { uploadAnalysis } from "@/lib/api/analyses";
+import { uploadAnalysis, type UploadProgress } from "@/lib/api/analyses";
 import { useT } from "@/contexts/LanguageContext";
 import type { GeneEntry } from "@/types/gene";
 
@@ -22,6 +22,8 @@ export default function NewAnalysisPage() {
   // Import notes returned by the backend (UploadResponse.warnings); when
   // present the analysis exists but the user is told before navigating.
   const [uploadWarnings, setUploadWarnings] = useState<{ id: string; warnings: string[] } | null>(null);
+  // Chunked-upload progress (bytes sent, current file) shown on the loading screen.
+  const [progress, setProgress] = useState<UploadProgress | null>(null);
 
   const canNext = name.trim() && files.length > 0;
 
@@ -29,16 +31,20 @@ export default function NewAnalysisPage() {
     if (!canNext) return;
     setLoading(true);
     setError(null);
+    setProgress(null);
     try {
-      const res = await uploadAnalysis({
-        name: name.trim(),
-        group1_label: group1Label,
-        group2_label: group2Label,
-        group1_samples: [],
-        group2_samples: [],
-        mutated_genes: mutatedGenes,
-        files,
-      });
+      const res = await uploadAnalysis(
+        {
+          name: name.trim(),
+          group1_label: group1Label,
+          group2_label: group2Label,
+          group1_samples: [],
+          group2_samples: [],
+          mutated_genes: mutatedGenes,
+          files,
+        },
+        setProgress,
+      );
       if (res.warnings && res.warnings.length > 0) {
         setUploadWarnings({ id: res.analysis_id, warnings: res.warnings });
         setLoading(false);
@@ -52,7 +58,7 @@ export default function NewAnalysisPage() {
   };
 
   if (loading) {
-    return <DnaLoadingScreen />;
+    return <DnaLoadingScreen progress={progress} />;
   }
 
   if (uploadWarnings) {
@@ -211,19 +217,55 @@ export default function NewAnalysisPage() {
   );
 }
 
-function DnaLoadingScreen() {
+function formatMB(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function DnaLoadingScreen({ progress }: { progress: UploadProgress | null }) {
   const t = useT();
+  const uploading = progress?.phase === "upload";
+  const percent =
+    progress && progress.totalBytes > 0
+      ? Math.min(100, Math.round((progress.sentBytes / progress.totalBytes) * 100))
+      : uploading ? 0 : 100;
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-8">
       <div className="relative w-24 h-24 flex items-center justify-center">
         <img src="/logo.svg" alt="SpliceAnalyzer" className="w-20 h-20 dna-strand" draggable={false} />
       </div>
       <div className="text-center space-y-2">
-        <p className="text-lg font-semibold text-foreground">{t("newAnalysis.loading.title")}</p>
+        <p className="text-lg font-semibold text-foreground">
+          {uploading ? t("newAnalysis.loading.uploading", { percent }) : t("newAnalysis.loading.title")}
+        </p>
         <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
-          {t("newAnalysis.loading.subtitle")}
+          {uploading ? t("newAnalysis.loading.uploadHint") : t("newAnalysis.loading.subtitle")}
         </p>
       </div>
+      {progress && (
+        <div className="w-full max-w-xs space-y-2" role="status" aria-live="polite">
+          <div
+            className="h-2 w-full rounded-full bg-muted overflow-hidden"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
+          >
+            <div
+              className={`h-full rounded-full transition-[width] duration-300 ${uploading ? "bg-blue-500" : "bg-green-500"}`}
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground text-center truncate" title={progress.file}>
+            {uploading
+              ? t("newAnalysis.loading.sending", {
+                  file: progress.file ?? "",
+                  sent: formatMB(progress.sentBytes),
+                  total: formatMB(progress.totalBytes),
+                })
+              : t("newAnalysis.loading.processing", { total: formatMB(progress.totalBytes) })}
+          </p>
+        </div>
+      )}
       <div className="flex gap-2">
         {[0, 1, 2].map((i) => (
           <span

@@ -65,6 +65,11 @@ export const en = {
       title: "Analysis in progress…",
       subtitle:
         "Please wait, removing duplicates and prioritising splicing events…",
+      uploading: "Uploading files… {{percent}}%",
+      uploadHint:
+        "Files are sent in small chunks so that large rMATS outputs pass through proxies with a request size limit.",
+      sending: "Sending {{file}} ({{sent}} / {{total}})",
+      processing: "Processing… {{total}} received, the server is parsing and storing the events.",
     },
   },
   analysisDetail: {

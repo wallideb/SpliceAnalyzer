@@ -21,7 +21,7 @@
 - Branch point: yUnAy/YNYTRAY scan restricted to 18–44 nt upstream of the 3′SS, branch adenosine mandatory, distance measured from the adenosine to the exon start (was: motif centre to the end of the PPT window, 3 nt short), tie → closest to the 3′SS; new `bp_position`, `bp_motif` fields (persisted).
 - PWM frequencies exclude non-ACGT from the denominator; canonical flags are `None` (unknown) for truncated windows instead of `False`.
 - MANE SQLite cache: schema initialisation is now serialised by a process-wide lock (a race between the 8 annotation threads on a fresh cache file could drop the table under another thread and leave a few events with `frame_class = unknown` on the first compute; reproduced 5/124 and 2/124 failures on the end-to-end scenario, 0 after the fix over 4 runs).
-- MANE: Ensembl fallback filters CDS by transcript `Parent` and uses the union of CDS segments; local GFF3 indexes the `tag=MANE_Select` transcript (MANE Plus Clinical kept separately); `chr` prefix handling fixed.
+- MANE: Ensembl fallback filters CDS by transcript `Parent` and uses the union of CDS segments; local GFF3 indexes the `tag=MANE_Select` transcript per gene (MANE Plus Clinical transcripts stay reachable by transcript id only); `chr` prefix handling fixed.
 
 ### Statistics (`services/stats.py` new, `hnrnp_motifs.py`, `permutation.py`, `routers/deep_analyses.py`)
 - One shared implementation of the two-proportion z-test (≥ 5 events per group), Mann-Whitney U (tie + continuity correction), Benjamini-Hochberg and the normal CDF (previously duplicated with different conventions).

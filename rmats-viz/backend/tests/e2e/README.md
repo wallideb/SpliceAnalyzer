@@ -5,7 +5,7 @@ database, ingestion of the five rMATS event types (JC + JCEC duplicates, NA repl
 commas, near-duplicates, NAGNAG/RI/MXE pairs, an empty `summary.txt`), splice-feature computation
 on a synthetic genome with planted GT/AG signals and branch points, MANE Select vs Plus Clinical
 selection, deep analyses (pattern comparison, hnRNP seven regions, exact permutation), Excel/PDF
-exports, cascade delete and the compute-status lifecycle, plus a second analysis created through the chunked-upload path (200 KB chunks). 134 assertions; expected values are
+exports, cascade delete and the compute-status lifecycle, plus a second analysis created through the chunked-upload path (200 KB chunks). 136 assertions; expected values are
 computed independently by `make_data.py` (written to `data/expected.json`).
 
 External APIs are not required: with no network every annotation call must degrade gracefully,

@@ -19,10 +19,14 @@
  * Inspired by rMAPS2 (Hwang et al., NAR 2020).
  *
  * Data: GET /api/v1/deep-analyses/{id}/hnrnp-motifs
+ *
+ * The backend runs the enrichment as a background job (minutes on ~100 k
+ * events): the response carries a `status`; while it is "running" the panel
+ * polls every 2 s and shows the stage/progress, "error" offers a retry.
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { Fragment, useState, useMemo } from "react";
+import { Fragment, useState, useMemo, useRef } from "react";
 import { fetchJSON, BASE } from "@/lib/api/client";
 import { ScienceNote } from "@/components/ScienceNote";
 import { useT } from "@/contexts/LanguageContext";
@@ -55,7 +59,17 @@ export interface MotifEnrichmentItem {
   regulatory_effect: string | null; // ESE/ESS/ISE/ISS or null
 }
 
+export type HnRNPJobStatus = "done" | "running" | "error";
+
 export interface HnRNPMotifResponse {
+  /** Job state; `results` is only filled when "done" (older backends: absent = done). */
+  status?: HnRNPJobStatus;
+  /** "extract" | "scan" | "compare" while running */
+  stage?: string | null;
+  /** 0..1 overall progress while running */
+  progress?: number | null;
+  error?: string | null;
+  elapsed_seconds?: number | null;
   n_sig_events: number;
   n_bg_events: number;
   /** Region names in scanning order, as reported by the backend (7 regions). */
@@ -67,8 +81,25 @@ export interface HnRNPMotifResponse {
 // API
 // ---------------------------------------------------------------------------
 
-function getHnRNPMotifs(deepId: string): Promise<HnRNPMotifResponse> {
-  return fetchJSON(`${BASE}/deep-analyses/${deepId}/hnrnp-motifs`);
+/** Poll interval while the backend job is running (ms). */
+const POLL_INTERVAL_MS = 2000;
+/** Long-poll of the first request: small datasets answer in one round trip. */
+const FIRST_WAIT_SECONDS = 15;
+
+function getHnRNPMotifs(
+  deepId: string,
+  opts: { wait: number; retry: boolean },
+): Promise<HnRNPMotifResponse> {
+  const params = new URLSearchParams({ wait: String(opts.wait) });
+  if (opts.retry) params.set("retry", "true");
+  return fetchJSON(`${BASE}/deep-analyses/${deepId}/hnrnp-motifs?${params.toString()}`);
+}
+
+function fmtElapsed(seconds: number | null | undefined): string {
+  if (seconds == null) return "";
+  const s = Math.max(0, Math.round(seconds));
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,12 +187,28 @@ export function HnRNPMotifPanel({ deepAnalysisId }: HnRNPMotifPanelProps) {
   const [selectedProtein, setSelectedProtein] = useState<string | null>(null);
   const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
 
-  const { data, isLoading, isError } = useQuery({
+  // First request long-polls; subsequent polls return immediately.  A retry
+  // (after a job error) is requested once, on the next fetch.
+  const firstFetchRef = useRef(true);
+  const retryRef = useRef(false);
+
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["hnrnp-motifs", deepAnalysisId],
-    queryFn: () => getHnRNPMotifs(deepAnalysisId),
+    queryFn: () => {
+      const wait = firstFetchRef.current ? FIRST_WAIT_SECONDS : 0;
+      const retry = retryRef.current;
+      firstFetchRef.current = false;
+      retryRef.current = false;
+      return getHnRNPMotifs(deepAnalysisId, { wait, retry });
+    },
     enabled: !!deepAnalysisId,
     staleTime: 10 * 60 * 1000,
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.status === "running" ? POLL_INTERVAL_MS : false,
   });
+
+  const jobStatus: HnRNPJobStatus = data?.status ?? "done";
 
   // Unique protein families
   const proteins = useMemo(() => {
@@ -220,10 +267,48 @@ export function HnRNPMotifPanel({ deepAnalysisId }: HnRNPMotifPanelProps) {
     );
   }
 
-  if (isError || !data) {
+  if (isError || !data || jobStatus === "error") {
+    const detail = jobStatus === "error" ? data?.error : (error as Error | null)?.message;
     return (
       <div className="flex flex-col items-center gap-3 py-8 text-center">
         <p className="text-sm text-muted-foreground">{t("hnrnpPanel.error")}</p>
+        {detail && (
+          <p className="max-w-xl break-words font-mono text-[11px] text-muted-foreground/80">{detail}</p>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            retryRef.current = jobStatus === "error";
+            firstFetchRef.current = true;
+            void refetch();
+          }}
+          className="rounded border border-border px-3 py-1 text-xs font-medium hover:bg-muted"
+        >
+          {t("hnrnpPanel.retry")}
+        </button>
+      </div>
+    );
+  }
+
+  // ── Background job running ─────────────────────────────────────────────
+  if (jobStatus === "running") {
+    const pct = Math.round(100 * (data.progress ?? 0));
+    const stageKey = `hnrnpPanel.stage_${data.stage ?? "extract"}`;
+    const stageLabel = t(stageKey) === stageKey ? (data.stage ?? "") : t(stageKey);
+    return (
+      <div className="space-y-3 py-6 text-center">
+        <p className="text-sm font-medium">{t("hnrnpPanel.computing")}</p>
+        <div className="mx-auto h-2 w-full max-w-md overflow-hidden rounded bg-muted">
+          <div
+            className="h-full rounded bg-primary transition-[width] duration-500"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {stageLabel} · {pct} % · {fmtElapsed(data.elapsed_seconds)} ·{" "}
+          {t("hnrnpPanel.computingEvents", { n: data.n_sig_events + data.n_bg_events })}
+        </p>
+        <p className="mx-auto max-w-xl text-xs text-muted-foreground">{t("hnrnpPanel.computingHint")}</p>
       </div>
     );
   }

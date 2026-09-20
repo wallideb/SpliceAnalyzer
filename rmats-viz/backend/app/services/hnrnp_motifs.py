@@ -105,6 +105,7 @@ import logging
 import math
 import re
 from dataclasses import dataclass, field
+from typing import Callable
 
 from app.services import stats as _stats
 from app.services.sequence import extract_regions_batch, reverse_complement
@@ -247,6 +248,9 @@ _FLANK_LEN = 250
 # Minimum group size for the normal-approximation tests (presence z-test and
 # Mann-Whitney U); below this the approximations are unreliable.
 _MIN_GROUP_SIZE = _stats.MIN_GROUP_N
+
+# scan_group reports progress every this many events
+_PROGRESS_EVERY = 1000
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -422,8 +426,12 @@ class MotifEnrichmentResult:
 
 def scan_group(
     sequences_by_region: list[SERegions],
+    progress: "Callable[[int], None] | None" = None,
 ) -> list[MotifRegionResult]:
     """Scan a group of events and return per-motif per-region stats.
+
+    *progress*, when given, is called every ``_PROGRESS_EVERY`` events (and
+    once at the end) with the number of events scanned so far.
 
     Performance notes (optimised for 120 k-event datasets):
     - Iterates events in the *outer* loop so each SERegions object is
@@ -446,7 +454,9 @@ def scan_group(
     n_hits = [0] * (n_motifs * n_regions)
     densities: list[list[float]] = [[] for _ in range(n_motifs * n_regions)]
 
-    for sr in sequences_by_region:
+    for ev_idx, sr in enumerate(sequences_by_region, start=1):
+        if progress is not None and ev_idx % _PROGRESS_EVERY == 0:
+            progress(ev_idx)
         for ri, region_name in enumerate(REGION_NAMES):
             seq = getattr(sr, region_name, "")
             if not seq:
@@ -466,6 +476,9 @@ def scan_group(
                     count += 1
                     m = compiled.search(seq, m.start() + 1)
                 densities[cell].append(min(1.0, count * pat_len / seq_len))
+
+    if progress is not None:
+        progress(len(sequences_by_region))
 
     results: list[MotifRegionResult] = []
     for mi, (motif_name, protein, _) in enumerate(HNRNP_MOTIFS):
@@ -488,8 +501,13 @@ def scan_group(
 def compare_groups(
     sig_results: list[MotifRegionResult],
     bg_results: list[MotifRegionResult],
+    progress: "Callable[[int], None] | None" = None,
 ) -> list[MotifEnrichmentResult]:
     """Compare motif enrichment between significant and background groups.
+
+    *progress*, when given, is called after each (motif, region) pair with the
+    number of pairs compared so far (the rank test dominates the run time on
+    large datasets).
 
     For each (motif, region) pair present in both groups:
     - presence test: pooled two-proportion z-test on binary hit presence
@@ -537,6 +555,8 @@ def compare_groups(
         ))
         p_presence.append(p)
         p_density.append(pu)
+        if progress is not None:
+            progress(len(raw))
 
     # Benjamini-Hochberg FDR correction, one family per test, on unrounded p
     for r, q in zip(raw, _bh_adjust_optional(p_presence)):
@@ -573,6 +593,7 @@ def build_se_regions(
     events: list,
     fasta_path: str | None = None,
     label: str = "",
+    progress: "Callable[[int], None] | None" = None,
 ) -> list[SERegions]:
     """Extract the seven ``REGION_NAMES`` sequences of every SE event in one
     batched ``samtools faidx`` call.
@@ -582,7 +603,8 @@ def build_se_regions(
     chr / exon coordinates get seven empty regions; − strand sequences are
     reverse-complemented so every region is in transcript orientation.
     Diagnostics (missing flanks, introns consumed by the exclusion zones) are
-    logged under *label*.
+    logged under *label*.  *progress* receives the number of regions
+    (``len(events) * len(REGION_NAMES)`` in total) extracted so far.
     """
     if not events:
         return []
@@ -653,7 +675,7 @@ def build_se_regions(
                        tag, n_short_dn, n, min_intron)
     logger.info("%shnRNP region extraction: %d events", tag, n)
 
-    seqs = extract_regions_batch(all_bed, fasta_path or settings.GRCH38_FASTA)
+    seqs = extract_regions_batch(all_bed, fasta_path or settings.GRCH38_FASTA, progress=progress)
 
     out: list[SERegions] = []
     for idx, strand in enumerate(strands):

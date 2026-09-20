@@ -128,6 +128,10 @@ async def _load_events_and_features(
     return events, features
 
 
+# Seconds the deep-analysis PDF waits for a running hnRNP job before 409
+_HNRNP_EXPORT_WAIT = 20.0
+
+
 async def _assert_splice_features_ready(
     db: AsyncSession, analysis_id: uuid.UUID
 ) -> None:
@@ -3242,58 +3246,39 @@ async def export_deep_analysis_pdf(
         }
 
     # ── hnRNP motif enrichment ────────────────────────────────────────────
-    async def _compute_hnrnp() -> dict | None:
-        """Run hnRNP motif enrichment on SE events; returns plain dict or None."""
-        try:
-            from app.services.hnrnp_motifs import (
-                REGION_NAMES, build_se_regions, compare_groups, scan_group,
-                REGULATORY_EFFECTS,
-            )
+    async def _hnrnp_from_job() -> dict | None:
+        """hnRNP enrichment from the shared background job (services/hnrnp_jobs).
 
-            se_sig = [e for e in sig_events if e.event_type == "SE"]
-            se_bg = [e for e in nonsig_events if e.event_type == "SE"]
+        The job is the one the deep-analysis page starts; its cached payload
+        is reused as is.  When it is still running (large dataset, first
+        request) the export answers 409 with the progress instead of waiting
+        minutes inside this request; when it failed the section is skipped
+        (non-fatal, as before).
+        """
+        from app.services import hnrnp_jobs
 
-            # Same region extraction as deep_analyses.get_hnrnp_motifs
-            sig_regions, bg_regions = await asyncio.gather(
-                asyncio.to_thread(build_se_regions, se_sig, None, "pdf-sig"),
-                asyncio.to_thread(build_se_regions, se_bg, None, "pdf-bg"),
-            )
-            sig_scan, bg_scan = await asyncio.gather(
-                asyncio.to_thread(scan_group, sig_regions),
-                asyncio.to_thread(scan_group, bg_regions),
-            )
-            enrichment = await asyncio.to_thread(compare_groups, sig_scan, bg_scan)
-            return {
-                "n_sig_events": len(se_sig),
-                "n_bg_events": len(se_bg),
-                "regions": list(REGION_NAMES),
-                "results": [
-                    {
-                        "motif_name": r.motif_name,
-                        "protein": r.protein,
-                        "region": r.region,
-                        "sig_hit_count": r.sig_hit_count,
-                        "sig_total": r.sig_total,
-                        "bg_hit_count": r.bg_hit_count,
-                        "bg_total": r.bg_total,
-                        "sig_density": r.sig_density,
-                        "bg_density": r.bg_density,
-                        "z_stat": r.z_stat,
-                        "p_value": r.p_value,
-                        "p_adjusted": r.p_adjusted,
-                        "significant": r.significant,
-                        "density_u_stat": getattr(r, "density_u_stat", None),
-                        "density_p_value": getattr(r, "density_p_value", None),
-                        "density_p_adjusted": getattr(r, "density_p_adjusted", None),
-                        "density_significant": bool(getattr(r, "density_significant", False)),
-                        "regulatory_effect": REGULATORY_EFFECTS.get(r.protein, {}).get(r.region),
-                    }
-                    for r in enrichment
-                ],
-            }
-        except Exception as exc:
-            logger.warning("hnRNP computation skipped in PDF (non-fatal): %s", exc)
+        if not sig_events and not nonsig_events:
             return None
+
+        async def _load() -> tuple[list, list]:
+            return sig_events, nonsig_events
+
+        job = await hnrnp_jobs.get_or_start(deep_analysis_id, _load)
+        if not await hnrnp_jobs.wait(job, _HNRNP_EXPORT_WAIT):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "hnRNP motif enrichment is still being computed "
+                    f"({job.stage}, {round(100 * job.progress)} %, "
+                    f"{job.n_sig_events + job.n_bg_events} SE events). "
+                    "Retry the PDF export once the hnRNP panel shows its results, "
+                    "or export without the hnRNP section."
+                ),
+            )
+        if job.status != "done" or job.result is None:
+            logger.warning("hnRNP section skipped in PDF (job error, non-fatal): %s", job.error)
+            return None
+        return job.result
 
     # ── Enrichr pathway enrichment ────────────────────────────────────────
     async def _compute_enrichr() -> dict | None:
@@ -3393,9 +3378,8 @@ async def export_deep_analysis_pdf(
     if "d" in selected:
         tasks.append(_compute_permutation())
         task_keys.append("d")
-    if "e" in selected:
-        tasks.append(_compute_hnrnp())
-        task_keys.append("e")
+    # hnRNP first (may answer 409 before any other expensive work starts)
+    hnrnp_data = await _hnrnp_from_job() if "e" in selected else None
     if "f" in selected:
         tasks.append(_compute_enrichr())
         task_keys.append("f")
@@ -3404,7 +3388,6 @@ async def export_deep_analysis_pdf(
     result_map = dict(zip(task_keys, results))
 
     permutation_table = result_map.get("d") or []
-    hnrnp_data = result_map.get("e")
     enrichr_data = result_map.get("f")
 
     # Optional SVG side-dump of every figure (disabled unless SVG_EXPORT_DIR is set)

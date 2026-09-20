@@ -639,6 +639,13 @@ export const fr: Translations = {
   },
   hnrnpPanel: {
     error: "Erreur lors du chargement des données d'enrichissement de motifs hnRNP.",
+    retry: "Réessayer",
+    computing: "Calcul de l'enrichissement en motifs hnRNP…",
+    computingEvents: "{{n}} événements SE",
+    computingHint: "L'enrichissement s'exécute en arrière-plan sur le serveur (extraction des séquences, balayage des motifs, tests de rang) et ce panneau se rafraîchit automatiquement. Sur un grand jeu de données (~100 000 événements), comptez plusieurs minutes ; le résultat est ensuite conservé en mémoire jusqu'au redémarrage du backend.",
+    stage_extract: "Extraction des séquences",
+    stage_scan: "Balayage des motifs",
+    stage_compare: "Tests statistiques",
     sigEvents: "Événements significatifs",
     bgEvents: "Événements de référence",
     significantMotifs: "Motifs significatifs",

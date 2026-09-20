@@ -572,6 +572,12 @@ async def run(c: AsyncClient) -> None:
           (r.json().get("n_se_events"), r.json().get("n_significant")))
     r = await c.get(f"/api/v1/deep-analyses/{did}/hnrnp-motifs")
     hn = r.json()
+    check("f. hnrnp-motifs: background job finished within the default long-poll (status done, elapsed reported)",
+          r.status_code == 200 and hn["status"] == "done" and isinstance(hn.get("elapsed_seconds"), (int, float)),
+          (r.status_code, hn.get("status"), hn.get("stage"), hn.get("error")))
+    r2 = await c.get(f"/api/v1/deep-analyses/{did}/hnrnp-motifs", params={"wait": 0})
+    check("f. hnrnp-motifs: second call served from the job cache (same rows, no wait)",
+          r2.status_code == 200 and r2.json()["results"] == hn["results"], r2.status_code)
     check("f. hnrnp-motifs: regions list has 7 names", hn["regions"] == ["upstream_exon", "upstream_intron_5ss", "upstream_intron_3ss", "skipped_exon",
                                                                         "downstream_intron_5ss", "downstream_intron_3ss", "downstream_exon"], hn["regions"])
     check("f. hnrnp-motifs: 133 result rows (19 motifs x 7 regions)", len(hn["results"]) == 133, len(hn["results"]), 133)

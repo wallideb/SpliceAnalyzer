@@ -397,7 +397,7 @@ def test_build_se_regions_batches_and_orients(monkeypatch):
     from types import SimpleNamespace as NS
     captured: dict = {}
 
-    def fake_extract(regions, fasta_path=None):
+    def fake_extract(regions, fasta_path=None, progress=None):
         captured["regions"] = list(regions)
         out = []
         for chrom, s, e in regions:

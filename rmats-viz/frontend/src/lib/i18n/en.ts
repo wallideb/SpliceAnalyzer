@@ -632,6 +632,13 @@ export const en = {
   },
   hnrnpPanel: {
     error: "Failed to load hnRNP motif enrichment data.",
+    retry: "Retry",
+    computing: "Computing hnRNP motif enrichment…",
+    computingEvents: "{{n}} SE events",
+    computingHint: "The enrichment runs in the background on the server (sequence extraction, motif scan, rank tests) and this panel refreshes automatically. On large datasets (~100k events) it takes several minutes; the result is then kept in memory until the backend restarts.",
+    stage_extract: "Extracting sequences",
+    stage_scan: "Scanning motifs",
+    stage_compare: "Statistical tests",
     sigEvents: "Significant events",
     bgEvents: "Background events",
     significantMotifs: "Significant motifs",

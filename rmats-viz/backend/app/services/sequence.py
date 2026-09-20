@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from typing import Callable
 from dataclasses import dataclass
 
 from app.config import settings
@@ -242,6 +243,7 @@ def _faidx_chunk(
 def extract_regions_batch(
     regions: list[tuple[str, int, int]],
     fasta_path: str | None = None,
+    progress: "Callable[[int], None] | None" = None,
 ) -> list[str]:
     """Extract multiple genomic regions with batched samtools calls.
 
@@ -278,6 +280,8 @@ def extract_regions_batch(
     # Filter out empty regions
     valid_indices = [i for i, r in enumerate(sam_regions) if r]
     if not valid_indices:
+        if progress is not None:
+            progress(len(regions))
         return [""] * len(regions)
 
     out = [""] * len(regions)
@@ -287,8 +291,15 @@ def extract_regions_batch(
     # Process in chunks to stay within OS ARG_MAX limits.
     for chunk_start in range(0, len(valid_indices), _SAMTOOLS_CHUNK):
         chunk_idx = valid_indices[chunk_start : chunk_start + _SAMTOOLS_CHUNK]
-        if not _faidx_chunk(fasta, chunk_idx, sam_regions, out, invalid, timed_out):
+        ok = _faidx_chunk(fasta, chunk_idx, sam_regions, out, invalid, timed_out)
+        if progress is not None:
+            # Report in input-region units: everything up to the last valid
+            # index of this chunk (including skipped regions in between).
+            progress(chunk_idx[-1] + 1 if ok else len(regions))
+        if not ok:
             break  # samtools unavailable — nothing more to do
+    if progress is not None:
+        progress(len(regions))
 
     if timed_out:
         logger.warning(

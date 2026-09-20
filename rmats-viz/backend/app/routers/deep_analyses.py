@@ -194,6 +194,8 @@ async def delete_deep_analysis(
     ).scalar_one_or_none()
     if not deep:
         raise HTTPException(404, "Deep analysis not found")
+    from app.services import hnrnp_jobs
+    hnrnp_jobs.discard(deep_analysis_id)
     await db.delete(deep)
     await db.commit()
 
@@ -730,11 +732,49 @@ class MotifEnrichmentItem(BaseModel):
 
 
 class HnRNPMotifResponse(BaseModel):
+    """Result or state of the hnRNP enrichment job of a deep analysis.
+
+    ``status`` is 'done' (``results`` filled), 'running' (``stage`` /
+    ``progress`` / ``elapsed_seconds`` describe the background job; poll
+    again) or 'error' (``error`` holds the message; call again with
+    ``retry=true`` to restart).
+    """
+    status: str = "done"
+    stage: str | None = None
+    progress: float | None = None
+    error: str | None = None
+    elapsed_seconds: float | None = None
     n_sig_events: int
     n_bg_events: int
     # Region names in scanning order (7 regions, see hnrnp_motifs.REGION_NAMES)
     regions: list[str] = []
-    results: list[MotifEnrichmentItem]
+    results: list[MotifEnrichmentItem] = []
+
+
+# Default long-poll: small datasets finish within this and get their result in
+# a single request; large ones return status='running' and are polled.
+HNRNP_DEFAULT_WAIT = 15.0
+HNRNP_MAX_WAIT = 60.0
+
+
+async def load_se_events_by_significance(
+    db: AsyncSession, deep_analysis_id: uuid.UUID,
+) -> tuple[list[SplicingEvent], list[SplicingEvent]]:
+    """SE events of a deep analysis split into (significant, background)."""
+    q = (
+        select(SplicingEvent, DeepAnalysisEvent.is_significant)
+        .join(DeepAnalysisEvent, DeepAnalysisEvent.event_id == SplicingEvent.id)
+        .where(
+            DeepAnalysisEvent.deep_analysis_id == deep_analysis_id,
+            SplicingEvent.event_type == "SE",
+        )
+    )
+    rows = (await db.execute(q)).all()
+    sig_events: list[SplicingEvent] = []
+    bg_events: list[SplicingEvent] = []
+    for ev, is_sig in rows:
+        (sig_events if is_sig else bg_events).append(ev)
+    return sig_events, bg_events
 
 
 @router.get(
@@ -744,12 +784,21 @@ class HnRNPMotifResponse(BaseModel):
 async def get_hnrnp_motifs(
     deep_analysis_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    wait: float = Query(
+        HNRNP_DEFAULT_WAIT, ge=0, le=HNRNP_MAX_WAIT,
+        description="Seconds to wait for a running job before answering with its state",
+    ),
+    retry: bool = Query(False, description="Restart a job that ended in error"),
 ):
-    """Run hnRNP motif enrichment: compare motif frequency in significant
-    vs non-significant SE events (rMAPS2-inspired analysis)."""
-    from app.services.hnrnp_motifs import (
-        REGION_NAMES, build_se_regions, compare_groups, scan_group, REGULATORY_EFFECTS,
-    )
+    """hnRNP motif enrichment: motif frequency in significant vs non-significant
+    SE events (rMAPS2-inspired analysis).
+
+    The computation runs as a background job (see ``services/hnrnp_jobs``):
+    the first call starts it, every call reports its state, and the finished
+    result is cached for the worker's lifetime.  The call waits up to *wait*
+    seconds for the job so that small datasets get their rows immediately.
+    """
+    from app.services import hnrnp_jobs
 
     deep = (
         await db.execute(
@@ -759,68 +808,16 @@ async def get_hnrnp_motifs(
     if not deep:
         raise HTTPException(404, "Deep analysis not found")
 
-    # Fetch all SE events with significance tagging
-    q = (
-        select(
-            SplicingEvent,
-            DeepAnalysisEvent.is_significant,
-        )
-        .join(DeepAnalysisEvent, DeepAnalysisEvent.event_id == SplicingEvent.id)
-        .where(
-            DeepAnalysisEvent.deep_analysis_id == deep_analysis_id,
-            SplicingEvent.event_type == "SE",
-        )
+    job = await hnrnp_jobs.get_or_start(
+        deep_analysis_id,
+        lambda: load_se_events_by_significance(db, deep_analysis_id),
+        retry=retry,
     )
-    rows = (await db.execute(q)).all()
+    await hnrnp_jobs.wait(job, wait)
 
-    sig_events: list[SplicingEvent] = []
-    bg_events: list[SplicingEvent] = []
-    for ev, is_sig in rows:
-        (sig_events if is_sig else bg_events).append(ev)
-
-    # Extract regions for both groups concurrently (two independent samtools
-    # calls); build_se_regions is the single region-extraction implementation
-    # shared with the PDF export.
-    sig_regions, bg_regions = await asyncio.gather(
-        asyncio.to_thread(build_se_regions, sig_events, None, "sig"),
-        asyncio.to_thread(build_se_regions, bg_events, None, "bg"),
-    )
-
-    # Scan both groups concurrently; compare_groups is fast (pure Python)
-    sig_scan, bg_scan = await asyncio.gather(
-        asyncio.to_thread(scan_group, sig_regions),
-        asyncio.to_thread(scan_group, bg_regions),
-    )
-    enrichment = await asyncio.to_thread(compare_groups, sig_scan, bg_scan)
-
-    return HnRNPMotifResponse(
-        n_sig_events=len(sig_events),
-        n_bg_events=len(bg_events),
-        regions=list(REGION_NAMES),
-        results=[
-            MotifEnrichmentItem(
-                motif_name=r.motif_name,
-                protein=r.protein,
-                region=r.region,
-                sig_hit_count=r.sig_hit_count,
-                sig_total=r.sig_total,
-                bg_hit_count=r.bg_hit_count,
-                bg_total=r.bg_total,
-                sig_density=r.sig_density,
-                bg_density=r.bg_density,
-                z_stat=r.z_stat,
-                p_value=r.p_value,
-                p_adjusted=r.p_adjusted,
-                significant=r.significant,
-                density_u_stat=getattr(r, "density_u_stat", None),
-                density_p_value=getattr(r, "density_p_value", None),
-                density_p_adjusted=getattr(r, "density_p_adjusted", None),
-                density_significant=bool(getattr(r, "density_significant", False)),
-                regulatory_effect=REGULATORY_EFFECTS.get(r.protein, {}).get(r.region),
-            )
-            for r in enrichment
-        ],
-    )
+    if job.status == "done" and job.result is not None:
+        return HnRNPMotifResponse(status="done", elapsed_seconds=job.elapsed_seconds, **job.result)
+    return HnRNPMotifResponse(**job.state())
 
 
 # ===========================================================================

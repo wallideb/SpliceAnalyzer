@@ -76,5 +76,8 @@
 
 **Bottom line:** results change most for (1) A3SS/A5SS events (now present), (2) branch-point calls (far fewer, now biologically constrained), (3) hnRNP q-values (larger family, new regions, new test), and (4) small-design permutation p-values (exact). Splice-site sequences, PPT scores, exon/intron sizes, ΔΨ, FDR and the significant/non-significant partition (without a p-value threshold) are unchanged for SE, and all previous behaviours are documented in the README diff. Any manuscript figure produced with the previous version should be regenerated and the methods text updated from the new PDF appendix.
 
+## Known limitation kept as is
+PanelApp per-gene lookups (annotation cards, Excel export) remain best-effort: the public API is slow for genes present in many panels, paginates, and excludes hosts quickly after connection failures (the AU host also changed domain). On large datasets the panel columns may be partly empty; the export is capped at 25 s of PanelApp time so it never blocks. Decision taken during the closing tests: do not invest further here; the in-browser version will bundle a panel snapshot (Mendeliome and selected panels) built at build time instead of querying gene by gene (see `SPLICEANALYZER_IN_BROWSER_SPEC.md`, section 3.2).
+
 ## Not included (deferred, documented)
 Synchronous upload parsing (C6), ingestion drop counts in the upload response (A15), STRING batching (C13), ΔΨ-sign split and 50-nt sliding maps for the RBP analysis (E2), MaxEntScan splice-site strength (E4), PTC/NMD by translation (E5), replicate names in reports (E12).

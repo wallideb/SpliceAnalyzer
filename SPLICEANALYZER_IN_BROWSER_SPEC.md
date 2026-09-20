@@ -232,7 +232,7 @@ The research session could not observe live CORS headers (egress policy). Eviden
 | gnomAD GraphQL | `https://gnomad.broadinstitute.org/api` | **yes** | S (`app.use(cors())`) | `POST` `{gene(gene_symbol:"X", reference_genome: GRCh38){gnomad_constraint{pli oe_lof oe_lof_upper oe_mis lof_z mis_z}}}`; IP rate limit. |
 | Enrichr | `https://maayanlab.cloud/Enrichr` | **yes (likely)** | C (Ma'ayan Lab's own browser code posts cross-origin) | limits undocumented; Speedrichr for background lists (`/speedrichr/api/addList|addbackground|backgroundenrich`); GMT libraries `geneSetLibrary?mode=text&libraryName=…` (bundle at build time). |
 | STRING | `https://string-db.org/api` (pinned `https://version-12-0.string-db.org/api`) | probably, **verify** | C | `json|tsv|image|svg / network|interaction_partners|enrichment|ppi_enrichment`; `caller_identity` required by etiquette. |
-| PanelApp UK / AU | `https://panelapp.genomicsengland.co.uk/api/v1`, `https://panelapp-aus.org/api/v1` (AU domain reported by the research; the old code used `panelapp.agha.umccr.org` — check which one answers, **unverified**) | probably, **verify** | C (OpenCB jsorolla web components) | 429 on per-IP bursts; `genes/{symbol}/`, `genes/?entity_name=`. |
+| PanelApp UK / AU (**do not query per gene at runtime**; see note below the table) | `https://panelapp.genomicsengland.co.uk/api/v1`, `https://panelapp-aus.org/api/v1` (AU domain reported by the research; the old code used `panelapp.agha.umccr.org` — check which one answers, **unverified**) | probably, **verify** | C (OpenCB jsorolla web components) | 429 on per-IP bursts; `genes/{symbol}/`, `genes/?entity_name=`. |
 | Europe PMC | `https://www.ebi.ac.uk/europepmc/webservices/rest` | probably, **verify** | C | used only for co-citation of gene pairs. |
 | QuickGO | `https://www.ebi.ac.uk/QuickGO/services` | probably, **verify** | C | optional (MyGene GO suffices). |
 | Reactome ContentService | `https://reactome.org/ContentService` | probably, **verify** | C | optional pathway links. |
@@ -242,6 +242,8 @@ The research session could not observe live CORS headers (egress policy). Eviden
 | OMIM | — | **no** | D: API key required | link out only (`https://omim.org/search?search={symbol}`). |
 | NCBI FTP (MANE, FASTA) | — | **no at runtime** | U | build-time only. |
 | GTEx portal API v2 | `https://gtexportal.org/api/v2` | yes (Sashimi-viewer uses it from the browser) | C | optional: median junction/exon expression for context. |
+
+**PanelApp decision (2026-09-20, from the closing tests of the Python version):** per-gene PanelApp queries do not scale to rMATS datasets (tens of thousands of genes, paginated responses, timeouts, quick host exclusion, the AU host changed domain). The in-browser version must **bundle a panel snapshot** built at build time instead: download the panels of interest (at least the PanelApp Australia/Genomics England *Mendeliome* panel and any user-selected panels) once with a build script (`scripts/build-panels.mjs`: `GET /api/v1/panels/{id}/genes/?format=json`, all pages, keep `entity_name`, `confidence_level`, `mode_of_inheritance`, `phenotypes`), emit `panels.<date>.json.gz` (gene symbol → list of {panel, confidence, moi}), and look genes up locally in the browser. Live PanelApp calls are at most an optional "refresh" action, never part of the analysis path. The same bulk-first rule applies to any other per-gene service that proves slow (STRING pairs, UniProt): batch endpoints or bundled tables first, per-gene calls only on demand from an open card.
 
 Design rule: every remote call goes through one `api/` module with a promise cache (`Map<string, Promise<T>>`, delete on reject), an IndexedDB persistent cache keyed by URL with a TTL, a per-host concurrency limiter (UCSC 2 parallel, Ensembl 6, others 4), exponential backoff on 429/5xx honouring `Retry-After`, and a "network status" chip in the header (same as Sashimi-viewer's notes row).
 
@@ -579,7 +581,7 @@ Priority: **M** = must-have for v1, **N** = nice-to-have, **X** = explicitly out
 - M: direction of change per group, PSI per replicate, coverage, FDR — [rmats].
 - M: significant vs non-significant pattern comparison with logos, tests, BH — [schneider], [benjamini].
 - M: RBP maps (rMAPS2 windows, Wilcoxon) + hexamer ESE/ESS density — [rmaps2], [rescue_ese], [fas_ess], [esrseq], [cisbp].
-- M: gene annotation (MyGene, UniProt, Ensembl domains), PanelApp, STRING with candidate genes — [go], [uniprot], [panelapp], [stringdb].
+- M: gene annotation (MyGene batch, UniProt, Ensembl domains), PanelApp from a **bundled panel snapshot** (Mendeliome and selected panels, built at build time, no per-gene live calls), STRING with candidate genes — [go], [uniprot], [panelapp], [stringdb].
 - M: enrichment (local hypergeometric on bundled libraries; Enrichr optional) — [enrichr].
 - M: exports TSV/XLSX/SVG/PNG/PDF with methodology and bibliography; session JSON; Sashimi-viewer deep links.
 - N: gnomAD constraint (pLI/LOEUF) per gene — prioritisation — [gnomad].
@@ -682,7 +684,7 @@ Ordered phases; each task is a checkbox for the implementation session. Estimate
 - [ ] 4.4 `motifs.worker.ts`: region extraction from cached sequences per type, catalogues (hnRNP regex, CisBP PWM subset, hexamers, user motifs), presence/density scan, 50-nt sliding maps, Wilcoxon per window, BH; RBP map panel (line plots + table + heatmap) (L).
 - [ ] 4.5 Permutation panel in worker (exact enumeration when small, histograms, metric permutations) (M).
 - [ ] 4.6 Enrichment: local hypergeometric on bundled GMT + optional Enrichr live (addList/enrich, Speedrichr background) (M).
-- [ ] 4.7 Gene panels: MyGene batch, UniProt, PanelApp (AU→UK, breaker), STRING + Europe PMC diagram, gnomAD constraint, links (M).
+- [ ] 4.7 Gene panels: MyGene batch, UniProt, PanelApp from the bundled snapshot (`scripts/build-panels.mjs`, Mendeliome + selected panels; optional manual refresh), STRING + Europe PMC diagram, gnomAD constraint, links (M).
 - [ ] 4.8 Sample-level views: PSI heatmap, PCA (power iteration or SVD in JS), concordance (M).
 - [ ] 4.9 Cards view with sorting incl. PanelApp confidence (M).
 

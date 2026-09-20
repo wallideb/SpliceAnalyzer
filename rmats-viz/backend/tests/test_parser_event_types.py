@@ -125,7 +125,9 @@ def test_detect_event_type_from_filename():
     # Not rMATS event files
     assert detect_event_type("summary.txt") is None
     assert detect_event_type("SERIES.MATS.JC.txt") is None
-    assert detect_event_type("SE.MATS.txt") is None
+    # loose token: the type is recognised, the counting mode is unknown
+    assert detect_event_type("SE.MATS.txt") == "SE"
+    assert detect_counting_mode("SE.MATS.txt") is None
     assert detect_event_type("") is None
 
 

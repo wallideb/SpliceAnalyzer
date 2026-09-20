@@ -232,6 +232,7 @@ export function GeneAutocomplete({ value, onChange }: GeneAutocompleteProps) {
             autoComplete="off"
             spellCheck={false}
             aria-autocomplete="list"
+            role="combobox"
             aria-expanded={isOpen}
           />
           {/* Loading spinner */}

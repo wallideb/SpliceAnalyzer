@@ -234,6 +234,8 @@ function DnaLoadingScreen({ progress }: { progress: UploadProgress | null }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-8">
       <div className="relative w-24 h-24 flex items-center justify-center">
+        {/* static SVG logo: next/image adds nothing for an inline-size vector */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.svg" alt="SpliceAnalyzer" className="w-20 h-20 dna-strand" draggable={false} />
       </div>
       <div className="text-center space-y-2">

@@ -280,6 +280,7 @@ Verified by two independent adversarial reviews (backend, frontend), the `code-r
 | C1–C5, C7–C10, C14 | **done** | |
 | C6 | **not done** | upload parsing still synchronous in the request (design change deferred; `error_message` now stores parser errors) |
 | C6-bis (new) | **done** | hnRNP enrichment moved out of the request into a background job with an in-process cache and progress (`services/hnrnp_jobs.py`); found on a real 99 495-SE-event dataset in a Codespace, where the multi-minute `GET /hnrnp-motifs` and the deep-analysis PDF (which recomputed it) were cut by the port-forwarding proxy |
+| Closing review (new) | **done** | code ↔ PDF concordance (references [11]/[12] Gao/Leman, exact vs Monte-Carlo minimum p, p-value threshold on the title page, heatmap on the smaller q, denominators, wording), dead code on both sides, web methodology text corrected and internationalised, README rewritten; see `MERGE_NOTES_dev.md` "Closing review" |
 | C11, C12 | **done** | |
 | C13 | **partial** | PanelApp: in-process 6 h cache; STRING: per-pair calls deduplicated only |
 | D1–D22 | **done** | D18 completed by the review: one shared `services/stats.py` (z-test, Mann-Whitney U with tie + continuity correction, BH, normal CDF), one `build_se_regions` |

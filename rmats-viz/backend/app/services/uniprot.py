@@ -23,7 +23,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _UNIPROT_BASE = "https://rest.uniprot.org/uniprotkb"
-_TIMEOUT = 8.0
+_TIMEOUT = 15.0  # large reviewed entries (BRCA1, TTN) can take several seconds
 
 
 async def get_protein_function(symbol: str) -> dict | None:

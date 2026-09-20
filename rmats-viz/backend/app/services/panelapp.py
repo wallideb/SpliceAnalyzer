@@ -39,7 +39,9 @@ logger = logging.getLogger(__name__)
 # Separate connect and read timeouts: fail fast on connection issues (the most
 # common failure mode for PanelApp AU) while allowing a generous read timeout
 # for slow but live endpoints.
-_TIMEOUT = httpx.Timeout(connect=4.0, read=4.0, write=4.0, pool=4.0)
+# Connect fast-fails on a dead host; the read timeout must accommodate genes
+# present in dozens of panels (BRCA1: several paginated pages of ~100 KB).
+_TIMEOUT = httpx.Timeout(connect=4.0, read=12.0, write=4.0, pool=4.0)
 _MAX_PAGES = 10  # safety limit to avoid infinite loops
 
 # Primary and fallback PanelApp base URLs

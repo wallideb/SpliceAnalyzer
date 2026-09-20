@@ -15,7 +15,6 @@ urls=(
   "https://string-db.org/api/json/network?identifiers=BRCA1%0dBRCA2&species=9606&caller_identity=spliceanalyzer-web"
   "https://panelapp.genomicsengland.co.uk/api/v1/genes/?entity_name=BRCA1&format=json"
   "https://panelapp-aus.org/api/v1/genes/?entity_name=BRCA1&format=json"
-  "https://panelapp.agha.umccr.org/api/v1/genes/?entity_name=BRCA1&format=json"
   "https://maayanlab.cloud/Enrichr/datasetStatistics"
   "https://maayanlab.cloud/Enrichr/geneSetLibrary?mode=text&libraryName=KEGG_2021_Human"
   "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=BRCA1&format=json&pageSize=1"

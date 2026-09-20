@@ -49,14 +49,22 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from typing import Callable
 from dataclasses import dataclass
 
 from app.config import settings
+from app.services.mane import _ensembl_chrom
 
 logger = logging.getLogger(__name__)
 
-# Complement table
-_COMP = str.maketrans("ACGTacgtNn", "TGCAtgcaNn")
+# Complement table — full IUPAC nucleotide code (upper + lower case).
+#   A↔T  C↔G  U→A (RNA uracil treated as T)
+#   R(AG)↔Y(CT)  S(CG)↔S  W(AT)↔W  K(GT)↔M(AC)
+#   B(CGT)↔V(ACG)  D(AGT)↔H(ACT)  N↔N
+_COMP = str.maketrans(
+    "ACGTURYSWKMBDHVNacgturyswkmbdhvn",
+    "TGCAAYRSWMKVHDBNtgcaayrswmkvhdbn",
+)
 
 # UCSC chr-style → GRCh38 RefSeq accession (for NCBI-headered FASTA files)
 _UCSC_TO_REFSEQ: dict[str, str] = {
@@ -128,21 +136,128 @@ def _resolve_chrom(chrom: str, fasta_path: str) -> str | None:
 
 
 def reverse_complement(seq: str) -> str:
+    """Reverse-complement *seq* using the full IUPAC alphabet.
+
+    Unknown characters are passed through unchanged; ``U`` is complemented
+    as ``T`` (→ ``A``).
+    """
     return seq.translate(_COMP)[::-1]
+
+
+def _parse_faidx_output(text: str, n_expected: int) -> list[str]:
+    """Parse the multi-FASTA text written by ``samtools faidx``.
+
+    One sequence is appended for EVERY header line, including records with
+    no sequence lines (``samtools faidx`` emits an empty record for a region
+    beyond the contig end), so the i-th sequence always belongs to the i-th
+    requested region.  If the number of records does not match *n_expected*
+    the whole chunk is blanked (an error is logged) rather than returning
+    sequences that could be assigned to the wrong regions.
+    """
+    seqs: list[str] = []
+    current: list[str] = []
+    seen_header = False
+    for line in text.split("\n"):
+        if line.startswith(">"):
+            if seen_header:
+                seqs.append("".join(current).upper())
+            current = []
+            seen_header = True
+        elif line.strip():
+            current.append(line.strip())
+    if seen_header:
+        seqs.append("".join(current).upper())
+
+    if len(seqs) != n_expected:
+        logger.error(
+            "samtools faidx returned %d records for %d regions — "
+            "blanking the chunk to avoid mis-assigned sequences",
+            len(seqs), n_expected,
+        )
+        return [""] * n_expected
+    return seqs
+
+
+def _faidx_chunk(
+    fasta: str,
+    chunk_idx: list[int],
+    sam_regions: list[str],
+    out: list[str],
+    invalid: list[str],
+    timed_out: list[str] | None = None,
+) -> bool:
+    """Run ``samtools faidx`` for the regions at *chunk_idx*, filling *out*.
+
+    On ``CalledProcessError`` or ``TimeoutExpired`` the chunk is split in
+    halves and retried recursively down to single regions so that only the
+    invalid (or individually timing-out) regions are blanked; rejected regions
+    are collected in *invalid*, timed-out ones are counted in *timed_out*.
+
+    Returns False when samtools itself is unavailable (callers stop).
+    """
+    if not chunk_idx:
+        return True
+    if timed_out is None:
+        timed_out = []
+    chunk_regions = [sam_regions[i] for i in chunk_idx]
+    try:
+        result = subprocess.run(
+            [settings.SAMTOOLS_BIN, "faidx", fasta] + chunk_regions,
+            capture_output=True,
+            text=True,
+            timeout=max(30, len(chunk_regions) // 100),
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        logger.warning("samtools not found: %s", exc)
+        return False
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as exc:
+        if len(chunk_idx) == 1:
+            if isinstance(exc, subprocess.TimeoutExpired):
+                timed_out.append(chunk_regions[0])
+                logger.debug("samtools faidx timed out on region %s", chunk_regions[0])
+            else:
+                invalid.append(chunk_regions[0])
+                logger.debug(
+                    "samtools faidx rejected region %s (rc=%d): %s",
+                    chunk_regions[0], exc.returncode,
+                    exc.stderr.strip() if exc.stderr else "(no stderr)",
+                )
+            return True
+        if isinstance(exc, subprocess.TimeoutExpired):
+            logger.warning(
+                "Batch samtools faidx timed out (%d regions, first=%s) — retrying in halves",
+                len(chunk_regions), chunk_regions[0],
+            )
+        mid = len(chunk_idx) // 2
+        if not _faidx_chunk(fasta, chunk_idx[:mid], sam_regions, out, invalid, timed_out):
+            return False
+        return _faidx_chunk(fasta, chunk_idx[mid:], sam_regions, out, invalid, timed_out)
+
+    seqs = _parse_faidx_output(result.stdout, len(chunk_idx))
+    for idx, seq in zip(chunk_idx, seqs):
+        out[idx] = seq
+    return True
 
 
 def extract_regions_batch(
     regions: list[tuple[str, int, int]],
     fasta_path: str | None = None,
+    progress: "Callable[[int], None] | None" = None,
 ) -> list[str]:
-    """Extract multiple genomic regions in a single samtools call.
+    """Extract multiple genomic regions with batched samtools calls.
 
     Parameters
     ----------
     regions : list of (chrom, start, end) tuples (0-based BED coords).
+        A negative *start* is clamped to 0 (the returned sequence is then
+        shorter than requested); regions with ``end <= start`` or an unknown
+        contig yield an empty string.
 
-    Returns a list of sequences in the same order (empty string on error).
-    Much faster than calling extract_region() N times for large batches.
+    Returns a list of sequences in the same order as *regions* (empty string
+    for invalid regions or on error).  Regions are processed in chunks of
+    ``_SAMTOOLS_CHUNK``; when samtools rejects a chunk it is retried in
+    halves so that only the offending regions are blanked.
     """
     if not regions:
         return []
@@ -151,6 +266,8 @@ def extract_regions_batch(
     # single bad chromosome does not abort the entire chunk.
     sam_regions: list[str] = []
     for chrom, start, end in regions:
+        if start < 0:
+            start = 0
         if end <= start:
             sam_regions.append("")
             continue
@@ -163,92 +280,42 @@ def extract_regions_batch(
     # Filter out empty regions
     valid_indices = [i for i, r in enumerate(sam_regions) if r]
     if not valid_indices:
+        if progress is not None:
+            progress(len(regions))
         return [""] * len(regions)
 
     out = [""] * len(regions)
+    invalid: list[str] = []
+    timed_out: list[str] = []
 
     # Process in chunks to stay within OS ARG_MAX limits.
     for chunk_start in range(0, len(valid_indices), _SAMTOOLS_CHUNK):
         chunk_idx = valid_indices[chunk_start : chunk_start + _SAMTOOLS_CHUNK]
-        chunk_regions = [sam_regions[i] for i in chunk_idx]
-        try:
-            result = subprocess.run(
-                [settings.SAMTOOLS_BIN, "faidx", fasta] + chunk_regions,
-                capture_output=True,
-                text=True,
-                timeout=max(30, len(chunk_regions) // 100),
-                check=True,
-            )
-            # Parse multi-FASTA output for this chunk
-            seqs: list[str] = []
-            current: list[str] = []
-            for line in result.stdout.split("\n"):
-                if line.startswith(">"):
-                    if current:
-                        seqs.append("".join(current).upper())
-                        current = []
-                elif line.strip():
-                    current.append(line.strip())
-            if current:
-                seqs.append("".join(current).upper())
+        ok = _faidx_chunk(fasta, chunk_idx, sam_regions, out, invalid, timed_out)
+        if progress is not None:
+            # Report in input-region units: everything up to the last valid
+            # index of this chunk (including skipped regions in between).
+            progress(chunk_idx[-1] + 1 if ok else len(regions))
+        if not ok:
+            break  # samtools unavailable — nothing more to do
+    if progress is not None:
+        progress(len(regions))
 
-            for idx, seq in zip(chunk_idx, seqs):
-                out[idx] = seq
-        except FileNotFoundError as exc:
-            logger.warning("samtools not found: %s", exc)
-        except subprocess.TimeoutExpired as exc:
-            logger.warning("Batch samtools faidx timed out (chunk offset %d)", chunk_start)
-        except subprocess.CalledProcessError as exc:
-            logger.warning(
-                "Batch samtools faidx failed (chunk offset %d, rc=%d): %s",
-                chunk_start, exc.returncode,
-                exc.stderr.strip() if exc.stderr else "(no stderr)",
-            )
-            # Leave those chunk positions as "" and continue
+    if timed_out:
+        logger.warning(
+            "samtools faidx timed out on %d of %d regions (blanked): %s%s",
+            len(timed_out), len(valid_indices), ", ".join(timed_out[:10]),
+            " ..." if len(timed_out) > 10 else "",
+        )
+    if invalid:
+        preview = ", ".join(invalid[:10])
+        logger.warning(
+            "samtools faidx rejected %d of %d regions (blanked): %s%s",
+            len(invalid), len(valid_indices), preview,
+            " ..." if len(invalid) > 10 else "",
+        )
 
     return out
-
-
-def extract_region(
-    chrom: str,
-    start: int,
-    end: int,
-    strand: str = "+",
-    fasta_path: str | None = None,
-) -> str:
-    """Fetch a genomic sub-sequence (0-based BED coords → 1-based samtools).
-
-    Returns empty string on any error (FASTA not available, region out of
-    bounds, samtools not found).  The caller must tolerate empty strings.
-    """
-    if end <= start:
-        return ""
-    fasta = fasta_path or settings.GRCH38_FASTA
-    resolved = _resolve_chrom(chrom, fasta)
-    if resolved is None:
-        return ""
-    # samtools faidx region: 1-based inclusive
-    region = f"{resolved}:{start + 1}-{end}"
-    try:
-        result = subprocess.run(
-            [settings.SAMTOOLS_BIN, "faidx", fasta, region],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=True,
-        )
-        lines = result.stdout.strip().split("\n")
-        seq = "".join(ln for ln in lines if not ln.startswith(">")).upper()
-        if strand == "-":
-            seq = reverse_complement(seq)
-        return seq
-    except FileNotFoundError:
-        logger.warning("samtools not found at '%s'", settings.SAMTOOLS_BIN)
-    except subprocess.CalledProcessError as exc:
-        logger.debug("samtools faidx failed for %s: %s", region, exc.stderr)
-    except subprocess.TimeoutExpired:
-        logger.warning("samtools timed out for %s", region)
-    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +330,129 @@ class SpliceWindows:
     upstream_donor_seq: str = ""    # 9 nt  : upstream flanking exon 5'SS
     downstream_acceptor_seq: str = ""  # 23 nt : downstream flanking exon 3'SS
     source: str = "fasta"        # "fasta" | "ensembl"
+
+
+# Fixed slot order used by every extraction path.
+_WINDOW_KEYS: tuple[str, ...] = (
+    "donor", "acceptor", "ppt", "upstream_donor", "downstream_acceptor",
+)
+
+
+def splice_window_coords(
+    strand: str,
+    se_start: int,
+    se_end: int,
+    upstream_es: int | None,
+    upstream_ee: int | None,
+    downstream_es: int | None,
+    downstream_ee: int | None,
+) -> dict[str, tuple[int, int] | None]:
+    """Genomic 0-based half-open intervals of the five splice-signal windows.
+
+    Pure function — the single definition of the window coordinates used by
+    ``get_splice_windows``, ``get_splice_windows_batch`` and
+    ``get_splice_windows_from_ensembl`` (see the module docstring for the
+    rationale of each window).  All intervals are on the + genomic strand;
+    sequences of − strand events must be reverse-complemented after fetching.
+
+    Parameters
+    ----------
+    strand : "+" or "-"
+    se_start, se_end : skipped exon (possibly MANE-corrected) boundaries
+    upstream_es/ee, downstream_es/ee : rMATS flanking exon boundaries in
+        GENOMIC order (upstream = lower coordinates, downstream = higher),
+        regardless of strand.  ``upstream_es`` / ``downstream_ee`` are the
+        outer boundaries and are not needed by any window; they are accepted
+        so callers can pass the whole rMATS tuple.
+
+    Returns
+    -------
+    dict with keys ``donor``, ``acceptor``, ``ppt``, ``upstream_donor``,
+    ``downstream_acceptor`` → ``(start, end)`` or ``None`` when the flanking
+    exon boundary the window depends on is missing.
+
+    + strand:
+      donor               [se_end-3,        se_end+6)
+      acceptor            [se_start-20,     se_start+3)
+      ppt                 [se_start-50,     se_start-3)
+      upstream_donor      [upstream_ee-3,   upstream_ee+6)
+      downstream_acceptor [downstream_es-20, downstream_es+3)
+    − strand (rMATS "downstream" exon = 5′ flanking, "upstream" = 3′ flanking):
+      donor               [se_start-6,      se_start+3)
+      acceptor            [se_end-3,        se_end+20)
+      ppt                 [se_end+3,        se_end+50)
+      upstream_donor      [downstream_es-6, downstream_es+3)
+      downstream_acceptor [upstream_ee-3,   upstream_ee+20)
+    """
+    if strand == "+":
+        # Upstream flanking exon: donor (5'SS) is at the HIGH boundary (upstream_ee)
+        # Downstream flanking exon: acceptor (3'SS) is at the LOW boundary (downstream_es)
+        return {
+            "donor":    (se_end - 3,    se_end + 6),
+            "acceptor": (se_start - 20, se_start + 3),
+            "ppt":      (se_start - 50, se_start - 3),
+            "upstream_donor": (
+                (upstream_ee - 3, upstream_ee + 6)
+                if upstream_ee is not None else None
+            ),
+            "downstream_acceptor": (
+                (downstream_es - 20, downstream_es + 3)
+                if downstream_es is not None else None
+            ),
+        }
+    # Minus strand: rMATS uses GENOMIC ordering (upstream_*=lower coords,
+    # downstream_*=higher coords) regardless of strand.
+    # The rMATS "downstream" exon (higher genomic coords) is the 5′ flanking
+    # exon (transcript-upstream); its 5'SS donor is at downstream_es (LOW
+    # boundary of that exon).  The rMATS "upstream" exon (lower genomic
+    # coords) is the 3′ flanking exon (transcript-downstream); its 3'SS
+    # acceptor is at upstream_ee (HIGH boundary of that exon).
+    return {
+        "donor":    (se_start - 6, se_start + 3),
+        "acceptor": (se_end - 3,   se_end + 20),
+        "ppt":      (se_end + 3,   se_end + 50),
+        "upstream_donor": (
+            (downstream_es - 6, downstream_es + 3)
+            if downstream_es is not None else None
+        ),
+        "downstream_acceptor": (
+            (upstream_ee - 3, upstream_ee + 20)
+            if upstream_ee is not None else None
+        ),
+    }
+
+
+def _windows_to_regions(
+    chrom: str, coords: dict[str, tuple[int, int] | None]
+) -> list[tuple[str, int, int]]:
+    """Flatten window coords into the fixed 5-slot region list.
+
+    Missing windows become the empty region ``(chrom, 0, 0)`` so the slot
+    layout (and therefore the sequence order) is preserved.
+    """
+    return [
+        (chrom, *coords[k]) if coords[k] is not None else (chrom, 0, 0)
+        for k in _WINDOW_KEYS
+    ]
+
+
+def _build_windows(
+    seqs: list[str],
+    coords: dict[str, tuple[int, int] | None],
+    need_rc: bool,
+    source: str,
+) -> SpliceWindows:
+    """Assemble a SpliceWindows from the 5 fetched sequences (slot order)."""
+    if need_rc:
+        seqs = [reverse_complement(s) if s else "" for s in seqs]
+    return SpliceWindows(
+        donor_seq=seqs[0],
+        acceptor_seq=seqs[1],
+        ppt_seq=seqs[2],
+        upstream_donor_seq=seqs[3] if coords["upstream_donor"] is not None else "",
+        downstream_acceptor_seq=seqs[4] if coords["downstream_acceptor"] is not None else "",
+        source=source,
+    )
 
 
 def get_splice_windows(
@@ -291,11 +481,11 @@ def get_splice_windows(
       different exon boundaries than the MANE Select transcript, causing
       splice-site sequences to be extracted at the wrong genomic position.
 
-    The splice-site boundary used per strand:
+    The splice-site boundary used per strand (see ``splice_window_coords``):
       + strand: upstream donor at upstream_ee (high boundary)
                 downstream acceptor at downstream_es (low boundary)
-      - strand: upstream donor at upstream_es (low boundary, intron is 5' of it)
-                downstream acceptor at downstream_ee (high boundary, intron is 3' of it)
+      - strand: upstream donor at downstream_es (low boundary of the 5′ flanking exon)
+                downstream acceptor at upstream_ee (high boundary of the 3′ flanking exon)
 
     Uses a single batched samtools call for all 3-5 regions (1 subprocess
     instead of 5), which is ~4x faster per event.
@@ -308,64 +498,13 @@ def get_splice_windows(
     se_start = mane_exon_start if mane_exon_start is not None else exon_start
     se_end   = mane_exon_end   if mane_exon_end   is not None else exon_end
 
-    # Build region list in a fixed order: donor, acceptor, ppt, up_donor, dn_acceptor
-    # Regions are always fetched on + strand; RC applied afterwards if needed.
-    # has_upstream_donor    : whether slot 3 (upstream_donor_seq) can be filled
-    # has_downstream_acceptor: whether slot 4 (downstream_acceptor_seq) can be filled
-    # Both are named from the transcript perspective (5'→3').
-    regions: list[tuple[str, int, int]] = []
-    if strand == "+":
-        # Upstream flanking exon: donor (5'SS) is at the HIGH boundary (upstream_ee)
-        # Downstream flanking exon: acceptor (3'SS) is at the LOW boundary (downstream_es)
-        has_upstream_donor      = upstream_ee is not None
-        has_downstream_acceptor = downstream_es is not None
-        regions.append((chrom, se_end - 3,    se_end + 6))      # donor
-        regions.append((chrom, se_start - 20, se_start + 3))    # acceptor
-        regions.append((chrom, se_start - 50, se_start - 3))    # ppt
-        regions.append(
-            (chrom, upstream_ee - 3, upstream_ee + 6)
-            if has_upstream_donor else (chrom, 0, 0)
-        )
-        regions.append(
-            (chrom, downstream_es - 20, downstream_es + 3)
-            if has_downstream_acceptor else (chrom, 0, 0)
-        )
-    else:
-        # Minus strand: rMATS uses GENOMIC ordering (upstream_*=lower coords,
-        # downstream_*=higher coords) regardless of strand.
-        # For minus strand, the rMATS "downstream" exon (higher genomic coords)
-        # is the 5′ flanking exon (transcript-upstream); its 5'SS donor is at
-        # downstream_es (LOW boundary of that exon).
-        # The rMATS "upstream" exon (lower genomic coords) is the 3′ flanking
-        # exon (transcript-downstream); its 3'SS acceptor is at upstream_ee
-        # (HIGH boundary of that exon).
-        has_upstream_donor      = downstream_es is not None  # 5′ flanking exon (rMATS downstream)
-        has_downstream_acceptor = upstream_ee is not None    # 3′ flanking exon (rMATS upstream)
-        regions.append((chrom, se_start - 6,  se_start + 3))    # donor
-        regions.append((chrom, se_end - 3,    se_end + 20))     # acceptor
-        regions.append((chrom, se_end + 3,    se_end + 50))     # ppt
-        regions.append(
-            (chrom, downstream_es - 6, downstream_es + 3)
-            if has_upstream_donor else (chrom, 0, 0)
-        )
-        regions.append(
-            (chrom, upstream_ee - 3, upstream_ee + 20)
-            if has_downstream_acceptor else (chrom, 0, 0)
-        )
-
-    seqs = extract_regions_batch(regions, fp)
-
-    if need_rc:
-        seqs = [reverse_complement(s) if s else "" for s in seqs]
-
-    return SpliceWindows(
-        donor_seq=seqs[0],
-        acceptor_seq=seqs[1],
-        ppt_seq=seqs[2],
-        upstream_donor_seq=seqs[3] if has_upstream_donor else "",
-        downstream_acceptor_seq=seqs[4] if has_downstream_acceptor else "",
-        source="fasta",
+    coords = splice_window_coords(
+        strand, se_start, se_end,
+        upstream_es, upstream_ee, downstream_es, downstream_ee,
     )
+    # Regions are always fetched on + strand; RC applied afterwards if needed.
+    seqs = extract_regions_batch(_windows_to_regions(chrom, coords), fp)
+    return _build_windows(seqs, coords, need_rc, "fasta")
 
 
 def get_splice_windows_batch(
@@ -386,7 +525,7 @@ def get_splice_windows_batch(
         the skipped-exon splice-site windows (donor, acceptor, PPT).
 
     The correct splice-site boundary is selected per strand (see
-    get_splice_windows() docstring for the strand logic).
+    ``splice_window_coords`` for the strand logic).
 
     Returns a list of SpliceWindows (same order as *events*).
     ~20-50x faster than calling get_splice_windows() per event because
@@ -396,12 +535,9 @@ def get_splice_windows_batch(
         return []
     fp = fasta_path or settings.GRCH38_FASTA
 
-    # Build a flat region list: 5 regions per event, in order.
-    # has_upstream_donor    : whether slot 3 (upstream_donor_seq) can be filled
-    # has_downstream_acceptor: whether slot 4 (downstream_acceptor_seq) can be filled
-    # Both are named from the transcript perspective (5'→3').
+    # Build a flat region list: 5 regions per event, in slot order.
     all_regions: list[tuple[str, int, int]] = []
-    event_meta: list[tuple[bool, bool, bool]] = []  # (need_rc, has_upstream_donor, has_downstream_acceptor)
+    event_meta: list[tuple[bool, dict[str, tuple[int, int] | None]]] = []
 
     for idx, (chrom, strand, exon_start, exon_end, upstream_es, upstream_ee, downstream_es, downstream_ee) in enumerate(events):
         need_rc = strand == "-"
@@ -412,65 +548,21 @@ def get_splice_windows_batch(
         se_start = mb[0] if mb is not None else exon_start
         se_end   = mb[1] if mb is not None else exon_end
 
-        if strand == "+":
-            # Upstream flanking exon: donor (5'SS) is at the HIGH boundary (upstream_ee)
-            # Downstream flanking exon: acceptor (3'SS) is at the LOW boundary (downstream_es)
-            has_upstream_donor      = upstream_ee is not None
-            has_downstream_acceptor = downstream_es is not None
-        else:
-            # Minus strand: rMATS "downstream" exon (higher coords) is 5′ flanking
-            # (transcript-upstream); its 5'SS donor is at downstream_es.
-            # rMATS "upstream" exon (lower coords) is 3′ flanking; its 3'SS
-            # acceptor is at upstream_ee.
-            has_upstream_donor      = downstream_es is not None  # 5′ flanking exon (rMATS downstream)
-            has_downstream_acceptor = upstream_ee is not None    # 3′ flanking exon (rMATS upstream)
-        event_meta.append((need_rc, has_upstream_donor, has_downstream_acceptor))
-
-        if strand == "+":
-            all_regions.append((chrom, se_end - 3,    se_end + 6))
-            all_regions.append((chrom, se_start - 20, se_start + 3))
-            all_regions.append((chrom, se_start - 50, se_start - 3))
-            all_regions.append(
-                (chrom, upstream_ee - 3, upstream_ee + 6)
-                if has_upstream_donor else (chrom, 0, 0)
-            )
-            all_regions.append(
-                (chrom, downstream_es - 20, downstream_es + 3)
-                if has_downstream_acceptor else (chrom, 0, 0)
-            )
-        else:
-            # Minus strand: upstream donor at downstream_es (LOW boundary of 5′ flanking exon)
-            #               downstream acceptor at upstream_ee (HIGH boundary of 3′ flanking exon)
-            all_regions.append((chrom, se_start - 6,  se_start + 3))
-            all_regions.append((chrom, se_end - 3,    se_end + 20))
-            all_regions.append((chrom, se_end + 3,    se_end + 50))
-            all_regions.append(
-                (chrom, downstream_es - 6, downstream_es + 3)
-                if has_upstream_donor else (chrom, 0, 0)
-            )
-            all_regions.append(
-                (chrom, upstream_ee - 3, upstream_ee + 20)
-                if has_downstream_acceptor else (chrom, 0, 0)
-            )
+        coords = splice_window_coords(
+            strand, se_start, se_end,
+            upstream_es, upstream_ee, downstream_es, downstream_ee,
+        )
+        event_meta.append((need_rc, coords))
+        all_regions.extend(_windows_to_regions(chrom, coords))
 
     all_seqs = extract_regions_batch(all_regions, fp)
 
     # Unpack: 5 seqs per event
-    results: list[SpliceWindows] = []
-    for i, (need_rc, has_upstream_donor, has_downstream_acceptor) in enumerate(event_meta):
-        seqs = all_seqs[i * 5 : i * 5 + 5]
-        if need_rc:
-            seqs = [reverse_complement(s) if s else "" for s in seqs]
-        results.append(SpliceWindows(
-            donor_seq=seqs[0],
-            acceptor_seq=seqs[1],
-            ppt_seq=seqs[2],
-            upstream_donor_seq=seqs[3] if has_upstream_donor else "",
-            downstream_acceptor_seq=seqs[4] if has_downstream_acceptor else "",
-            source="fasta",
-        ))
-
-    return results
+    n = len(_WINDOW_KEYS)
+    return [
+        _build_windows(all_seqs[i * n : i * n + n], coords, need_rc, "fasta")
+        for i, (need_rc, coords) in enumerate(event_meta)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -489,9 +581,7 @@ def _fetch_ensembl_seq(chrom: str, start: int, end: int) -> str:
         return ""
 
     # Convert UCSC-style chr names to Ensembl (strip 'chr', map M → MT)
-    ens = chrom[3:] if chrom.startswith("chr") else chrom
-    if ens == "M":
-        ens = "MT"
+    ens = _ensembl_chrom(chrom)
 
     region = f"{ens}:{start + 1}..{end}"
     url = (
@@ -524,48 +614,21 @@ def get_splice_windows_from_ensembl(
 
     Used as a fallback when no local FASTA/samtools is available.
     Makes up to 5 sequential HTTP calls (donor, acceptor, PPT, upstream donor, downstream acceptor).
-    See get_splice_windows() for the strand-specific boundary logic.
+    See ``splice_window_coords`` for the strand-specific boundary logic.
     """
     # Use MANE-corrected boundaries for the skipped exon splice sites if available.
     se_start = mane_exon_start if mane_exon_start is not None else exon_start
     se_end   = mane_exon_end   if mane_exon_end   is not None else exon_end
 
-    if strand == "+":
-        donor_seq    = _fetch_ensembl_seq(chrom, se_end - 3,    se_end + 6)
-        acceptor_seq = _fetch_ensembl_seq(chrom, se_start - 20, se_start + 3)
-        ppt_seq      = _fetch_ensembl_seq(chrom, se_start - 50, se_start - 3)
-        upstream_donor_seq = (
-            _fetch_ensembl_seq(chrom, upstream_ee - 3, upstream_ee + 6)
-            if upstream_ee is not None else ""
-        )
-        downstream_acceptor_seq = (
-            _fetch_ensembl_seq(chrom, downstream_es - 20, downstream_es + 3)
-            if downstream_es is not None else ""
-        )
-    else:
-        # Minus strand: rMATS "downstream" exon (higher coords) is 5′ flanking.
-        # upstream donor at downstream_es (LOW boundary of 5′ flanking exon)
-        # downstream acceptor at upstream_ee (HIGH boundary of 3′ flanking exon)
-        donor_seq    = reverse_complement(_fetch_ensembl_seq(chrom, se_start - 6, se_start + 3))
-        acceptor_seq = reverse_complement(_fetch_ensembl_seq(chrom, se_end - 3,   se_end + 20))
-        ppt_seq      = reverse_complement(_fetch_ensembl_seq(chrom, se_end + 3,   se_end + 50))
-        upstream_donor_seq = (
-            reverse_complement(_fetch_ensembl_seq(chrom, downstream_es - 6, downstream_es + 3))
-            if downstream_es is not None else ""
-        )
-        downstream_acceptor_seq = (
-            reverse_complement(_fetch_ensembl_seq(chrom, upstream_ee - 3, upstream_ee + 20))
-            if upstream_ee is not None else ""
-        )
-
-    return SpliceWindows(
-        donor_seq=donor_seq,
-        acceptor_seq=acceptor_seq,
-        ppt_seq=ppt_seq,
-        upstream_donor_seq=upstream_donor_seq,
-        downstream_acceptor_seq=downstream_acceptor_seq,
-        source="ensembl",
+    coords = splice_window_coords(
+        strand, se_start, se_end,
+        upstream_es, upstream_ee, downstream_es, downstream_ee,
     )
+    seqs = [
+        _fetch_ensembl_seq(chrom, *coords[k]) if coords[k] is not None else ""
+        for k in _WINDOW_KEYS
+    ]
+    return _build_windows(seqs, coords, strand == "-", "ensembl")
 
 
 def fasta_available(fasta_path: str | None = None) -> bool:

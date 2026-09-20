@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -33,8 +34,6 @@ import httpx
 from app.config import settings
 from app.services.mane_local import (
     annotate_from_local,
-    get_mane_exon_boundaries,
-    get_mane_exon_boundaries_batch,
     get_transcript_exons_local,
     is_loaded as mane_local_loaded,
     load_mane_gff3,
@@ -54,45 +53,74 @@ _HEADERS = {"Accept": "application/json"}
 _local = threading.local()
 
 
+_schema_lock = threading.Lock()
+_schema_ready_for: str | None = None  # cache path whose schema has been initialised
+
+
+def _ensure_schema(conn: sqlite3.Connection, path: str) -> None:
+    """Create (or migrate) the cache tables exactly once per process.
+
+    The schema check used to run unguarded in every thread-local connection:
+    with the 8-worker annotation pool on a fresh cache file, one thread could
+    see "no table yet", issue ``DROP TABLE IF EXISTS`` and destroy the table
+    another thread had just created and was writing to ("no such table:
+    mane_cache"), leaving a few events with frame_class 'unknown'.  The
+    process-wide lock serialises the initialisation; the old (strand-less)
+    schema is dropped only when it actually exists.
+    """
+    global _schema_ready_for
+    if _schema_ready_for == path:
+        return
+    with _schema_lock:
+        if _schema_ready_for == path:
+            return
+        cols = [row[1] for row in conn.execute("PRAGMA table_info(mane_cache)")]
+        if cols and "strand" not in cols:
+            # Schema migration (v2): strand is part of the primary key so that
+            # minus-strand exon_rank values are recomputed correctly.
+            conn.execute("DROP TABLE mane_cache")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS mane_cache (
+                gene_id TEXT NOT NULL,
+                strand TEXT NOT NULL DEFAULT '+',
+                exon_start INTEGER NOT NULL,
+                exon_end INTEGER NOT NULL,
+                transcript_id TEXT,
+                exon_rank INTEGER,
+                frame_region TEXT,
+                frame_class TEXT,
+                cds_exon_length INTEGER,
+                PRIMARY KEY (gene_id, strand, exon_start, exon_end)
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS mane_exon_cache (
+                transcript_id TEXT PRIMARY KEY,
+                n_exons INTEGER,
+                exons_json TEXT
+            )"""
+        )
+        conn.commit()
+        _schema_ready_for = path
+
+
 def _db_conn() -> sqlite3.Connection:
+    path = str(Path(settings.MANE_CACHE_DB))
     conn = getattr(_local, "conn", None)
-    if conn is not None:
+    if conn is not None and getattr(_local, "conn_path", None) == path:
         return conn
-    path = Path(settings.MANE_CACHE_DB)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=30)
-    conn.execute("PRAGMA journal_mode=WAL")
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path, timeout=30)
+    # busy_timeout first: switching to WAL needs a brief exclusive lock, and
+    # several annotation threads open their connection at the same moment.
     conn.execute("PRAGMA busy_timeout=30000")
-    # Schema migration: add strand column to primary key (v2).
-    # If the old schema (without strand) exists, drop it so that minus-strand
-    # exon_rank values are recomputed correctly.
     try:
-        conn.execute("SELECT strand FROM mane_cache LIMIT 1")
-    except sqlite3.OperationalError:
-        conn.execute("DROP TABLE IF EXISTS mane_cache")
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS mane_cache (
-            gene_id TEXT NOT NULL,
-            strand TEXT NOT NULL DEFAULT '+',
-            exon_start INTEGER NOT NULL,
-            exon_end INTEGER NOT NULL,
-            transcript_id TEXT,
-            exon_rank INTEGER,
-            frame_region TEXT,
-            frame_class TEXT,
-            cds_exon_length INTEGER,
-            PRIMARY KEY (gene_id, strand, exon_start, exon_end)
-        )"""
-    )
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS mane_exon_cache (
-            transcript_id TEXT PRIMARY KEY,
-            n_exons INTEGER,
-            exons_json TEXT
-        )"""
-    )
-    conn.commit()
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError as exc:  # another connection holds the lock
+        logger.debug("journal_mode=WAL not applied on this connection: %s", exc)
+    _ensure_schema(conn, path)
     _local.conn = conn
+    _local.conn_path = path
     return conn
 
 
@@ -149,6 +177,14 @@ def _ensembl_get(path: str) -> Any | None:
     return None
 
 
+def _ensembl_chrom(chrom: str) -> str:
+    """UCSC-style chromosome name → Ensembl name (``chr1`` → ``1``, ``chrM`` → ``MT``)."""
+    name = chrom.removeprefix("chr")
+    if name in ("M", "MT"):
+        return "MT"
+    return name
+
+
 def _get_mane_transcript(gene_id: str, chrom: str, exon_start: int, exon_end: int) -> str | None:
     """Return the MANE Select transcript ID for the given gene.
 
@@ -167,7 +203,7 @@ def _get_mane_transcript(gene_id: str, chrom: str, exon_start: int, exon_end: in
                 return t.get("id")
 
     # Strategy 2: region overlap fallback
-    chrom_clean = chrom.lstrip("chr")
+    chrom_clean = _ensembl_chrom(chrom)
     data = _ensembl_get(
         f"/overlap/region/human/{chrom_clean}:{exon_start + 1}-{exon_end}"
         "?feature=transcript&content-type=application/json"
@@ -180,8 +216,37 @@ def _get_mane_transcript(gene_id: str, chrom: str, exon_start: int, exon_end: in
     return None
 
 
+def _cds_belongs_to(cds: dict, transcript_id: str) -> bool:
+    """True when the CDS feature's ``Parent`` is *transcript_id*.
+
+    Ensembl returns ``Parent`` as the transcript stable id, sometimes
+    versioned (``ENST00000123456.7``); both forms are accepted.
+    """
+    parent = cds.get("Parent")
+    if not isinstance(parent, str):
+        return False
+    if parent == transcript_id:
+        return True
+    base = transcript_id.split(".")[0]
+    if parent == base:
+        return True
+    return re.fullmatch(rf"{re.escape(base)}\.\d+", parent) is not None
+
+
+def _filter_cds_by_transcript(cds: Any, transcript_id: str) -> list[dict]:
+    """Keep only the CDS features whose Parent is *transcript_id*.
+
+    ``/overlap/id/{tx}?feature=cds`` returns the CDS features of EVERY
+    transcript overlapping the span, so the other isoforms' CDS would
+    otherwise inflate the CDS span and mis-classify UTR/partial exons.
+    """
+    if not isinstance(cds, list):
+        return []
+    return [c for c in cds if isinstance(c, dict) and _cds_belongs_to(c, transcript_id)]
+
+
 def _get_transcript_structure(transcript_id: str) -> dict | None:
-    """Fetch exon list + CDS intervals for a transcript."""
+    """Fetch exon list + CDS intervals (this transcript only) for a transcript."""
     exons = _ensembl_get(
         f"/lookup/id/{transcript_id}?expand=1&content-type=application/json"
     )
@@ -190,8 +255,19 @@ def _get_transcript_structure(transcript_id: str) -> dict | None:
     cds = _ensembl_get(
         f"/overlap/id/{transcript_id}?feature=cds&content-type=application/json"
     )
-    exons["CDS"] = cds if isinstance(cds, list) else []
+    exons["CDS"] = _filter_cds_by_transcript(cds, transcript_id)
     return exons
+
+
+def _merge_intervals(intervals: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Union of half-open intervals, sorted and non-overlapping."""
+    merged: list[tuple[int, int]] = []
+    for s, e in sorted(i for i in intervals if i[1] > i[0]):
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+    return merged
 
 
 def _frame_class(
@@ -236,16 +312,24 @@ def _frame_class(
         result["frame_class"] = "non_coding"
         return result
 
-    # Overall CDS span
-    cds_starts = [c.get("start", 0) - 1 for c in cds_list]
-    cds_ends   = [c.get("end", 0)     for c in cds_list]
-    cds_start  = min(cds_starts)
-    cds_end    = max(cds_ends)
+    # Union of the CDS segments (Ensembl 1-based inclusive → 0-based half-open)
+    cds_segments = _merge_intervals(
+        [(c.get("start", 0) - 1, c.get("end", 0)) for c in cds_list]
+    )
+    if not cds_segments:
+        result["frame_region"] = "non_coding"
+        result["frame_class"] = "non_coding"
+        return result
+    cds_start = cds_segments[0][0]
+    cds_end   = cds_segments[-1][1]
 
-    overlap_start = max(exon_start, cds_start)
-    overlap_end   = min(exon_end,   cds_end)
+    # Coding length = sum of the exon's overlap with each CDS segment
+    cod_len = sum(
+        max(0, min(exon_end, seg_e) - max(exon_start, seg_s))
+        for seg_s, seg_e in cds_segments
+    )
 
-    if overlap_start >= overlap_end:
+    if cod_len <= 0:
         # No CDS overlap
         if exon_end <= cds_start:
             result["frame_region"] = "UTR5" if transcript.get("strand") == 1 else "UTR3"
@@ -254,10 +338,10 @@ def _frame_class(
         result["frame_class"] = "non_coding"
         return result
 
-    cod_len = overlap_end - overlap_start
-
-    # Partial CDS overlap?
-    if overlap_start > exon_start or overlap_end < exon_end:
+    # "CDS" only when the exon is entirely covered by CDS segments; any part
+    # outside the union (beyond its span, or in a gap) is "partial".
+    exon_len = exon_end - exon_start
+    if cod_len < exon_len or exon_start < cds_start or exon_end > cds_end:
         result["frame_region"] = "partial"
     else:
         result["frame_region"] = "CDS"

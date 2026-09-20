@@ -38,10 +38,13 @@ class SpliceFeatureResponse(BaseModel):
     # PPT
     ppt_score: float | None = None
     ppt_longest_run: int | None = None
-    # branch-point
+    # branch-point (branch A mandatory; bp_distance = nt from the branch
+    # adenosine to the exon start, searched in the −18…−44 window)
     bp_motif_found: bool | None = None
     bp_distance: int | None = None
     bp_score: int | None = None
+    bp_position: int | None = None   # 0-based index of the 7-mer in ppt_seq
+    bp_motif: str | None = None      # matched 7-mer
     # MANE
     mane_transcript_id: str | None = None
     exon_rank: int | None = None
@@ -115,6 +118,11 @@ class EventPermResult(BaseModel):
     empirical_p_value: float | None = None
     n1: int = 0
     n2: int = 0
+    # True when every distinct label split was enumerated (p = r / N);
+    # False for Monte-Carlo sampling (p = (r + 1) / (K + 1)).
+    exact: bool = False
+    # Number of distinct label splits C(n1+n2, n1) when known.
+    n_splits: int | None = None
     null_hist_bins: list[float] = []
     null_hist_counts: list[int] = []
 
@@ -144,6 +152,15 @@ class PermutationResponse(BaseModel):
     observed_hist_counts: list[int] = []
     pct_p05: float | None = None
     pct_p01: float | None = None
+    # Fraction of tested events whose p-value came from exact enumeration
+    # of all label splits (0.0 = all Monte-Carlo, 1.0 = all exact).
+    exact_fraction: float = 0.0
+    # Smallest p-value attainable given the replicate design
+    # (1 / n_splits for exact enumeration, 1 / (K + 1) otherwise); None if unknown.
+    min_p_attainable: float | None = None
+    # Replicates per group in the underlying rMATS design (when uniform).
+    n_replicates_g1: int | None = None
+    n_replicates_g2: int | None = None
     metric_results: list[MetricPermResult] = []
 
 
@@ -166,7 +183,7 @@ class PatternAnalysisResponse(BaseModel):
     acceptor_sites: SiteStats
     ppt: PPTStats
     frame: FrameStats
-    bp_found_pct: float | None = None   # % events with a branch-point match
+    bp_found_pct: float | None = None   # % events with a branch-point match (of events with a PPT sequence)
     # Flanking exon splice sites
     upstream_donor_sites: SiteStats | None = None
     downstream_acceptor_sites: SiteStats | None = None

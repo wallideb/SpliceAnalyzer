@@ -18,6 +18,8 @@
 
 import { useState } from "react";
 import { useT } from "@/contexts/LanguageContext";
+import { baseColor } from "@/lib/colors";
+import { BP_A_OFFSET } from "@/types/splice";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,9 +56,20 @@ export interface ExonDiagramProps {
   pptScore?: number | null;
   pptSeq?: string | null;
   bpFound?: boolean | null;
+  /** Distance (nt) from the branch adenosine to the exon start (3′SS). */
   bpDistance?: number | null;
+  /** 0-based index of the matched 7-mer within `pptSeq`; the branch A is at +BP_A_OFFSET. */
+  bpPosition?: number | null;
+  /** Matched branch-point 7-mer (shown in the tooltip). */
+  bpMotif?: string | null;
   group1Label?: string;
   group2Label?: string;
+  /**
+   * Explicit dashed-arc override (E6). When provided it replaces the
+   * FDR-driven rule (`fdr > 0.05`), e.g. for the consensus exon where no
+   * real FDR exists.
+   */
+  dashed?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,20 +139,10 @@ const BP_CY      = PPT_Y + PPT_H / 2;
 const SEQ_STRIP_Y = 114;
 const SEQ_CELL_H  = 12;
 
-// Nucleotide colours (consistent with SpliceSiteTrack)
-const NUC_COLOR: Record<string, string> = {
-  A: "#f97316",  // orange
-  G: "#8b5cf6",  // violet
-  C: "#3b82f6",  // blue
-  T: "#06b6d4",  // cyan
-  N: "#94a3b8",  // gray
-  Y: "#3b82f6",
-  R: "#f97316",
-  U: "#06b6d4",
-};
-
+// Nucleotide colours: shared palette (lib/colors.ts, E7) — IUPAC Y/R/U map
+// to the C/A/T colours respectively.
 function nucColor(base: string): string {
-  return NUC_COLOR[base.toUpperCase()] ?? "#94a3b8";
+  return baseColor(base);
 }
 
 // Donor: positions -3,-2,-1 | +1,+2,...,+6 (GT at idx 3,4)
@@ -293,8 +296,11 @@ export function ExonDiagram({
   pptSeq,
   bpFound,
   bpDistance,
+  bpPosition,
+  bpMotif,
   group1Label,
   group2Label,
+  dashed,
 }: ExonDiagramProps) {
   const t = useT();
 
@@ -306,7 +312,8 @@ export function ExonDiagram({
   // ΔΨ > 0 → more exon skipping in group 2 (controls) → BLUE
   const arcColor = delta < 0 ? COLOR_RED : COLOR_BLUE;
   const arcWidth = Math.max(2, Math.min(6, 2 + Math.abs(delta) * 6));
-  const arcDashed = fdr !== null && fdr > 0.05;
+  // Explicit `dashed` prop wins (consensus view); real events use the FDR rule.
+  const arcDashed = dashed !== undefined ? dashed : fdr !== null && fdr > 0.05;
 
   // Arc path
   const arcStartX = LEFT_EXON_RIGHT;
@@ -378,7 +385,12 @@ export function ExonDiagram({
   ].filter(Boolean).join("\n");
 
   const bpTooltip = bpFound
-    ? `${t("exonDiagram.bp")}\n${t("exonDiagram.bpFound", { dist: bpDistance ?? "?" })}\n${t("exonDiagram.bpHoverDetail")}`
+    ? [
+        t("exonDiagram.bp"),
+        t("exonDiagram.bpFound", { dist: bpDistance ?? "?" }),
+        bpMotif ? t("exonDiagram.bpMotif", { motif: bpMotif }) : null,
+        t("exonDiagram.bpHoverDetail"),
+      ].filter(Boolean).join("\n")
     : `${t("exonDiagram.bp")}\n${t("exonDiagram.bpNotFound")}`;
 
   const fc           = frameClass ?? "unknown";
@@ -404,8 +416,17 @@ export function ExonDiagram({
     ? (PPT_BAR_X2 - PPT_BAR_X1) * Math.min(1, Math.max(0, pptScore))
     : 0;
 
-  // Branch-point circle position (38% into PPT bar)
-  const bpCX = PPT_BAR_X1 + (PPT_BAR_X2 - PPT_BAR_X1) * 0.38;
+  // Branch-point circle position: index of the branch A within ppt_seq
+  // (bp_position is the 7-mer start, the adenosine sits at +BP_A_OFFSET)
+  // mapped onto the PPT bar (left = 5′ end of the window, right = 3′SS);
+  // falls back to 38 % of the bar when the backend did not report a position.
+  const pptLen = pptSeq?.length ?? 0;
+  const bpCX =
+    bpPosition != null && pptLen > 0
+      ? PPT_BAR_X1 +
+        (PPT_BAR_X2 - PPT_BAR_X1) *
+          ((Math.min(Math.max(bpPosition + BP_A_OFFSET, 0), pptLen - 1) + 0.5) / pptLen)
+      : PPT_BAR_X1 + (PPT_BAR_X2 - PPT_BAR_X1) * 0.38;
 
   // Donor site indicator bounds — at right edge of skipped exon (5'SS donor)
   const donorIndicatorX = SKIP_RIGHT - 5;
@@ -818,7 +839,7 @@ export function ExonDiagram({
               fontSize={8} fill={bpFound ? COLOR_GREEN : COLOR_TEXT_MUTED}
               fontFamily="monospace" fontWeight="600"
             >
-              BP{bpFound && bpDistance ? ` ~${bpDistance}nt` : "?"}
+              {bpFound && bpDistance != null ? `BP −${bpDistance} nt` : "BP ?"}
             </text>
             <title>{bpTooltip}</title>
           </g>
@@ -962,19 +983,19 @@ export function ExonDiagram({
         {hoveredEl === "bp" && bpFound != null && (
           <g>
             <rect
-              x={bpCX - 30} y={PPT_Y - 22}
-              width={90} height={18}
+              x={bpCX - 40} y={PPT_Y - 22}
+              width={130} height={18}
               rx={3} fill="var(--svg-panel-bg)" stroke={bpFound ? COLOR_GREEN : "var(--svg-panel-border)"}
               strokeWidth={0.8} fillOpacity={0.95}
             />
             <text
-              x={bpCX + 15} y={PPT_Y - 11}
+              x={bpCX + 25} y={PPT_Y - 11}
               textAnchor="middle" fontSize={7}
               fill={bpFound ? COLOR_GREEN : COLOR_TEXT_MUTED}
               fontFamily="monospace"
             >
               {bpFound
-                ? `YNYURAY — ${t("exonDiagram.bpFound", { dist: bpDistance ?? "?" })}`
+                ? `${bpMotif ?? "YNYURAY"} — ${t("exonDiagram.bpFound", { dist: bpDistance ?? "?" })}`
                 : `YNYURAY — ${t("exonDiagram.bpNotFound")}`}
             </text>
           </g>

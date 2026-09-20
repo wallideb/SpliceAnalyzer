@@ -13,7 +13,6 @@ import sys
 import uuid
 from pathlib import Path
 
-import pandas as pd
 
 # Allow running from backend/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -86,7 +85,22 @@ def test_detect_event_type():
     assert detect_event_type("A3SS.MATS.JC.txt") == "A3SS"
     assert detect_event_type("MXE.MATS.JC.txt") == "MXE"
     assert detect_event_type("random.txt") is None
+    # Prefix containing 'RI' must not be classified as RI
+    assert detect_event_type("PRIMARY_SE.MATS.JC.txt") == "SE"
     print("  PASS  detect_event_type")
+
+
+def test_filter_na_replicate_uses_available_replicates():
+    """A single NA replicate is ignored; the mean of the others decides."""
+    # Group 1: (20+10, NA, 15+5) → mean over available = 25 >= 10 → keep
+    row = _make_se_row(0, ijc1="20,NA,15", sjc1="10,12,5", ijc2="18,22", sjc2="8,10")
+    content = _build_se_file(row)
+    df = parse_rmats_file(content, "SE", uuid.uuid4())
+    filtered = filter_low_coverage(df, min_coverage=10)
+    assert len(filtered) == 1, f"Expected 1 row (NA replicate ignored), got {len(filtered)}"
+    assert filtered.attrs["n_dropped_low_coverage"] == 0
+    assert filtered.attrs["n_dropped_missing_counts"] == 0
+    print("  PASS  filter ignores NA replicate")
 
 
 def test_filter_keeps_high_coverage():
@@ -287,6 +301,7 @@ ALL_TESTS = [
     test_full_pipeline_parse_filter_dedup,
     test_overlap_dedup_after_coverage_filter,
     test_three_replicates,
+    test_filter_na_replicate_uses_available_replicates,
 ]
 
 if __name__ == "__main__":

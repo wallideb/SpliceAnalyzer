@@ -9,7 +9,7 @@ curated, freely accessible protein function annotations.
 
 External endpoint:
     GET https://rest.uniprot.org/uniprotkb/search
-        ?query=gene:{symbol} AND organism_id:9606 AND reviewed:true
+        ?query=gene_exact:{symbol} AND organism_id:9606 AND reviewed:true
         &fields=cc_function,protein_name,id
         &format=json&size=1
 """
@@ -23,7 +23,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _UNIPROT_BASE = "https://rest.uniprot.org/uniprotkb"
-_TIMEOUT = 8.0
+_TIMEOUT = 15.0  # large reviewed entries (BRCA1, TTN) can take several seconds
 
 
 async def get_protein_function(symbol: str) -> dict | None:

@@ -269,6 +269,7 @@ export default function AnalysisDetailPage() {
             <option value="abs_inc_level_diff|desc">{t("analysisDetail.filters.sortDpsiDesc")}</option>
             <option value="abs_inc_level_diff|asc">{t("analysisDetail.filters.sortDpsiAsc")}</option>
             <option value="gene_symbol|asc">{t("analysisDetail.filters.sortGeneAz")}</option>
+            <option value="gene_symbol|desc">{t("analysisDetail.filters.sortGeneZa")}</option>
           </select>
 
           <button
@@ -376,6 +377,9 @@ export default function AnalysisDetailPage() {
           group1Label={group1Label}
           group2Label={group2Label}
           showIncLevel={showIncLevel}
+          sortBy={sortBy}
+          sortDir={sortDir}
+          onSortChange={(by, dir) => { setSortKey(`${by}|${dir}`); setPage(1); }}
         />
       )}
       {/* ── Statistical methodology note ── */}
@@ -472,7 +476,7 @@ function StatSlider({
           ) : displayValue ? (
             <button
               onClick={() => setShowInput(true)}
-              title="Click to enter value"
+              title={t("eventTable.clickToEnter")}
               className={`text-xs font-bold px-2 py-0.5 rounded-md cursor-text hover:ring-1 transition-shadow ${
                 isViolet
                   ? "text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-800 hover:ring-violet-400"

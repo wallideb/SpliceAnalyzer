@@ -8,19 +8,47 @@ and non-significant (background) events.
 
 Methodology
 -----------
-For each SE event, five regions are defined:
+For each SE event, seven regions are defined (transcript orientation):
 
-  upstream exon ─── upstream intron ─── [skipped exon] ─── downstream intron ─── downstream exon
+  upstream exon ── [5'SS window ··· 3'SS window] ── [skipped exon] ── [5'SS window ··· 3'SS window] ── downstream exon
+                    upstream intron                                    downstream intron
 
-Region extraction (per rMAPS2 convention):
-  - Upstream exon:      last 250 nt of the upstream exon
-  - Upstream intron:    250 nt from the 5'SS, excluding the first 6 nt (splice signal)
-  - Skipped exon:       full exon body
-  - Downstream intron:  250 nt from the 3'SS, excluding the last 20 nt (splice signal)
-  - Downstream exon:    first 250 nt of the downstream exon
+Region extraction follows the rMAPS2 design (Hwang 2020): every intron is
+scanned at *both* ends, 250 nt after its 5' splice site and 250 nt before
+its 3' splice site, excluding the first 6 nt after the 5'SS (GURAGU donor
+signal) and the last 20 nt before the 3'SS (branch point / polypyrimidine
+tract / AG acceptor signal).  With ``_FLANK_LEN = 250``, ``_FIVE_SS_EXCL = 6``
+and ``_THREE_SS_EXCL = 20`` the seven regions are, in transcript order
+(half-open intervals; "5'SS" and "3'SS" are the donor and acceptor of the
+intron being described):
+
+  1. upstream_exon           last min(len, 250) nt of the upstream exon
+  2. upstream_intron_5ss     [5'SS + 6, min(5'SS + 6 + 250, 3'SS - 20))  of the upstream intron
+  3. upstream_intron_3ss     [max(3'SS - 20 - 250, 5'SS + 6), 3'SS - 20)  of the upstream intron
+  4. skipped_exon            full exon body
+  5. downstream_intron_5ss   [5'SS + 6, min(5'SS + 6 + 250, 3'SS - 20))  of the downstream intron
+  6. downstream_intron_3ss   [max(3'SS - 20 - 250, 5'SS + 6), 3'SS - 20)  of the downstream intron
+  7. downstream_exon         first min(len, 250) nt of the downstream exon
+
+The two windows of one intron are clipped to the intron body minus the two
+exclusion zones.  For introns shorter than 6 + 250 + 250 + 20 = 526 nt the
+5'SS and 3'SS windows therefore **overlap** (the same nucleotides are scanned
+twice, once in each window; e.g. a 300-nt intron gives a 250-nt 5'SS window
+and a 250-nt 3'SS window sharing 226 nt).  This is intentional and mirrors
+rMAPS2, which also scans each intron end independently; the two windows of
+one intron are not independent tests and should be read together.  When an
+intron is at most 26 nt long, both windows are empty.
+
+Strand handling: rMATS coordinates are always genomic (``upstream_*`` = lower
+coordinates).  On the − strand the transcript-sense upstream exon is the
+rMATS *downstream* exon, the 5'SS of every intron is at its genomic *high*
+end and the 3'SS at its genomic *low* end; the windows are mirrored
+accordingly (see :func:`define_se_regions`).  BED regions are returned in
+genomic (+ strand) coordinates and the caller reverse-complements the
+extracted sequences on the − strand.
 
 Motifs scanned (consensus sequences from literature & CISBP-RNA):
-  - hnRNP A1/A2: UAGG, UAGGG, AGG
+  - hnRNP A1/A2: UAGG, UAGGG, UAGGGA, AGG
   - hnRNP E1 (PCBP1): CCWWHCC  [CC[AT][AT][ACT]CC — rMAPS2 Suppl. Table S2, Homo sapiens]
   - hnRNP E2 (PCBP2): CCYYCCH  [CC[CT][CT]CC[ACT] — rMAPS2 Suppl. Table S2, Homo sapiens]
   - hnRNP F/H:   GGGG, GGG
@@ -31,23 +59,31 @@ Motifs scanned (consensus sequences from literature & CISBP-RNA):
   - PTB (hnRNP I): UCUU, UCUCU, CUCU
 
 For each motif in each region, we compute:
-  - motif density = (# occurrences × motif_length) / region_length  [descriptive]
-  - A standard pooled two-proportion z-test on binary hit presence
-    (event hit / no-hit) between significant and background groups.
-    This is a large-sample normal approximation, not an exact test.
-  - Raw p-values are adjusted across all testable (motif × region) pairs
-    using the Benjamini-Hochberg FDR procedure.  A pair is called
-    significant at q < 0.05 (expected FDR ≤ 5 %).
+  - motif density per event = (# overlapping occurrences × motif_length) /
+    region_length, capped at 1 (0 when the motif is absent)
+  - Presence test: a standard pooled two-proportion z-test on binary hit
+    presence (event hit / no-hit) between significant and background groups.
+    This is a large-sample normal approximation; it is only run when both
+    groups contain at least 5 events.
+  - Density test: a Mann-Whitney U test (normal approximation with tie
+    correction and a 0.5 continuity correction, ``services/stats``) on the
+    per-event densities of the two groups.  Presence saturates for short motifs (AGG, GGG, TTTT, CTCT
+    are present in almost every 250-nt window of both groups), whereas the
+    density still discriminates; rMAPS2 uses the same rank test on
+    per-window densities.
+  - Raw p-values of each test family are adjusted separately across all
+    testable (motif × region) pairs with the Benjamini-Hochberg FDR
+    procedure (applied to the unrounded p-values).  A pair is called
+    significant at q < 0.05 (expected FDR ≤ 5 %).  BH is preferred over
+    Bonferroni for this exploratory screen because it controls the
+    proportion of false positives among discoveries rather than the
+    probability of any false positive in the family.
 
 Note
 ----
-rMAPS2 uses a sliding window (default 50 bp) with Wilcoxon rank-sum test on
-per-window motif density, and separates events into upregulated, downregulated,
-and background groups.  Our simplified implementation uses a two-proportion
-z-test on binary motif presence per region, comparing significant vs
-non-significant events.  BH is preferred over Bonferroni for this exploratory
-screen because it controls the proportion of false positives among discoveries
-rather than the probability of any false positive in the family.
+rMAPS2 additionally slides a 50-bp window along each region and separates
+events into up-regulated, down-regulated and background groups.  The
+sliding-window positional map is not implemented here.
 
 References
 ----------
@@ -60,13 +96,21 @@ References
 - Chkheidze AN et al. Assembly of the alpha-complex on the 3' UTR of the
   human alpha-globin mRNA. Mol Cell Biol 1999; 19:4572-4581
 - Makeyev AV & Liebhaber SA. The poly(C)-binding proteins. RNA 2002; 8:265-278
+- Mann HB & Whitney DR. Ann Math Stat 1947; 18:50-60
 """
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 from dataclasses import dataclass, field
+from typing import Callable
+
+from app.services import stats as _stats
+from app.services.sequence import extract_regions_batch, reverse_complement
+
+logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Motif definitions
@@ -132,11 +176,14 @@ _COMPILED_MOTIFS: list[tuple[re.Pattern[str], int]] = [
     for _, _, pattern in HNRNP_MOTIFS
 ]
 
+# Seven regions, in transcript order (see module docstring).
 REGION_NAMES = [
     "upstream_exon",
-    "upstream_intron",
+    "upstream_intron_5ss",
+    "upstream_intron_3ss",
     "skipped_exon",
-    "downstream_intron",
+    "downstream_intron_5ss",
+    "downstream_intron_3ss",
     "downstream_exon",
 ]
 
@@ -146,94 +193,62 @@ REGION_NAMES = [
 # For each protein family × region pair, the *established* regulatory effect
 # when the motif is enriched in that region.  Only assignments supported by
 # strong, replicated published evidence are included; uncertain or context-
-# dependent cases are None.
+# dependent cases are None.  The published evidence is resolved at the level
+# of the whole intron (upstream vs downstream), so the label of an intron is
+# applied to both of its windows (5'SS-proximal and 3'SS-proximal).
 #
 # Sources:
-#   hnRNP A1/A2 — Zhu et al., Mol Cell 2001; Damgaard et al., EMBO J 2002;
-#     Kashima et al., Nat Genet 2007 (SMN2 ISS-N1)
+#   hnRNP A1/A2 — Zhu et al., Mol Cell 2001; Damgaard et al., RNA 2002;
+#     Kashima et al., Hum Mol Genet 2007 (SMN2 ISS-N1)
 #   hnRNP F/H — Martinez-Contreras et al., PLoS Biol 2006; Chen et al.,
-#     Genes Dev 1999 (β-tropomyosin ESS); Erkelenz et al., Genome Biol 2013
+#     Genes Dev 1999 (β-tropomyosin ESS); Erkelenz et al., RNA 2013
 #   hnRNP C — König et al., Nat Struct Mol Biol 2010 (iCLIP); Zarnack et al.,
 #     Cell 2013 (Alu exonisation)
-#   hnRNP L — House & Lynch, EMBO J 2006 (CD45 ESS); Hui et al., EMBO J 2005
+#   hnRNP L — House & Lynch, Nat Struct Mol Biol 2006 (CD45 ESS); Hui et al., EMBO J 2005
 #   hnRNP M — Huelga et al., Cell Rep 2012 (CLIP-seq)
 #   PTB — Xue et al., Mol Cell 2009 (CLIP, RNA map); Wagner & Garcia-Blanco,
 #     Mol Cell Biol 2001
 #   PCBP1/E1, PCBP2/E2, hnRNP K — insufficient position-specific splicing
 #     data; primarily characterised for mRNA stability / translation.
 #
+# Compact form: { protein_family: (upstream_exon, upstream_intron, skipped_exon,
+#                                  downstream_intron, downstream_exon) }
+_REGULATORY_EFFECTS_BY_ZONE: dict[str, tuple[str | None, ...]] = {
+    "hnRNP A1/A2":      ("ESS", "ISS", "ESS", "ISS", "ESS"),
+    "hnRNP E1 (PCBP1)": (None,  None,  None,  None,  None),
+    "hnRNP E2 (PCBP2)": (None,  None,  None,  None,  None),
+    "hnRNP F/H":        ("ESS", None,  "ESS", "ISE", "ESS"),
+    "hnRNP K":          (None,  None,  None,  None,  None),
+    "hnRNP C":          (None,  "ISE", "ESS", None,  None),
+    "hnRNP L":          (None,  None,  "ESS", None,  None),
+    "hnRNP M":          (None,  None,  "ESS", "ISS", None),
+    "PTB (hnRNP I)":    (None,  "ISS", "ESS", "ISS", None),
+}
+
 # Format: { protein_family: { region: "ESS"|"ESE"|"ISS"|"ISE"|None } }
 REGULATORY_EFFECTS: dict[str, dict[str, str | None]] = {
-    "hnRNP A1/A2": {
-        "upstream_exon":     "ESS",
-        "upstream_intron":   "ISS",
-        "skipped_exon":      "ESS",
-        "downstream_intron": "ISS",
-        "downstream_exon":   "ESS",
-    },
-    "hnRNP E1 (PCBP1)": {
-        "upstream_exon":     None,
-        "upstream_intron":   None,
-        "skipped_exon":      None,
-        "downstream_intron": None,
-        "downstream_exon":   None,
-    },
-    "hnRNP E2 (PCBP2)": {
-        "upstream_exon":     None,
-        "upstream_intron":   None,
-        "skipped_exon":      None,
-        "downstream_intron": None,
-        "downstream_exon":   None,
-    },
-    "hnRNP F/H": {
-        "upstream_exon":     "ESS",
-        "upstream_intron":   None,
-        "skipped_exon":      "ESS",
-        "downstream_intron": "ISE",
-        "downstream_exon":   "ESS",
-    },
-    "hnRNP K": {
-        "upstream_exon":     None,
-        "upstream_intron":   None,
-        "skipped_exon":      None,
-        "downstream_intron": None,
-        "downstream_exon":   None,
-    },
-    "hnRNP C": {
-        "upstream_exon":     None,
-        "upstream_intron":   "ISE",
-        "skipped_exon":      "ESS",
-        "downstream_intron": None,
-        "downstream_exon":   None,
-    },
-    "hnRNP L": {
-        "upstream_exon":     None,
-        "upstream_intron":   None,
-        "skipped_exon":      "ESS",
-        "downstream_intron": None,
-        "downstream_exon":   None,
-    },
-    "hnRNP M": {
-        "upstream_exon":     None,
-        "upstream_intron":   None,
-        "skipped_exon":      "ESS",
-        "downstream_intron": "ISS",
-        "downstream_exon":   None,
-    },
-    "PTB (hnRNP I)": {
-        "upstream_exon":     None,
-        "upstream_intron":   "ISS",
-        "skipped_exon":      "ESS",
-        "downstream_intron": "ISS",
-        "downstream_exon":   None,
-    },
+    protein: {
+        "upstream_exon":         up_ex,
+        "upstream_intron_5ss":   up_in,
+        "upstream_intron_3ss":   up_in,
+        "skipped_exon":          sk_ex,
+        "downstream_intron_5ss": dn_in,
+        "downstream_intron_3ss": dn_in,
+        "downstream_exon":       dn_ex,
+    }
+    for protein, (up_ex, up_in, sk_ex, dn_in, dn_ex) in _REGULATORY_EFFECTS_BY_ZONE.items()
 }
 
 # Intronic exclusion zones (per rMAPS2): 6 nt at 5'SS, 20 nt at 3'SS
 _FIVE_SS_EXCL = 6
 _THREE_SS_EXCL = 20
-# Max region length to extract for flanking exons / introns
+# Max region length to extract for flanking exons / intron windows
 _FLANK_LEN = 250
+
+# Minimum group size for the normal-approximation tests (presence z-test and
+# Mann-Whitney U); below this the approximations are unreliable.
+# scan_group reports progress every this many events
+_PROGRESS_EVERY = 1000
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -242,12 +257,46 @@ _FLANK_LEN = 250
 
 @dataclass
 class SERegions:
-    """Five genomic regions around a skipped exon for motif scanning."""
+    """Seven genomic regions around a skipped exon for motif scanning.
+
+    Sequences are in transcript orientation (already reverse-complemented on
+    the − strand by the caller); an unavailable region is the empty string.
+    """
     upstream_exon: str = ""
-    upstream_intron: str = ""
+    upstream_intron_5ss: str = ""
+    upstream_intron_3ss: str = ""
     skipped_exon: str = ""
-    downstream_intron: str = ""
+    downstream_intron_5ss: str = ""
+    downstream_intron_3ss: str = ""
     downstream_exon: str = ""
+
+
+_Region = tuple[str, int, int]
+
+
+def _intron_windows(chrom: str, lo: int, hi: int, strand: str) -> tuple[_Region, _Region]:
+    """Return the (5'SS-proximal, 3'SS-proximal) windows of the intron [lo, hi).
+
+    + strand: the 5'SS is at ``lo`` and the 3'SS at ``hi``.
+    − strand: the 5'SS is at ``hi`` and the 3'SS at ``lo`` (mirror image).
+    Each window is at most ``_FLANK_LEN`` nt and is clipped to the intron body
+    minus the 6-nt donor and 20-nt acceptor exclusion zones; the two windows
+    may overlap in short introns and are both empty when the body is ≤ 26 nt.
+    """
+    empty: _Region = (chrom, 0, 0)
+    if strand == "+":
+        body_lo = lo + _FIVE_SS_EXCL       # first scanned nt after the donor
+        body_hi = hi - _THREE_SS_EXCL      # one past the last scanned nt before the acceptor
+        five = (chrom, body_lo, min(body_lo + _FLANK_LEN, body_hi))
+        three = (chrom, max(body_hi - _FLANK_LEN, body_lo), body_hi)
+    else:
+        body_hi = hi - _FIVE_SS_EXCL       # donor is at the genomic high end
+        body_lo = lo + _THREE_SS_EXCL      # acceptor is at the genomic low end
+        five = (chrom, max(body_hi - _FLANK_LEN, body_lo), body_hi)
+        three = (chrom, body_lo, min(body_lo + _FLANK_LEN, body_hi))
+    five = five if five[2] > five[1] else empty
+    three = three if three[2] > three[1] else empty
+    return five, three
 
 
 def define_se_regions(
@@ -260,156 +309,100 @@ def define_se_regions(
     downstream_es: int | None,
     downstream_ee: int | None,
 ) -> list[tuple[str, int, int]]:
-    """Return list of (chrom, start, end) BED regions for the five zones.
+    """Return the seven (chrom, start, end) BED regions in ``REGION_NAMES`` order.
 
-    Coordinates are always on the + strand (genomic). Reverse-complement
-    is applied after extraction if strand == '-'.
+    Coordinates are always genomic (+ strand, 0-based, half-open).  The caller
+    reverse-complements the extracted sequences when ``strand == '-'``.  An
+    unavailable region (missing flanking coordinate, or intron consumed by the
+    exclusion zones) is returned as ``(chrom, 0, 0)``.
 
-    Strand conventions (all positions are 0-based genomic):
-    rMATS ALWAYS uses genomic ordering: upstream_*=lower coords, downstream_*=higher coords.
+    Strand conventions:
+    rMATS ALWAYS uses genomic ordering: upstream_* = lower coords, downstream_* = higher coords.
     True genomic layout for both strands:
-      [upstream_es … upstream_ee) ── intron ── [exon_start … exon_end) ── intron ── [downstream_es … downstream_ee)
+      [upstream_es … upstream_ee) ── intron A ── [exon_start … exon_end) ── intron B ── [downstream_es … downstream_ee)
 
-    + strand: upstream exon is 5′ in transcript (lower coords); downstream is 3′ (higher coords).
-    - strand: rMATS "upstream" exon (lower coords) is 3′ in transcript;
-              rMATS "downstream" exon (higher coords) is 5′ in transcript.
-              Upstream intron (5′ of skipped) spans [exon_end, downstream_es).
-              Downstream intron (3′ of skipped) spans [upstream_ee, exon_start).
+    + strand: transcript upstream exon = rMATS upstream exon; the transcript
+              upstream intron is intron A (5'SS at upstream_ee, 3'SS at exon_start)
+              and the downstream intron is intron B (5'SS at exon_end, 3'SS at downstream_es).
+    − strand: transcript upstream exon = rMATS *downstream* exon (higher coords);
+              the transcript upstream intron is intron B (5'SS at downstream_es,
+              3'SS at exon_end) and the downstream intron is intron A (5'SS at
+              exon_start, 3'SS at upstream_ee).  Each window is the mirror image
+              of the + strand one (see :func:`_intron_windows`).
     """
-    regions: list[tuple[str, int, int]] = []
+    empty: _Region = (chrom, 0, 0)
 
-    # 1. Upstream exon (5′ flanking): _FLANK_LEN nt closest to the upstream intron.
-    #    + strand: 5′ flanking = rMATS upstream exon; intron-proximal end at upstream_ee
-    #              → [upstream_ee - take, upstream_ee)
-    #    - strand: 5′ flanking = rMATS downstream exon (higher coords); intron-proximal end
-    #              at downstream_es (LOW boundary of that exon) → [downstream_es, downstream_es + take)
+    def _exon_tail(es: int | None, ee: int | None) -> _Region:
+        """Last min(len, 250) nt of an exon whose intron-proximal end is ``ee``."""
+        if es is None or ee is None:
+            return empty
+        take = min(ee - es, _FLANK_LEN)
+        return (chrom, ee - take, ee)
+
+    def _exon_head(es: int | None, ee: int | None) -> _Region:
+        """First min(len, 250) nt of an exon whose intron-proximal end is ``es``."""
+        if es is None or ee is None:
+            return empty
+        take = min(ee - es, _FLANK_LEN)
+        return (chrom, es, es + take)
+
+    # Intron A = [upstream_ee, exon_start), intron B = [exon_end, downstream_es)
+    intron_a = (
+        _intron_windows(chrom, upstream_ee, exon_start, strand)
+        if upstream_ee is not None else (empty, empty)
+    )
+    intron_b = (
+        _intron_windows(chrom, exon_end, downstream_es, strand)
+        if downstream_es is not None else (empty, empty)
+    )
+    skipped: _Region = (chrom, exon_start, exon_end)
+
     if strand == "+":
-        if upstream_es is not None and upstream_ee is not None:
-            take = min(upstream_ee - upstream_es, _FLANK_LEN)
-            regions.append((chrom, upstream_ee - take, upstream_ee))
-        else:
-            regions.append((chrom, 0, 0))
+        upstream_exon = _exon_tail(upstream_es, upstream_ee)
+        up_5ss, up_3ss = intron_a
+        dn_5ss, dn_3ss = intron_b
+        downstream_exon = _exon_head(downstream_es, downstream_ee)
     else:
-        if downstream_es is not None and downstream_ee is not None:
-            take = min(downstream_ee - downstream_es, _FLANK_LEN)
-            regions.append((chrom, downstream_es, downstream_es + take))
-        else:
-            regions.append((chrom, 0, 0))
+        # Transcript upstream exon is the rMATS downstream exon; its
+        # intron-proximal end is downstream_es (genomic low boundary).
+        upstream_exon = _exon_head(downstream_es, downstream_ee)
+        up_5ss, up_3ss = intron_b
+        dn_5ss, dn_3ss = intron_a
+        # Transcript downstream exon is the rMATS upstream exon; its
+        # intron-proximal end is upstream_ee (genomic high boundary).
+        downstream_exon = _exon_tail(upstream_es, upstream_ee)
 
-    # 2. Upstream intron (5′ of skipped exon): first _FLANK_LEN nt after 5'SS exclusion.
-    #    + strand: 5'SS at upstream_ee; intron spans [upstream_ee, exon_start)
-    #              → exclude [upstream_ee, upstream_ee+6); body starts at upstream_ee+6
-    #    - strand: 5'SS at downstream_es (LOW boundary of rMATS downstream exon);
-    #              intron spans [exon_end, downstream_es) in genomic space;
-    #              in transcript direction intron is read from downstream_es down to exon_end.
-    #              → exclude [downstream_es-6, downstream_es); body ends at downstream_es-6
-    if strand == "+":
-        if upstream_ee is not None:
-            istart = upstream_ee + _FIVE_SS_EXCL
-            iend = min(istart + _FLANK_LEN, exon_start - _THREE_SS_EXCL)
-            regions.append((chrom, istart, iend) if iend > istart else (chrom, 0, 0))
-        else:
-            regions.append((chrom, 0, 0))
-    else:
-        if downstream_es is not None:
-            iend = downstream_es - _FIVE_SS_EXCL
-            istart = max(iend - _FLANK_LEN, exon_end + _THREE_SS_EXCL)
-            regions.append((chrom, istart, iend) if iend > istart else (chrom, 0, 0))
-        else:
-            regions.append((chrom, 0, 0))
-
-    # 3. Skipped exon body
-    regions.append((chrom, exon_start, exon_end))
-
-    # 4. Downstream intron (3′ of skipped exon): first _FLANK_LEN nt after 5'SS exclusion.
-    #    + strand: 5'SS at exon_end; intron spans [exon_end, downstream_es)
-    #              → exclude [exon_end, exon_end+6); bound by downstream_es - 20
-    #    - strand: 5'SS at exon_start (LOW boundary of skipped exon = 3' end in transcript);
-    #              intron spans [upstream_ee, exon_start) in genomic space;
-    #              in transcript direction read from exon_start down to upstream_ee.
-    #              → exclude [exon_start-6, exon_start); bound by upstream_ee + 20
-    if strand == "+":
-        if downstream_es is not None:
-            istart = exon_end + _FIVE_SS_EXCL
-            iend = min(istart + _FLANK_LEN, downstream_es - _THREE_SS_EXCL)
-            regions.append((chrom, istart, iend) if iend > istart else (chrom, 0, 0))
-        else:
-            regions.append((chrom, 0, 0))
-    else:
-        if upstream_ee is not None:
-            iend = exon_start - _FIVE_SS_EXCL
-            istart = max(iend - _FLANK_LEN, upstream_ee + _THREE_SS_EXCL)
-            regions.append((chrom, istart, iend) if iend > istart else (chrom, 0, 0))
-        else:
-            regions.append((chrom, 0, 0))
-
-    # 5. Downstream exon (3′ flanking): _FLANK_LEN nt closest to the downstream intron.
-    #    + strand: 3′ flanking = rMATS downstream exon; intron-proximal end at downstream_es
-    #              → [downstream_es, downstream_es + take)
-    #    - strand: 3′ flanking = rMATS upstream exon (lower coords); intron-proximal end
-    #              at upstream_ee (HIGH boundary of that exon) → [upstream_ee - take, upstream_ee)
-    if strand == "+":
-        if downstream_es is not None and downstream_ee is not None:
-            take = min(downstream_ee - downstream_es, _FLANK_LEN)
-            regions.append((chrom, downstream_es, downstream_es + take))
-        else:
-            regions.append((chrom, 0, 0))
-    else:
-        if upstream_es is not None and upstream_ee is not None:
-            take = min(upstream_ee - upstream_es, _FLANK_LEN)
-            regions.append((chrom, upstream_ee - take, upstream_ee))
-        else:
-            regions.append((chrom, 0, 0))
-
-    return regions
+    return [upstream_exon, up_5ss, up_3ss, skipped, dn_5ss, dn_3ss, downstream_exon]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Motif scanning
 # ──────────────────────────────────────────────────────────────────────────────
 
-def count_motif_occurrences(seq: str, motif: str) -> int:
-    """Count overlapping occurrences of *motif* in *seq* (case-insensitive).
-
-    *motif* may contain IUPAC bracket notation (e.g. ``CC[AT][AT][ACT]CC``).
-    """
-    if not seq or not motif:
-        return 0
-    compiled = re.compile(motif.upper())
-    seq_u = seq.upper()
-    count = 0
-    pos = 0
-    while True:
-        m = compiled.search(seq_u, pos)
-        if m is None:
-            break
-        count += 1
-        pos = m.start() + 1
-    return count
-
-
-def motif_density(seq: str, motif: str) -> float:
-    """Fraction of nucleotides covered by (possibly overlapping) motif hits."""
-    if not seq:
-        return 0.0
-    n = count_motif_occurrences(seq, motif)
-    return min(1.0, (n * _motif_match_len(motif.upper())) / len(seq))
-
-
 @dataclass
 class MotifRegionResult:
-    """Motif scan result for one motif in one region across a group of events."""
+    """Motif scan result for one motif in one region across a group of events.
+
+    ``densities`` holds one value per event with a non-empty region (0.0 when
+    the motif is absent); ``mean_density`` is its mean.
+    """
     motif_name: str
     protein: str
     region: str
     count_events_with_hit: int = 0
     total_events: int = 0
     mean_density: float = 0.0
+    densities: list[float] = field(default_factory=list)
 
 
 @dataclass
 class MotifEnrichmentResult:
-    """Comparison of one motif in one region: significant vs background."""
+    """Comparison of one motif in one region: significant vs background.
+
+    ``z_stat``/``p_value``/``p_adjusted``/``significant`` describe the
+    presence (two-proportion z) test; ``density_*`` the Mann-Whitney U test on
+    per-event densities.  Both p-value families are BH-adjusted separately.
+    """
     motif_name: str
     protein: str
     region: str
@@ -423,12 +416,20 @@ class MotifEnrichmentResult:
     p_value: float | None = None
     p_adjusted: float | None = None
     significant: bool = False
+    density_u_stat: float | None = None
+    density_p_value: float | None = None
+    density_p_adjusted: float | None = None
+    density_significant: bool = False
 
 
 def scan_group(
     sequences_by_region: list[SERegions],
+    progress: "Callable[[int], None] | None" = None,
 ) -> list[MotifRegionResult]:
     """Scan a group of events and return per-motif per-region stats.
+
+    *progress*, when given, is called every ``_PROGRESS_EVERY`` events (and
+    once at the end) with the number of events scanned so far.
 
     Performance notes (optimised for 120 k-event datasets):
     - Iterates events in the *outer* loop so each SERegions object is
@@ -440,18 +441,20 @@ def scan_group(
       overlapping-count loop, skipping the count for ~50-80 % of pairs.
       Pre-compiled regex handles both plain literals and degenerate IUPAC
       bracket patterns (e.g. CC[AT][AT][ACT]CC) without branching.
-    - Accumulates a running density sum instead of building per-region
-      lists, eliminating repeated list allocations.
+    - Per-event densities are kept (one float per motif × region × event)
+      because the density test in :func:`compare_groups` is rank-based;
+      misses append the shared ``0.0`` constant, so only hits allocate.
     """
     n_motifs = len(HNRNP_MOTIFS)
     n_regions = len(REGION_NAMES)
 
     # Flat pre-allocated accumulators: index = mi * n_regions + ri
-    n_totals = [0]   * (n_motifs * n_regions)
-    n_hits   = [0]   * (n_motifs * n_regions)
-    sum_dens = [0.0] * (n_motifs * n_regions)
+    n_hits = [0] * (n_motifs * n_regions)
+    densities: list[list[float]] = [[] for _ in range(n_motifs * n_regions)]
 
-    for sr in sequences_by_region:
+    for ev_idx, sr in enumerate(sequences_by_region, start=1):
+        if progress is not None and ev_idx % _PROGRESS_EVERY == 0:
+            progress(ev_idx)
         for ri, region_name in enumerate(REGION_NAMES):
             seq = getattr(sr, region_name, "")
             if not seq:
@@ -459,34 +462,36 @@ def scan_group(
             seq_len = len(seq)
             for mi, (compiled, pat_len) in enumerate(_COMPILED_MOTIFS):
                 cell = mi * n_regions + ri
-                n_totals[cell] += 1
                 # Fast early exit: no density computation needed for misses
-                if not compiled.search(seq):
+                m = compiled.search(seq)
+                if m is None:
+                    densities[cell].append(0.0)
                     continue
                 n_hits[cell] += 1
                 # Count overlapping occurrences for density
                 count = 0
-                pos = 0
-                while True:
-                    m = compiled.search(seq, pos)
-                    if m is None:
-                        break
+                while m is not None:
                     count += 1
-                    pos = m.start() + 1
-                sum_dens[cell] += min(1.0, count * pat_len / seq_len)
+                    m = compiled.search(seq, m.start() + 1)
+                densities[cell].append(min(1.0, count * pat_len / seq_len))
+
+    if progress is not None:
+        progress(len(sequences_by_region))
 
     results: list[MotifRegionResult] = []
     for mi, (motif_name, protein, _) in enumerate(HNRNP_MOTIFS):
         for ri, region_name in enumerate(REGION_NAMES):
             cell = mi * n_regions + ri
-            nt = n_totals[cell]
+            dens = densities[cell]
+            nt = len(dens)
             results.append(MotifRegionResult(
                 motif_name=motif_name,
                 protein=protein,
                 region=region_name,
                 count_events_with_hit=n_hits[cell],
                 total_events=nt,
-                mean_density=sum_dens[cell] / nt if nt > 0 else 0.0,
+                mean_density=math.fsum(dens) / nt if nt > 0 else 0.0,
+                densities=dens,
             ))
     return results
 
@@ -494,22 +499,34 @@ def scan_group(
 def compare_groups(
     sig_results: list[MotifRegionResult],
     bg_results: list[MotifRegionResult],
+    progress: "Callable[[int], None] | None" = None,
 ) -> list[MotifEnrichmentResult]:
     """Compare motif enrichment between significant and background groups.
 
-    For each (motif, region) pair, applies the standard pooled two-proportion
-    z-test on binary hit presence (event hit / no-hit).  This is a large-sample
-    normal approximation, not an exact test.
+    *progress*, when given, is called after each (motif, region) pair with the
+    number of pairs compared so far (the rank test dominates the run time on
+    large datasets).
+
+    For each (motif, region) pair present in both groups:
+    - presence test: pooled two-proportion z-test on binary hit presence
+      (large-sample normal approximation; None when either group has fewer
+      than ``stats.MIN_GROUP_N`` events or the pooled proportion is 0 or 1);
+    - density test: Mann-Whitney U on the per-event densities (normal
+      approximation with tie and continuity corrections; same minimum group
+      size; None when every pooled density is tied).
 
     Multiple-testing correction: Benjamini-Hochberg FDR across all testable
-    (motif, region) pairs.  p_adjusted is the BH-adjusted q-value; significant
-    is set to True when q < 0.05.
+    pairs, run separately for the two p-value families on the *unrounded*
+    p-values; the reported p-values and q-values are then rounded to 6 dp.
+    ``significant`` / ``density_significant`` are True when q < 0.05.
     """
     bg_lookup: dict[tuple[str, str], MotifRegionResult] = {
         (r.motif_name, r.region): r for r in bg_results
     }
 
     raw: list[MotifEnrichmentResult] = []
+    p_presence: list[float | None] = []
+    p_density: list[float | None] = []
     for sr in sig_results:
         br = bg_lookup.get((sr.motif_name, sr.region))
         if br is None:
@@ -518,6 +535,7 @@ def compare_groups(
             sr.count_events_with_hit, sr.total_events,
             br.count_events_with_hit, br.total_events,
         )
+        u, pu = _mann_whitney_u(sr.densities, br.densities)
         raw.append(MotifEnrichmentResult(
             motif_name=sr.motif_name,
             protein=sr.protein,
@@ -530,79 +548,131 @@ def compare_groups(
             bg_density=round(br.mean_density, 6),
             z_stat=round(z, 4) if z is not None else None,
             p_value=round(p, 6) if p is not None else None,
+            density_u_stat=round(u, 4) if u is not None else None,
+            density_p_value=round(pu, 6) if pu is not None else None,
         ))
+        p_presence.append(p)
+        p_density.append(pu)
+        if progress is not None:
+            progress(len(raw))
 
-    # Benjamini-Hochberg FDR correction over all testable pairs
-    testable = [r for r in raw if r.p_value is not None]
-    if testable:
-        p_raw = [r.p_value for r in testable]  # type: ignore[misc]
-        q_values = _bh_adjust(p_raw)
-        for r, q in zip(testable, q_values):
-            r.p_adjusted = round(q, 6)
-            r.significant = q < 0.05
-    for r in raw:
-        if r.p_adjusted is None:
-            r.significant = False
+    # Benjamini-Hochberg FDR correction, one family per test, on unrounded p
+    for r, q in zip(raw, _bh_adjust_optional(p_presence)):
+        r.p_adjusted = round(q, 6) if q is not None else None
+        r.significant = q is not None and q < 0.05
+    for r, q in zip(raw, _bh_adjust_optional(p_density)):
+        r.density_p_adjusted = round(q, 6) if q is not None else None
+        r.density_significant = q is not None and q < 0.05
 
     return raw
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Stats helpers
+# Stats helpers — single implementation shared with routers/deep_analyses
+# (see services/stats.py).
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _bh_adjust(p_values: list[float]) -> list[float]:
-    """Benjamini-Hochberg FDR adjustment.
+_proportion_z_test = _stats.proportion_z_test
+_mann_whitney_u = _stats.mann_whitney_u
+_bh_adjust_optional = _stats.bh_adjust
 
-    Returns q-values in the same order as the input.  BH adjusted p-values
-    are computed by sorting ascending on raw p-value, applying the BH scale
-    factor at each rank, then enforcing monotonicity via a cumulative minimum
-    scanned from the largest rank back to the smallest (q[rank i] <= q[rank i+1]).
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Region extraction for a list of events (shared by the API router and the PDF)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def build_se_regions(
+    events: list,
+    fasta_path: str | None = None,
+    label: str = "",
+    progress: "Callable[[int], None] | None" = None,
+) -> list[SERegions]:
+    """Extract the seven ``REGION_NAMES`` sequences of every SE event in one
+    batched ``samtools faidx`` call.
+
+    *events* expose the rMATS attributes (``chr``, ``strand``, ``exon_start``,
+    ``exon_end``, ``upstream_es/ee``, ``downstream_es/ee``).  Events without
+    chr / exon coordinates get seven empty regions; − strand sequences are
+    reverse-complemented so every region is in transcript orientation.
+    Diagnostics (missing flanks, introns consumed by the exclusion zones) are
+    logged under *label*.  *progress* receives the number of regions
+    (``len(events) * len(REGION_NAMES)`` in total) extracted so far.
     """
-    n = len(p_values)
-    if n == 0:
+    if not events:
         return []
-    order = sorted(range(n), key=lambda i: p_values[i])
-    adjusted = [0.0] * n
-    for rank, idx in enumerate(order, start=1):
-        adjusted[idx] = p_values[idx] * n / rank
-    # Enforce monotonicity: cumulative minimum from largest rank back to smallest
-    min_q = 1.0
-    for idx in reversed(order):
-        min_q = min(min_q, adjusted[idx])
-        adjusted[idx] = min_q
-    return adjusted
+    from app.config import settings
 
+    n_regions = len(REGION_NAMES)
+    all_bed: list[tuple[str, int, int]] = []
+    strands: list[str] = []
 
-def _proportion_z_test(
-    k1: int, n1: int, k2: int, n2: int,
-) -> tuple[float | None, float | None]:
-    """Standard pooled two-proportion z-test for H0: p1 = p2.
+    n_missing_coords = 0
+    n_null_up = 0      # transcript-upstream flanking coordinate missing
+    n_null_dn = 0      # transcript-downstream flanking coordinate missing
+    n_short_up = 0
+    n_short_dn = 0
+    min_intron = _FIVE_SS_EXCL + _THREE_SS_EXCL
 
-    Returns (z_stat, raw_p_value) or (None, None) when the test is undefined.
-    This is a large-sample normal approximation; caller is responsible for
-    multiple-testing correction.
-    """
-    if n1 < 1 or n2 < 1:
-        return None, None
-    p1 = k1 / n1
-    p2 = k2 / n2
-    p_pool = (k1 + k2) / (n1 + n2)
-    if p_pool <= 0 or p_pool >= 1:
-        return None, None
-    se = math.sqrt(p_pool * (1 - p_pool) * (1 / n1 + 1 / n2))
-    if se == 0:
-        return None, None
-    z = (p1 - p2) / se
-    p = 2 * (1 - _normal_cdf(abs(z)))
-    return z, p
+    for ev in events:
+        strand = ev.strand or "+"
+        if not ev.chr or ev.exon_start is None or ev.exon_end is None:
+            n_missing_coords += 1
+            all_bed.extend([("", 0, 0)] * n_regions)
+            strands.append(strand)
+            continue
 
+        # Intron A = [upstream_ee, exon_start), intron B = [exon_end, downstream_es);
+        # on the − strand A is transcript-downstream and B transcript-upstream.
+        len_a = (ev.exon_start - ev.upstream_ee) if ev.upstream_ee is not None else None
+        len_b = (ev.downstream_es - ev.exon_end) if ev.downstream_es is not None else None
+        up_len, dn_len = (len_a, len_b) if strand == "+" else (len_b, len_a)
+        if up_len is None:
+            n_null_up += 1
+        elif up_len <= min_intron:
+            n_short_up += 1
+        if dn_len is None:
+            n_null_dn += 1
+        elif dn_len <= min_intron:
+            n_short_dn += 1
 
-def _normal_cdf(x: float) -> float:
-    """Standard normal CDF via the identity Phi(x) = 0.5 * erfc(-x / sqrt(2)).
+        bed = define_se_regions(
+            ev.chr, strand,
+            ev.exon_start, ev.exon_end,
+            ev.upstream_es, ev.upstream_ee,
+            ev.downstream_es, ev.downstream_ee,
+        )
+        if len(bed) != n_regions:
+            raise RuntimeError(
+                f"define_se_regions returned {len(bed)} regions, expected {n_regions}"
+            )
+        all_bed.extend(bed)
+        strands.append(strand)
 
-    The identity is mathematically exact; the numerical result depends on the
-    precision of math.erfc (Python's C-library implementation), not on any
-    hand-coded approximation.
-    """
-    return 0.5 * math.erfc(-x / math.sqrt(2))
+    n = len(events)
+    tag = f"[{label}] " if label else ""
+    if n_missing_coords:
+        logger.warning("%shnRNP: %d/%d events skipped — missing chr/exon_start/exon_end",
+                       tag, n_missing_coords, n)
+    if n_null_up:
+        logger.warning("%shnRNP: %d/%d events — null upstream flanking coord → no upstream intron",
+                       tag, n_null_up, n)
+    if n_null_dn:
+        logger.warning("%shnRNP: %d/%d events — null downstream flanking coord → no downstream intron",
+                       tag, n_null_dn, n)
+    if n_short_up:
+        logger.warning("%shnRNP: %d/%d events — upstream intron ≤ %d nt (exclusion zones consume it)",
+                       tag, n_short_up, n, min_intron)
+    if n_short_dn:
+        logger.warning("%shnRNP: %d/%d events — downstream intron ≤ %d nt (exclusion zones consume it)",
+                       tag, n_short_dn, n, min_intron)
+    logger.info("%shnRNP region extraction: %d events", tag, n)
+
+    seqs = extract_regions_batch(all_bed, fasta_path or settings.GRCH38_FASTA, progress=progress)
+
+    out: list[SERegions] = []
+    for idx, strand in enumerate(strands):
+        s = seqs[idx * n_regions : idx * n_regions + n_regions]
+        if strand == "-":
+            s = [reverse_complement(x) if x else "" for x in s]
+        out.append(SERegions(**dict(zip(REGION_NAMES, s))))
+    return out

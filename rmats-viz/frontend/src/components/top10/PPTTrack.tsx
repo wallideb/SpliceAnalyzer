@@ -5,19 +5,26 @@
  * =========
  * Visual display of the polypyrimidine tract (PPT) sequence upstream of 3'SS.
  *
- * • Each nucleotide is coloured: C/T (pyrimidines) in blue, A/G (purines) in
- *   red/orange.
+ * • Each nucleotide is coloured: C/T (pyrimidines) with the shared C colour,
+ *   A/G (purines) with the shared A colour (lib/colors.ts, E7).
  * • A horizontal pyrimidine-fraction bar shows ppt_score globally.
  * • The longest consecutive pyrimidine run is annotated.
- * • Branch-point detection result is shown inline.
- * • Position numbers count backwards from the 3'SS (e.g. −47 … −1).
+ * • The branch-point adenosine is marked at `bp_position + BP_A_OFFSET`
+ *   (`bp_position` = index of the matched 7-mer in ppt_seq); `bp_distance`
+ *   is the distance (nt) from that adenosine to the exon start.
+ * • Position numbers are relative to the exon start (−1 = last intronic
+ *   base); the window ends PPT_OFFSET_TO_EXON nt before the exon, so the
+ *   last displayed base is −(PPT_OFFSET_TO_EXON + 1).
  */
 
 import { ScienceNote } from "@/components/ScienceNote";
 import { useT } from "@/contexts/LanguageContext";
+import { BASE_COLORS } from "@/lib/colors";
+import { BP_A_OFFSET, PPT_OFFSET_TO_EXON } from "@/types/splice";
 
-const PYRIMIDINE_COLOR = "#3b82f6";  // blue-500
-const PURINE_COLOR     = "#f97316";  // orange-500
+// Two-colour scheme derived from the shared palette.
+const PYRIMIDINE_COLOR = BASE_COLORS.C;
+const PURINE_COLOR     = BASE_COLORS.A;
 
 function isPyrimidine(base: string): boolean {
   return base === "C" || base === "T";
@@ -53,12 +60,19 @@ export function PPTTrack({
   pptLongestRun,
   bpFound,
   bpDistance,
+  bpPosition = null,
+  bpMotif = null,
 }: {
   pptSeq: string;
   pptScore: number | null;
   pptLongestRun: number | null;
   bpFound: boolean | null;
+  /** Distance (nt) from the branch adenosine to the exon start (3′SS). */
   bpDistance: number | null;
+  /** 0-based index of the matched 7-mer within `pptSeq` (branch A at +BP_A_OFFSET). */
+  bpPosition?: number | null;
+  /** Matched branch-point 7-mer. */
+  bpMotif?: string | null;
 }) {
   const t = useT();
   if (!pptSeq) return null;
@@ -66,6 +80,23 @@ export function PPTTrack({
   const seq      = pptSeq.toUpperCase();
   const seqLen   = seq.length;
   const run      = longestPyrRun(seq);
+
+  // Position (nt) of displayed index i relative to the exon start
+  // (−1 = last intronic base). The window ends PPT_OFFSET_TO_EXON nt before
+  // the exon, so this equals −bp_distance at the branch adenosine.
+  const posOf = (i: number) => -(seqLen - i) - PPT_OFFSET_TO_EXON;
+
+  // Index of the branch adenosine in the displayed sequence. Prefer the
+  // explicit 7-mer position (+ offset of the A); fall back to the distance.
+  const rawBpIdx: number | null =
+    bpFound === true
+      ? bpPosition != null
+        ? bpPosition + BP_A_OFFSET
+        : bpDistance != null
+          ? seqLen + PPT_OFFSET_TO_EXON - bpDistance
+          : null
+      : null;
+  const bpIdx = rawBpIdx !== null && rawBpIdx >= 0 && rawBpIdx < seqLen ? rawBpIdx : null;
 
   const scoreLabel =
     pptScore === null ? null :
@@ -77,6 +108,11 @@ export function PPTTrack({
     pptScore >= 0.7       ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-700" :
     pptScore >= 0.5       ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200 dark:border-amber-700" :
                             "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-red-200 dark:border-red-700";
+
+  const bpCellTitle = t("pptTrack.bpCellTitle", {
+    motif: bpMotif ?? "YNYURAY",
+    dist: bpDistance ?? "?",
+  });
 
   return (
     <div className="mt-3 p-3 rounded-lg bg-muted/30 border border-border space-y-2">
@@ -98,7 +134,7 @@ export function PPTTrack({
         {/* Position number row (every 5 nt) */}
         <div className="flex gap-[2px] mb-0.5">
           {seq.split("").map((_, i) => {
-            const posFromSS = -(seqLen - i);
+            const posFromSS = posOf(i);
             const showLabel = posFromSS % 5 === 0 || i === 0 || i === seqLen - 1;
             return (
               <span
@@ -115,12 +151,14 @@ export function PPTTrack({
         <div className="flex gap-[2px]">
           {seq.split("").map((base, i) => {
             const isPyr = isPyrimidine(base);
-            const posFromSS = -(seqLen - i);
-            const isBpSite = bpFound === true && bpDistance != null && posFromSS === -bpDistance;
+            const posFromSS = posOf(i);
+            const isBpSite = bpIdx === i;
             return (
               <span
                 key={i}
-                title={`Position ${posFromSS}: ${base} (${isPyr ? "pyrimidine Y" : "purine R"})${isBpSite ? " — Branch point" : ""}`}
+                title={isBpSite
+                  ? bpCellTitle
+                  : `Position ${posFromSS}: ${base} (${isPyr ? "pyrimidine Y" : "purine R"})`}
                 style={{
                   color:       isPyr ? PYRIMIDINE_COLOR : PURINE_COLOR,
                   borderColor: isBpSite
@@ -139,24 +177,20 @@ export function PPTTrack({
         </div>
 
         {/* Branch point annotation arrow */}
-        {bpFound === true && bpDistance != null && (
+        {bpIdx !== null && (
           <div className="flex gap-[2px] mt-0.5">
-            {seq.split("").map((_, i) => {
-              const posFromSS = -(seqLen - i);
-              const isBpSite = posFromSS === -bpDistance;
-              return (
-                <span
-                  key={i}
-                  className="inline-flex items-center justify-center w-4 text-[8px] select-none"
-                >
-                  {isBpSite ? (
-                    <span className="text-green-600 dark:text-green-400 font-bold" title="Branch point adenosine">
-                      BP
-                    </span>
-                  ) : ""}
-                </span>
-              );
-            })}
+            {seq.split("").map((_, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center justify-center w-4 text-[8px] select-none"
+              >
+                {bpIdx === i ? (
+                  <span className="text-green-600 dark:text-green-400 font-bold" title={bpCellTitle}>
+                    BP
+                  </span>
+                ) : ""}
+              </span>
+            ))}
           </div>
         )}
 
@@ -176,7 +210,7 @@ export function PPTTrack({
               Branch point
             </span>
           )}
-          <span className="ml-auto italic">positions relative to 3&apos;SS →</span>
+          <span className="ml-auto italic">positions relative to the exon start (3&apos;SS) →</span>
         </div>
       </div>
 
@@ -203,7 +237,7 @@ export function PPTTrack({
               <strong className="text-foreground tabular-nums">{pptLongestRun} nt</strong>
               {" "}(positions{" "}
               <code className="font-mono">
-                {-(seqLen - run.start)}…{-(seqLen - run.start - run.length + 1)}
+                {posOf(run.start)}…{posOf(run.start + run.length - 1)}
               </code>
               )
             </p>
@@ -215,8 +249,8 @@ export function PPTTrack({
       {bpFound !== null && (
         <p className={`text-[9px] font-medium ${bpFound ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
           {bpFound
-            ? `✓ Branch point (YNYURAY) detected — ~${bpDistance} nt upstream of 3′SS`
-            : "— Branch point (YNYURAY) not detected in the PPT region"}
+            ? t("pptTrack.bpDetected", { dist: bpDistance ?? "?", motif: bpMotif ?? "YNYURAY" })
+            : t("pptTrack.bpNotDetected")}
         </p>
       )}
       <ScienceNote

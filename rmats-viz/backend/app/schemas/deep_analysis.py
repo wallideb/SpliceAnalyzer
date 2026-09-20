@@ -4,6 +4,8 @@ import uuid
 from datetime import datetime
 from pydantic import BaseModel, Field
 
+from app.schemas.event import SplicingEventResponse
+
 
 class DeepAnalysisCreate(BaseModel):
     """Request body for creating a new deep analysis."""
@@ -13,6 +15,10 @@ class DeepAnalysisCreate(BaseModel):
     pvalue_threshold: float | None = Field(None, ge=0, le=1)
     delta_psi_min: float = Field(0.1, ge=0, le=1)
     modules: list[str] = Field(default_factory=list)
+    permutation_iterations: int | None = Field(
+        None, ge=10, le=2000,
+        description="Permutation iteration count to record with the deep analysis (optional)",
+    )
 
 
 class DeepAnalysisResponse(BaseModel):
@@ -47,3 +53,13 @@ class DeepAnalysisListItem(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class DeepAnalysisEventsPage(BaseModel):
+    """Paginated events of a deep analysis (same shape as EventsPage)."""
+
+    items: list[SplicingEventResponse]
+    total: int
+    page: int
+    page_size: int
+    pages: int

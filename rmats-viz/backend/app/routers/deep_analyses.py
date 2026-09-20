@@ -20,7 +20,7 @@ from collections import Counter
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,11 +31,13 @@ from app.models.deep_analysis import DeepAnalysis, DeepAnalysisEvent
 from app.models.splice import EventSpliceFeature
 from app.schemas.deep_analysis import (
     DeepAnalysisCreate,
+    DeepAnalysisEventsPage,
     DeepAnalysisListItem,
     DeepAnalysisResponse,
 )
 from app.schemas.event import SplicingEventResponse
 from app.services.splice_features import compute_pwm, iupac_consensus, ppt_t_content, ppt_c_content
+from app.services import stats as _stats
 
 logger = logging.getLogger(__name__)
 
@@ -78,23 +80,27 @@ async def create_deep_analysis(
         name = f"{gene_part}FDR{body.fdr_threshold}-PSI{body.delta_psi_min}{pval_part}-{_d.today().isoformat()}"
 
     # Fetch all events for this analysis
-    q = select(SplicingEvent.id, SplicingEvent.fdr, SplicingEvent.inc_level_difference).where(
-        SplicingEvent.analysis_id == analysis_id
-    )
+    q = select(
+        SplicingEvent.id, SplicingEvent.fdr, SplicingEvent.p_value, SplicingEvent.inc_level_difference,
+    ).where(SplicingEvent.analysis_id == analysis_id)
     rows = (await db.execute(q)).all()
 
-    # Tag each event
+    # Tag each event: FDR ≤ threshold AND |ΔΨ| ≥ minimum AND (when a p-value
+    # maximum is set) p ≤ pvalue_threshold.
     n_sig = 0
     n_not_sig = 0
     event_records: list[dict] = []
 
-    for event_id, fdr, inc_level_diff in rows:
+    for event_id, fdr, p_value, inc_level_diff in rows:
         fdr_ok = fdr is not None and fdr <= body.fdr_threshold
         dpsi_ok = (
             inc_level_diff is not None
             and abs(inc_level_diff) >= body.delta_psi_min
         )
-        is_sig = fdr_ok and dpsi_ok
+        pv_ok = body.pvalue_threshold is None or (
+            p_value is not None and p_value <= body.pvalue_threshold
+        )
+        is_sig = fdr_ok and dpsi_ok and pv_ok
         if is_sig:
             n_sig += 1
         else:
@@ -110,6 +116,7 @@ async def create_deep_analysis(
         modules=body.modules,
         n_significant=n_sig,
         n_not_significant=n_not_sig,
+        permutation_iterations=body.permutation_iterations,
         status="ready",
     )
     db.add(deep)
@@ -187,6 +194,8 @@ async def delete_deep_analysis(
     ).scalar_one_or_none()
     if not deep:
         raise HTTPException(404, "Deep analysis not found")
+    from app.services import hnrnp_jobs
+    hnrnp_jobs.discard(deep_analysis_id)
     await db.delete(deep)
     await db.commit()
 
@@ -197,14 +206,21 @@ async def delete_deep_analysis(
 
 @router.get(
     "/deep-analyses/{deep_analysis_id}/events",
-    response_model=list[SplicingEventResponse],
+    response_model=DeepAnalysisEventsPage,
 )
 async def list_deep_analysis_events(
     deep_analysis_id: uuid.UUID,
     significant: bool | None = Query(None, description="Filter by significance"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(200, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return events associated with this deep analysis, optionally filtered by significance."""
+    """Return a page of events associated with this deep analysis
+    (ordered by FDR ascending), optionally filtered by significance.
+
+    Response: ``{items, total, page, page_size, pages}`` (same shape as
+    ``GET /analyses/{id}/events``).
+    """
     deep = (
         await db.execute(
             select(DeepAnalysis).where(DeepAnalysis.id == deep_analysis_id)
@@ -221,9 +237,19 @@ async def list_deep_analysis_events(
     if significant is not None:
         q = q.where(DeepAnalysisEvent.is_significant == significant)
 
-    q = q.order_by(SplicingEvent.fdr.asc().nulls_last())
+    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
+
+    q = (
+        q.order_by(SplicingEvent.fdr.asc().nulls_last(), SplicingEvent.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     rows = (await db.execute(q)).scalars().all()
-    return rows
+    pages = max(1, -(-total // page_size))  # ceiling division
+    return DeepAnalysisEventsPage(
+        items=[SplicingEventResponse.model_validate(r) for r in rows],
+        total=total, page=page, page_size=page_size, pages=pages,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +294,12 @@ class StatTestResult(BaseModel):
     test_name: str
     statistic: float | None = None
     p_value: float | None = None
-    significant: bool = False  # p < 0.05
+    # Benjamini-Hochberg adjusted p-value across every test of the panel
+    # (None when the test could not be run).
+    q_value: float | None = None
+    significant: bool = False       # raw p < 0.05
+    significant_fdr: bool = False   # BH q < 0.05
+
 
 class PatternComparisonResponse(BaseModel):
     significant: GroupPatternStats
@@ -440,41 +471,13 @@ def _regularized_beta(x: float, a: float, b: float, max_iter: int = 200) -> floa
     raise ArithmeticError("Incomplete beta continued fraction did not converge")
 
 
-def _proportion_z_test(k1: int, n1: int, k2: int, n2: int) -> tuple[float | None, float | None]:
-    """Standard pooled two-proportion z-test for H0: p1 = p2.
-
-    Uses the pooled proportion p_pool = (k1+k2)/(n1+n2) to estimate the common
-    proportion under H0, giving SE = sqrt(p_pool*(1-p_pool)*(1/n1+1/n2)).
-    The two-tailed p-value is 2*(1 - Phi(|z|)).
-
-    This is a large-sample normal approximation, not an exact test.  For small
-    expected counts Fisher's exact test is generally preferred.  No continuity
-    correction is applied.  SE = 0 (and None is returned) whenever p_pool is 0
-    or 1, i.e. all observations across both groups are failures or all are
-    successes; the test is undefined in that case.
-    """
-    if n1 < 1 or n2 < 1:
-        return None, None
-    p1 = k1 / n1
-    p2 = k2 / n2
-    p_pool = (k1 + k2) / (n1 + n2)
-    se = math.sqrt(p_pool * (1 - p_pool) * (1 / n1 + 1 / n2)) if 0 < p_pool < 1 else 0
-    if se == 0:
-        return None, None
-    z = (p1 - p2) / se
-    # Two-tailed p-value from normal distribution
-    p = 2 * (1 - _normal_cdf(abs(z)))
-    return round(z, 4), round(p, 4)
-
-
-def _normal_cdf(x: float) -> float:
-    """Standard normal CDF via the identity Phi(x) = 0.5 * erfc(-x / sqrt(2)).
-
-    The identity is mathematically exact; the numerical result depends on the
-    precision of math.erfc (Python's C-library implementation), not on any
-    hand-coded Abramowitz-Stegun approximation.
-    """
-    return 0.5 * math.erfc(-x / math.sqrt(2))
+# Proportion z-test, Mann-Whitney U, normal CDF and Benjamini-Hochberg are the
+# single implementations of services/stats.py (shared with the hnRNP motif
+# module so both report identical statistics); the private names are kept
+# for the tests and the docstrings live there.
+_proportion_z_test = _stats.proportion_z_test
+_mann_whitney_u = _stats.mann_whitney_u
+_bh_adjust = _stats.bh_adjust
 
 
 def _compute_stat_tests(
@@ -483,135 +486,129 @@ def _compute_stat_tests(
     nonsig_events: list,
     nonsig_feats: list,
 ) -> list[StatTestResult]:
-    """Compute statistical tests comparing significant vs non-significant groups."""
+    """Compute statistical tests comparing significant vs non-significant groups.
+
+    Continuous features (mean ΔΨ, exon size, PPT score / T / C content,
+    intron sizes) are tested twice: Welch's t-test (``feature``) and the
+    rank-based Mann-Whitney U test (``feature + "_mwu"``), the latter being
+    robust to the right-skew of size distributions.  Proportions use the
+    pooled two-proportion z-test (≥ 5 observations per group).  Benjamini-
+    Hochberg q-values are computed across the whole panel; ``significant``
+    remains the raw p < 0.05 call and ``significant_fdr`` is q < 0.05.
+    The number of tests is ``len(result)`` — never hard-code it.
+    """
     results: list[StatTestResult] = []
 
-    # 1. Mean ΔΨ — Welch's t-test
-    dpsi_sig = [ev.inc_level_difference for ev in sig_events if ev.inc_level_difference is not None]
-    dpsi_ns = [ev.inc_level_difference for ev in nonsig_events if ev.inc_level_difference is not None]
-    t_stat, p_val = _welch_t_test(dpsi_sig, dpsi_ns)
-    results.append(StatTestResult(
-        feature="mean_delta_psi", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    def _add(feature: str, test_name: str, stat, p) -> None:
+        results.append(StatTestResult(
+            feature=feature, test_name=test_name, statistic=stat, p_value=p,
+            significant=(p if p is not None else 1) < 0.05,
+        ))
 
-    # 2. Exon size — Welch's t-test
-    sizes_sig = [f.exon_size for f in sig_feats if f.exon_size is not None]
-    sizes_ns = [f.exon_size for f in nonsig_feats if f.exon_size is not None]
-    t_stat, p_val = _welch_t_test(sizes_sig, sizes_ns)
-    results.append(StatTestResult(
-        feature="exon_size", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    def _continuous(feature: str, vals_sig: list[float], vals_ns: list[float]) -> None:
+        t_stat, p_val = _welch_t_test(vals_sig, vals_ns)
+        _add(feature, "Welch's t-test", t_stat, p_val)
+        u_stat, p_u = _mann_whitney_u(vals_sig, vals_ns)
+        _add(f"{feature}_mwu", "mann_whitney_u", u_stat, p_u)
 
-    # 3. PPT score — Welch's t-test
-    ppt_sig = [f.ppt_score for f in sig_feats if f.ppt_score is not None and f.donor_seq]
-    ppt_ns = [f.ppt_score for f in nonsig_feats if f.ppt_score is not None and f.donor_seq]
-    t_stat, p_val = _welch_t_test(ppt_sig, ppt_ns)
-    results.append(StatTestResult(
-        feature="ppt_score", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    # 1. Mean ΔΨ
+    _continuous(
+        "mean_delta_psi",
+        [ev.inc_level_difference for ev in sig_events if ev.inc_level_difference is not None],
+        [ev.inc_level_difference for ev in nonsig_events if ev.inc_level_difference is not None],
+    )
 
-    # 3b. PPT T content — Welch's t-test
-    ppt_t_sig = [ppt_t_content(f.ppt_seq) for f in sig_feats if f.ppt_seq]
-    ppt_t_ns = [ppt_t_content(f.ppt_seq) for f in nonsig_feats if f.ppt_seq]
-    t_stat, p_val = _welch_t_test(ppt_t_sig, ppt_t_ns)
-    results.append(StatTestResult(
-        feature="ppt_t_content", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    # 2. Exon size
+    _continuous(
+        "exon_size",
+        [f.exon_size for f in sig_feats if f.exon_size is not None],
+        [f.exon_size for f in nonsig_feats if f.exon_size is not None],
+    )
 
-    # 3c. PPT C content — Welch's t-test
-    ppt_c_sig = [ppt_c_content(f.ppt_seq) for f in sig_feats if f.ppt_seq]
-    ppt_c_ns = [ppt_c_content(f.ppt_seq) for f in nonsig_feats if f.ppt_seq]
-    t_stat, p_val = _welch_t_test(ppt_c_sig, ppt_c_ns)
-    results.append(StatTestResult(
-        feature="ppt_c_content", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    # 3. PPT score
+    _continuous(
+        "ppt_score",
+        [f.ppt_score for f in sig_feats if f.ppt_score is not None and f.donor_seq],
+        [f.ppt_score for f in nonsig_feats if f.ppt_score is not None and f.donor_seq],
+    )
+
+    # 3b. PPT T content
+    _continuous(
+        "ppt_t_content",
+        [ppt_t_content(f.ppt_seq) for f in sig_feats if f.ppt_seq],
+        [ppt_t_content(f.ppt_seq) for f in nonsig_feats if f.ppt_seq],
+    )
+
+    # 3c. PPT C content
+    _continuous(
+        "ppt_c_content",
+        [ppt_c_content(f.ppt_seq) for f in sig_feats if f.ppt_seq],
+        [ppt_c_content(f.ppt_seq) for f in nonsig_feats if f.ppt_seq],
+    )
+
+    # Canonical-site flags can be None (window truncated at a contig end, the
+    # dinucleotide cannot be read): unknown → excluded from numerator AND
+    # denominator.  Same denominator as _compute_group_stats and the PDF
+    # summary sections (every event whose flag is known).
+    def _prop(feats: list, flag_attr: str) -> tuple[int, int]:
+        known = [getattr(f, flag_attr) for f in feats if getattr(f, flag_attr) is not None]
+        return sum(1 for v in known if v), len(known)
 
     # 4. Canonical GT (5'SS) — proportion z-test
-    sig_with_seq = [f for f in sig_feats if f.donor_seq and len(f.donor_seq) >= 9]
-    ns_with_seq = [f for f in nonsig_feats if f.donor_seq and len(f.donor_seq) >= 9]
-    k1 = sum(1 for f in sig_with_seq if f.donor_is_gt)
-    k2 = sum(1 for f in ns_with_seq if f.donor_is_gt)
-    z_stat, p_val = _proportion_z_test(k1, len(sig_with_seq), k2, len(ns_with_seq))
-    results.append(StatTestResult(
-        feature="canonical_gt", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    k1, n1 = _prop(sig_feats, "donor_is_gt")
+    k2, n2 = _prop(nonsig_feats, "donor_is_gt")
+    _add("canonical_gt", "Proportion z-test", *_proportion_z_test(k1, n1, k2, n2))
 
     # 5. Canonical AG (3'SS) — proportion z-test
-    sig_acc = [f for f in sig_feats if f.acceptor_seq and len(f.acceptor_seq) >= 23]
-    ns_acc = [f for f in nonsig_feats if f.acceptor_seq and len(f.acceptor_seq) >= 23]
-    k1 = sum(1 for f in sig_acc if f.acceptor_is_ag)
-    k2 = sum(1 for f in ns_acc if f.acceptor_is_ag)
-    z_stat, p_val = _proportion_z_test(k1, len(sig_acc), k2, len(ns_acc))
-    results.append(StatTestResult(
-        feature="canonical_ag", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    k1, n1 = _prop(sig_feats, "acceptor_is_ag")
+    k2, n2 = _prop(nonsig_feats, "acceptor_is_ag")
+    _add("canonical_ag", "Proportion z-test", *_proportion_z_test(k1, n1, k2, n2))
 
-    # 6. In-frame proportion — proportion z-test
+    # 6. In-frame proportion (known frames only) — proportion z-test
     sig_frame = [f for f in sig_feats if f.frame_class and f.frame_class != "unknown"]
     ns_frame = [f for f in nonsig_feats if f.frame_class and f.frame_class != "unknown"]
     k1 = sum(1 for f in sig_frame if f.frame_class == "in_frame")
     k2 = sum(1 for f in ns_frame if f.frame_class == "in_frame")
-    z_stat, p_val = _proportion_z_test(k1, len(sig_frame), k2, len(ns_frame))
-    results.append(StatTestResult(
-        feature="in_frame_pct", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    _add("in_frame_pct", "Proportion z-test", *_proportion_z_test(k1, len(sig_frame), k2, len(ns_frame)))
 
-    # 7. Branch point found — proportion z-test
-    k1 = sum(1 for f in sig_with_seq if f.bp_motif_found)
-    k2 = sum(1 for f in ns_with_seq if f.bp_motif_found)
-    z_stat, p_val = _proportion_z_test(k1, len(sig_with_seq), k2, len(ns_with_seq))
-    results.append(StatTestResult(
-        feature="bp_found", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    # 7. Branch point found — proportion z-test.  Denominator = events with a
+    # PPT sequence (the branch point is searched in ppt_seq), consistent with
+    # bp_found_pct in _compute_group_stats and with the export tables.
+    sig_with_ppt = [f for f in sig_feats if f.ppt_seq]
+    ns_with_ppt = [f for f in nonsig_feats if f.ppt_seq]
+    k1 = sum(1 for f in sig_with_ppt if f.bp_motif_found)
+    k2 = sum(1 for f in ns_with_ppt if f.bp_motif_found)
+    _add("bp_found", "Proportion z-test", *_proportion_z_test(k1, len(sig_with_ppt), k2, len(ns_with_ppt)))
 
     # 8. Upstream donor GT (flanking exon) — proportion z-test
-    sig_up = [f for f in sig_feats if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
-    ns_up = [f for f in nonsig_feats if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
-    k1 = sum(1 for f in sig_up if f.upstream_donor_is_gt)
-    k2 = sum(1 for f in ns_up if f.upstream_donor_is_gt)
-    z_stat, p_val = _proportion_z_test(k1, len(sig_up), k2, len(ns_up))
-    results.append(StatTestResult(
-        feature="upstream_canonical_gt", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    k1, n1 = _prop(sig_feats, "upstream_donor_is_gt")
+    k2, n2 = _prop(nonsig_feats, "upstream_donor_is_gt")
+    _add("upstream_canonical_gt", "Proportion z-test", *_proportion_z_test(k1, n1, k2, n2))
 
     # 9. Downstream acceptor AG (flanking exon) — proportion z-test
-    sig_dn = [f for f in sig_feats if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
-    ns_dn = [f for f in nonsig_feats if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
-    k1 = sum(1 for f in sig_dn if f.downstream_acceptor_is_ag)
-    k2 = sum(1 for f in ns_dn if f.downstream_acceptor_is_ag)
-    z_stat, p_val = _proportion_z_test(k1, len(sig_dn), k2, len(ns_dn))
-    results.append(StatTestResult(
-        feature="downstream_canonical_ag", test_name="Proportion z-test",
-        statistic=z_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    k1, n1 = _prop(sig_feats, "downstream_acceptor_is_ag")
+    k2, n2 = _prop(nonsig_feats, "downstream_acceptor_is_ag")
+    _add("downstream_canonical_ag", "Proportion z-test", *_proportion_z_test(k1, n1, k2, n2))
 
-    # 10. Upstream intron size — Welch's t-test
-    up_introns_sig = [f.upstream_intron_size for f in sig_feats if f.upstream_intron_size is not None]
-    up_introns_ns = [f.upstream_intron_size for f in nonsig_feats if f.upstream_intron_size is not None]
-    t_stat, p_val = _welch_t_test(up_introns_sig, up_introns_ns)
-    results.append(StatTestResult(
-        feature="upstream_intron_size", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    # 10. Upstream intron size
+    _continuous(
+        "upstream_intron_size",
+        [f.upstream_intron_size for f in sig_feats if f.upstream_intron_size is not None],
+        [f.upstream_intron_size for f in nonsig_feats if f.upstream_intron_size is not None],
+    )
 
-    # 11. Downstream intron size — Welch's t-test
-    dn_introns_sig = [f.downstream_intron_size for f in sig_feats if f.downstream_intron_size is not None]
-    dn_introns_ns = [f.downstream_intron_size for f in nonsig_feats if f.downstream_intron_size is not None]
-    t_stat, p_val = _welch_t_test(dn_introns_sig, dn_introns_ns)
-    results.append(StatTestResult(
-        feature="downstream_intron_size", test_name="Welch's t-test",
-        statistic=t_stat, p_value=p_val, significant=(p_val if p_val is not None else 1) < 0.05,
-    ))
+    # 11. Downstream intron size
+    _continuous(
+        "downstream_intron_size",
+        [f.downstream_intron_size for f in sig_feats if f.downstream_intron_size is not None],
+        [f.downstream_intron_size for f in nonsig_feats if f.downstream_intron_size is not None],
+    )
+
+    # Benjamini-Hochberg across the whole panel
+    q_values = _bh_adjust([r.p_value for r in results])
+    for r, q in zip(results, q_values):
+        r.q_value = round(q, 6) if q is not None else None
+        r.significant_fdr = q is not None and q < 0.05
 
     return results
 
@@ -626,21 +623,27 @@ def _compute_group_stats(
     # Exon sizes
     sizes = [f.exon_size for f in feats if f.exon_size is not None]
 
+    # Canonical-site flags may be None (truncated window near a contig end):
+    # such events are unknown and excluded from BOTH numerator and denominator.
     # Donor
     donor_9 = [f.donor_seq[:9] for f in feats_with_seq if f.donor_seq and len(f.donor_seq) >= 9]
-    n_gt = sum(1 for f in feats_with_seq if f.donor_seq and len(f.donor_seq) >= 9 and f.donor_is_gt)
+    gt_known = [f.donor_is_gt for f in feats_with_seq if f.donor_seq and len(f.donor_seq) >= 9 and f.donor_is_gt is not None]
+    n_gt = sum(1 for v in gt_known if v)
 
     # Acceptor
     acc_23 = [f.acceptor_seq[-23:] for f in feats_with_seq if f.acceptor_seq and len(f.acceptor_seq) >= 23]
-    n_ag = sum(1 for f in feats_with_seq if f.acceptor_seq and len(f.acceptor_seq) >= 23 and f.acceptor_is_ag)
+    ag_known = [f.acceptor_is_ag for f in feats_with_seq if f.acceptor_seq and len(f.acceptor_seq) >= 23 and f.acceptor_is_ag is not None]
+    n_ag = sum(1 for v in ag_known if v)
 
     # Upstream donor (flanking exon)
     up_donor_9 = [f.upstream_donor_seq[:9] for f in feats_with_seq if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9]
-    n_up_gt = sum(1 for f in feats_with_seq if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9 and f.upstream_donor_is_gt)
+    up_gt_known = [f.upstream_donor_is_gt for f in feats_with_seq if f.upstream_donor_seq and len(f.upstream_donor_seq) >= 9 and f.upstream_donor_is_gt is not None]
+    n_up_gt = sum(1 for v in up_gt_known if v)
 
     # Downstream acceptor (flanking exon)
     dn_acc_23 = [f.downstream_acceptor_seq[-23:] for f in feats_with_seq if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23]
-    n_dn_ag = sum(1 for f in feats_with_seq if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23 and f.downstream_acceptor_is_ag)
+    dn_ag_known = [f.downstream_acceptor_is_ag for f in feats_with_seq if f.downstream_acceptor_seq and len(f.downstream_acceptor_seq) >= 23 and f.downstream_acceptor_is_ag is not None]
+    n_dn_ag = sum(1 for v in dn_ag_known if v)
 
     # PPT
     ppt_scores = [f.ppt_score for f in feats_with_seq if f.ppt_score is not None]
@@ -650,9 +653,11 @@ def _compute_group_stats(
     # Frame
     fc = Counter(f.frame_class or "unknown" for f in feats)
 
-    # Branch point
-    bp_total = len(feats_with_seq)
-    bp_found = sum(1 for f in feats_with_seq if f.bp_motif_found)
+    # Branch point — denominator = events with a PPT sequence (the branch
+    # point is searched in ppt_seq), consistent with _compute_stat_tests.
+    feats_with_ppt = [f for f in feats if f.ppt_seq]
+    bp_total = len(feats_with_ppt)
+    bp_found = sum(1 for f in feats_with_ppt if f.bp_motif_found)
 
     # Mean ΔΨ
     dpsi = [ev.inc_level_difference for ev in events if ev.inc_level_difference is not None]
@@ -666,8 +671,8 @@ def _compute_group_stats(
         n_se_with_features=len(feats),
         exon_size_mean=round(statistics.mean(sizes), 1) if sizes else None,
         exon_size_median=round(statistics.median(sizes), 1) if sizes else None,
-        pct_canonical_gt=round(n_gt / len(donor_9) * 100, 1) if donor_9 else None,
-        pct_canonical_ag=round(n_ag / len(acc_23) * 100, 1) if acc_23 else None,
+        pct_canonical_gt=round(n_gt / len(gt_known) * 100, 1) if gt_known else None,
+        pct_canonical_ag=round(n_ag / len(ag_known) * 100, 1) if ag_known else None,
         ppt_mean_score=round(statistics.mean(ppt_scores), 3) if ppt_scores else None,
         ppt_mean_t_content=round(statistics.mean(ppt_t_vals), 3) if ppt_t_vals else None,
         ppt_mean_c_content=round(statistics.mean(ppt_c_vals), 3) if ppt_c_vals else None,
@@ -679,8 +684,8 @@ def _compute_group_stats(
         acceptor_pwm=compute_pwm(acc_23) if acc_23 else None,
         donor_consensus=iupac_consensus(donor_9) if donor_9 else None,
         acceptor_consensus=iupac_consensus(acc_23) if acc_23 else None,
-        pct_upstream_gt=round(n_up_gt / len(up_donor_9) * 100, 1) if up_donor_9 else None,
-        pct_downstream_ag=round(n_dn_ag / len(dn_acc_23) * 100, 1) if dn_acc_23 else None,
+        pct_upstream_gt=round(n_up_gt / len(up_gt_known) * 100, 1) if up_gt_known else None,
+        pct_downstream_ag=round(n_dn_ag / len(dn_ag_known) * 100, 1) if dn_ag_known else None,
         upstream_donor_pwm=compute_pwm(up_donor_9) if up_donor_9 else None,
         downstream_acceptor_pwm=compute_pwm(dn_acc_23) if dn_acc_23 else None,
         upstream_donor_consensus=iupac_consensus(up_donor_9) if up_donor_9 else None,
@@ -707,17 +712,63 @@ class MotifEnrichmentItem(BaseModel):
     bg_total: int
     sig_density: float
     bg_density: float
+    # Presence test (fraction of events with ≥ 1 hit): two-proportion z-test, BH
     z_stat: float | None = None
     p_value: float | None = None
     p_adjusted: float | None = None
     significant: bool = False
+    # Density test (per-event motif density): Mann-Whitney U, BH
+    density_u_stat: float | None = None
+    density_p_value: float | None = None
+    density_p_adjusted: float | None = None
+    density_significant: bool = False
     regulatory_effect: str | None = None  # ESE/ESS/ISE/ISS or null
 
 
 class HnRNPMotifResponse(BaseModel):
+    """Result or state of the hnRNP enrichment job of a deep analysis.
+
+    ``status`` is 'done' (``results`` filled), 'running' (``stage`` /
+    ``progress`` / ``elapsed_seconds`` describe the background job; poll
+    again) or 'error' (``error`` holds the message; call again with
+    ``retry=true`` to restart).
+    """
+    status: str = "done"
+    stage: str | None = None
+    progress: float | None = None
+    error: str | None = None
+    elapsed_seconds: float | None = None
     n_sig_events: int
     n_bg_events: int
-    results: list[MotifEnrichmentItem]
+    # Region names in scanning order (7 regions, see hnrnp_motifs.REGION_NAMES)
+    regions: list[str] = []
+    results: list[MotifEnrichmentItem] = []
+
+
+# Default long-poll: small datasets finish within this and get their result in
+# a single request; large ones return status='running' and are polled.
+HNRNP_DEFAULT_WAIT = 15.0
+HNRNP_MAX_WAIT = 60.0
+
+
+async def load_se_events_by_significance(
+    db: AsyncSession, deep_analysis_id: uuid.UUID,
+) -> tuple[list[SplicingEvent], list[SplicingEvent]]:
+    """SE events of a deep analysis split into (significant, background)."""
+    q = (
+        select(SplicingEvent, DeepAnalysisEvent.is_significant)
+        .join(DeepAnalysisEvent, DeepAnalysisEvent.event_id == SplicingEvent.id)
+        .where(
+            DeepAnalysisEvent.deep_analysis_id == deep_analysis_id,
+            SplicingEvent.event_type == "SE",
+        )
+    )
+    rows = (await db.execute(q)).all()
+    sig_events: list[SplicingEvent] = []
+    bg_events: list[SplicingEvent] = []
+    for ev, is_sig in rows:
+        (sig_events if is_sig else bg_events).append(ev)
+    return sig_events, bg_events
 
 
 @router.get(
@@ -727,15 +778,21 @@ class HnRNPMotifResponse(BaseModel):
 async def get_hnrnp_motifs(
     deep_analysis_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    wait: float = Query(
+        HNRNP_DEFAULT_WAIT, ge=0, le=HNRNP_MAX_WAIT,
+        description="Seconds to wait for a running job before answering with its state",
+    ),
+    retry: bool = Query(False, description="Restart a job that ended in error"),
 ):
-    """Run hnRNP motif enrichment: compare motif frequency in significant
-    vs non-significant SE events (rMAPS2-inspired analysis)."""
-    from app.services.hnrnp_motifs import (
-        SERegions, define_se_regions, compare_groups, scan_group,
-        _FIVE_SS_EXCL, _THREE_SS_EXCL, REGULATORY_EFFECTS,
-    )
-    from app.services.sequence import extract_regions_batch, reverse_complement
-    from app.config import settings
+    """hnRNP motif enrichment: motif frequency in significant vs non-significant
+    SE events (rMAPS2-inspired analysis).
+
+    The computation runs as a background job (see ``services/hnrnp_jobs``):
+    the first call starts it, every call reports its state, and the finished
+    result is cached for the worker's lifetime.  The call waits up to *wait*
+    seconds for the job so that small datasets get their rows immediately.
+    """
+    from app.services import hnrnp_jobs
 
     deep = (
         await db.execute(
@@ -745,158 +802,16 @@ async def get_hnrnp_motifs(
     if not deep:
         raise HTTPException(404, "Deep analysis not found")
 
-    # Fetch all SE events with significance tagging
-    q = (
-        select(
-            SplicingEvent,
-            DeepAnalysisEvent.is_significant,
-        )
-        .join(DeepAnalysisEvent, DeepAnalysisEvent.event_id == SplicingEvent.id)
-        .where(
-            DeepAnalysisEvent.deep_analysis_id == deep_analysis_id,
-            SplicingEvent.event_type == "SE",
-        )
+    job = await hnrnp_jobs.get_or_start(
+        deep_analysis_id,
+        lambda: load_se_events_by_significance(db, deep_analysis_id),
+        retry=retry,
     )
-    rows = (await db.execute(q)).all()
+    await hnrnp_jobs.wait(job, wait)
 
-    sig_events: list[SplicingEvent] = []
-    bg_events: list[SplicingEvent] = []
-    for ev, is_sig in rows:
-        (sig_events if is_sig else bg_events).append(ev)
-
-    def _build_regions(events: list[SplicingEvent], label: str = "") -> list[SERegions]:
-        """Extract five genomic regions per event and fetch sequences in one batch."""
-        if not events:
-            return []
-        all_bed_regions: list[tuple[str, int, int]] = []
-        strands: list[str] = []
-
-        n_missing_coords = 0
-        n_null_up_ee = 0   # + strand: upstream_ee missing
-        n_null_up_es = 0   # - strand: upstream_es missing
-        n_null_dn_es = 0   # + strand: downstream_es missing
-        n_null_dn_ee = 0   # - strand: downstream_ee missing
-        n_short_up_intron = 0
-        n_short_dn_intron = 0
-
-        for ev in events:
-            strand = ev.strand or "+"
-            if not ev.chr or ev.exon_start is None or ev.exon_end is None:
-                n_missing_coords += 1
-                for _ in range(5):
-                    all_bed_regions.append(("", 0, 0))
-                strands.append(strand)
-                continue
-
-            # Diagnose why intron regions might be empty for this event
-            if strand == "+":
-                if ev.upstream_ee is None:
-                    n_null_up_ee += 1
-                else:
-                    up_intron = ev.exon_start - ev.upstream_ee
-                    if up_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
-                        n_short_up_intron += 1
-                if ev.downstream_es is None:
-                    n_null_dn_es += 1
-                else:
-                    dn_intron = ev.downstream_es - ev.exon_end
-                    if dn_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
-                        n_short_dn_intron += 1
-            else:
-                # Minus strand: rMATS "downstream" exon (higher coords) is 5′ flanking.
-                # Upstream intron spans [exon_end, downstream_es); downstream intron spans [upstream_ee, exon_start).
-                if ev.downstream_es is None:
-                    n_null_up_es += 1
-                else:
-                    up_intron = ev.downstream_es - ev.exon_end
-                    if up_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
-                        n_short_up_intron += 1
-                if ev.upstream_ee is None:
-                    n_null_dn_ee += 1
-                else:
-                    dn_intron = ev.exon_start - ev.upstream_ee
-                    if dn_intron <= _FIVE_SS_EXCL + _THREE_SS_EXCL:
-                        n_short_dn_intron += 1
-
-            bed = define_se_regions(
-                ev.chr, strand,
-                ev.exon_start, ev.exon_end,
-                ev.upstream_es, ev.upstream_ee,
-                ev.downstream_es, ev.downstream_ee,
-            )
-            all_bed_regions.extend(bed)
-            strands.append(strand)
-
-        n = len(events)
-        tag = f"[{label}] " if label else ""
-        if n_missing_coords:
-            logger.warning("%shnRNP: %d/%d events skipped — missing chr/exon_start/exon_end", tag, n_missing_coords, n)
-        if n_null_up_ee or n_null_up_es:
-            logger.warning("%shnRNP: %d/%d events — null upstream flanking coord (upstream_ee/es) → no upstream intron",
-                           tag, n_null_up_ee + n_null_up_es, n)
-        if n_null_dn_es or n_null_dn_ee:
-            logger.warning("%shnRNP: %d/%d events — null downstream flanking coord (downstream_es/ee) → no downstream intron",
-                           tag, n_null_dn_es + n_null_dn_ee, n)
-        if n_short_up_intron:
-            logger.warning("%shnRNP: %d/%d events — upstream intron ≤ %d nt (exclusion zones consume it) → no upstream intron",
-                           tag, n_short_up_intron, n, _FIVE_SS_EXCL + _THREE_SS_EXCL)
-        if n_short_dn_intron:
-            logger.warning("%shnRNP: %d/%d events — downstream intron ≤ %d nt → no downstream intron",
-                           tag, n_short_dn_intron, n, _FIVE_SS_EXCL + _THREE_SS_EXCL)
-        logger.info("%shnRNP region extraction: %d events total", tag, n)
-
-        seqs = extract_regions_batch(all_bed_regions, settings.GRCH38_FASTA)
-
-        results: list[SERegions] = []
-        for idx, strand in enumerate(strands):
-            s = seqs[idx * 5 : idx * 5 + 5]
-            if strand == "-":
-                s = [reverse_complement(x) if x else "" for x in s]
-            results.append(SERegions(
-                upstream_exon=s[0],
-                upstream_intron=s[1],
-                skipped_exon=s[2],
-                downstream_intron=s[3],
-                downstream_exon=s[4],
-            ))
-        return results
-
-    # Extract regions for both groups concurrently (two independent samtools calls)
-    sig_regions, bg_regions = await asyncio.gather(
-        asyncio.to_thread(_build_regions, sig_events, "sig"),
-        asyncio.to_thread(_build_regions, bg_events, "bg"),
-    )
-
-    # Scan both groups concurrently; compare_groups is fast (pure Python)
-    sig_scan, bg_scan = await asyncio.gather(
-        asyncio.to_thread(scan_group, sig_regions),
-        asyncio.to_thread(scan_group, bg_regions),
-    )
-    enrichment = await asyncio.to_thread(compare_groups, sig_scan, bg_scan)
-
-    return HnRNPMotifResponse(
-        n_sig_events=len(sig_events),
-        n_bg_events=len(bg_events),
-        results=[
-            MotifEnrichmentItem(
-                motif_name=r.motif_name,
-                protein=r.protein,
-                region=r.region,
-                sig_hit_count=r.sig_hit_count,
-                sig_total=r.sig_total,
-                bg_hit_count=r.bg_hit_count,
-                bg_total=r.bg_total,
-                sig_density=r.sig_density,
-                bg_density=r.bg_density,
-                z_stat=r.z_stat,
-                p_value=r.p_value,
-                p_adjusted=r.p_adjusted,
-                significant=r.significant,
-                regulatory_effect=REGULATORY_EFFECTS.get(r.protein, {}).get(r.region),
-            )
-            for r in enrichment
-        ],
-    )
+    if job.status == "done" and job.result is not None:
+        return HnRNPMotifResponse(status="done", elapsed_seconds=job.elapsed_seconds, **job.result)
+    return HnRNPMotifResponse(**job.state())
 
 
 # ===========================================================================

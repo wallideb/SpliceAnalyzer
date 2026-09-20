@@ -1,16 +1,13 @@
-import asyncio
-import gzip
 import logging
 import os
 import shutil
 import subprocess
-import urllib.request
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text, update
+from sqlalchemy import func, text, update
 
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
@@ -19,56 +16,44 @@ from app.routers import analyses, annotations, deep_analyses, events, export, ge
 
 logger = logging.getLogger(__name__)
 
-GRCH38_GENOME_URL = (
-    "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/"
-    "GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/"
-    "GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz"
-)
+# Provisioning of the reference genome is NOT done by the API process any more
+# (it used to download ~800 MB in a worker thread at startup).  Run this script
+# once (or as a compose init container) to create GRCH38_FASTA + .fai:
+FASTA_SETUP_SCRIPT = "data/setup_grch38_fasta.sh"
 
 
-def _setup_fasta() -> None:
-    """Download and index full GRCh38 FASTA if not already present (runs inside container).
+def _log_fasta_readiness() -> None:
+    """Log whether the FASTA, its .fai index and samtools are available.
 
-    If the FASTA exists but the .fai index is missing, only the indexing step runs.
+    Purely informational: endpoints check ``fasta_available()`` on every call,
+    so files that appear later are picked up without a restart.
     """
     fasta = settings.GRCH38_FASTA
-    fai = fasta + ".fai"
+    fasta_ok = os.path.isfile(fasta)
+    fai_ok = os.path.isfile(fasta + ".fai")
+    samtools_path = shutil.which(settings.SAMTOOLS_BIN)
 
-    if os.path.isfile(fasta) and os.path.isfile(fai):
-        logger.info("FASTA already present: %s", fasta)
-        return
-
-    data_dir = os.path.dirname(fasta)
-    os.makedirs(data_dir, exist_ok=True)
-
-    # Download only if the FASTA file itself is missing
-    if not os.path.isfile(fasta):
-        logger.info("Downloading full GRCh38 genome FASTA (~800 MB compressed) ...")
-        try:
-            req = urllib.request.Request(GRCH38_GENOME_URL, headers={"User-Agent": "rmats-viz/1.0"})
-            with urllib.request.urlopen(req, timeout=1800) as resp, open(fasta, "wb") as out_f:
-                with gzip.GzipFile(fileobj=resp) as gz_in:
-                    shutil.copyfileobj(gz_in, out_f)
-        except Exception as exc:
-            logger.error("FASTA download/decompress failed: %s", exc)
-            if os.path.isfile(fasta):
-                os.remove(fasta)
-            return
-        logger.info("Download complete.")
-    else:
-        logger.info("FASTA exists but index is missing — indexing only.")
-
-    logger.info("Indexing with samtools faidx ...")
-    try:
-        subprocess.run(
-            [settings.SAMTOOLS_BIN, "faidx", fasta],
-            check=True, timeout=600,
+    if fasta_ok and fai_ok and samtools_path:
+        logger.info(
+            "Sequence extraction ready: FASTA=%s (.fai present), samtools=%s",
+            fasta, samtools_path,
         )
-    except Exception as exc:
-        logger.error("samtools faidx failed: %s", exc)
         return
 
-    logger.info("FASTA setup complete: %s (+ .fai)", fasta)
+    missing: list[str] = []
+    if not fasta_ok:
+        missing.append(f"FASTA file {fasta}")
+    if not fai_ok:
+        missing.append(f"index {fasta}.fai")
+    if not samtools_path:
+        missing.append(f"samtools binary '{settings.SAMTOOLS_BIN}' on PATH")
+    logger.warning(
+        "Sequence extraction NOT ready — missing: %s. "
+        "Run `bash %s` (downloads GRCh38 and runs `samtools faidx`) and/or "
+        "install samtools; the API keeps running and falls back to Ensembl REST "
+        "for splice-site windows (hnRNP region scanning requires the local FASTA).",
+        "; ".join(missing), FASTA_SETUP_SCRIPT,
+    )
 
 
 @asynccontextmanager
@@ -90,10 +75,37 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to reset orphaned 'deleting' analyses on startup")
 
-    # Fire-and-forget: download FASTA in the background so the server starts
-    # accepting requests immediately.  fasta_available() checks the filesystem
-    # on every call, so endpoints automatically pick up the file once ready.
-    asyncio.get_running_loop().run_in_executor(None, _setup_fasta)
+    # Likewise, a splice-feature computation that was 'running' when the
+    # process died can never finish: mark it so the UI stops polling.  This
+    # lifespan runs once per uvicorn worker, so only rows whose heartbeat
+    # (updated_at, refreshed after every chunk by the background task) is
+    # older than splice.COMPUTE_STALE_AFTER are reset — a computation that is
+    # alive in another worker keeps its heartbeat fresh and is left alone.
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                update(Analysis)
+                .where(
+                    Analysis.compute_status == "running",
+                    Analysis.updated_at < func.now() - splice.COMPUTE_STALE_AFTER,
+                )
+                .values(
+                    compute_status="error",
+                    compute_error="Splice feature computation interrupted by restart — please re-run",
+                )
+                .returning(Analysis.id)
+            )
+            interrupted = result.scalars().all()
+            await db.commit()
+            if interrupted:
+                logger.warning(
+                    "Reset %d stale (heartbeat > %s) splice computations to 'error': %s",
+                    len(interrupted), splice.COMPUTE_STALE_AFTER, interrupted,
+                )
+    except Exception:
+        logger.exception("Failed to reset interrupted splice computations on startup")
+
+    _log_fasta_readiness()
     yield
     # Shutdown: nothing to clean up
 
@@ -141,10 +153,12 @@ async def debug_fasta():
         "fasta_exists": os.path.isfile(fasta),
         "fai_exists": os.path.isfile(fasta + ".fai"),
         "samtools_on_path": shutil.which(samtools_bin),
+        "setup_script": FASTA_SETUP_SCRIPT,
     }
     # samtools version
     try:
-        r = subprocess.run([samtools_bin, "--version"], capture_output=True, text=True, timeout=5)
+        r = subprocess.run([samtools_bin, "--version"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=5)
         info["samtools_version"] = r.stdout.split("\n")[0]
         info["samtools_rc"] = r.returncode
     except FileNotFoundError:
@@ -157,11 +171,11 @@ async def debug_fasta():
         with open(fasta + ".fai") as f:
             info["fai_first_line"] = f.readline().strip()
     # quick faidx test if all present
-    if info["fasta_exists"] and info["fai_exists"] and info["samtools_rc"] == 0:
+    if info["fasta_exists"] and info["fai_exists"] and info.get("samtools_rc") == 0:
         try:
             r2 = subprocess.run(
                 [samtools_bin, "faidx", fasta, "chr1:1000000-1000010"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
             )
             info["faidx_test_rc"] = r2.returncode
             info["faidx_test_out"] = r2.stdout.strip()

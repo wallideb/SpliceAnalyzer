@@ -4,12 +4,6 @@
 import type { Translations } from "./en";
 
 export const fr: Translations = {
-  meta: {
-    description: "Exploration d'événements d'épissage différentiel",
-  },
-  nav: {
-    analyses: "Analyses",
-  },
   header: {
     themeLight: "Passer en mode clair",
     themeDark: "Passer en mode sombre",
@@ -34,6 +28,7 @@ export const fr: Translations = {
     },
     delete: "Supprimer l'analyse",
     confirmDelete: "Supprimer l'analyse « {{name}} » ?",
+    deleteFailed: "Suppression impossible",
     status: {
       ready: "Prête",
       processing: "En cours",
@@ -41,6 +36,9 @@ export const fr: Translations = {
     },
   },
   newAnalysis: {
+    removeFile: "Retirer ce fichier",
+    group1Placeholder: "Ex : Sujets PCBP1",
+    group2Placeholder: "Ex : Contrôles",
     title: "Nouvelle analyse",
     subtitle: "Importez vos fichiers rMATS et configurez votre analyse",
     steps: {
@@ -63,10 +61,20 @@ export const fr: Translations = {
         "Ces labels apparaîtront dans les colonnes IncLevel1 / IncLevel2.",
       selectedGenes: "Gène(s) candidat(s) sélectionné(s)",
     },
+    warnings: {
+      title: "Remarques d'import",
+      subtitle: "L'analyse a été créée, mais l'import a signalé les points suivants :",
+      open: "Ouvrir l'analyse",
+    },
     loading: {
       title: "Analyse en cours…",
       subtitle:
         "Veuillez patienter, suppression des duplicats et priorisation des événements d'épissage…",
+      uploading: "Envoi des fichiers… {{percent}} %",
+      uploadHint:
+        "Les fichiers sont envoyés par petits morceaux afin que les sorties rMATS volumineuses passent les proxys limitant la taille des requêtes.",
+      sending: "Envoi de {{file}} ({{sent}} / {{total}})",
+      processing: "Traitement en cours… {{total}} reçus, le serveur analyse et enregistre les événements.",
     },
   },
   analysisDetail: {
@@ -131,6 +139,7 @@ export const fr: Translations = {
       sortDpsiDesc: "|ΔΨ| ↓ plus grand",
       sortDpsiAsc: "|ΔΨ| ↑ plus petit",
       sortGeneAz: "Gène A→Z",
+      sortGeneZa: "Gène Z→A",
       incLevelVisible: "IncLevel visible",
       incLevelHidden: "IncLevel masqué",
       showIncLevel: "Afficher les niveaux d'inclusion",
@@ -146,22 +155,15 @@ export const fr: Translations = {
     events: "événement",
     eventsPlural: "événements",
     candidateGenes: "Gènes candidats",
-    basket: {
-      selected: "sélectionné",
-      deselect: "Tout désélectionner",
-      add: "Ajouter ({{n}})",
-      alreadyInBasket: "Déjà dans le panier",
-      alreadyInBasketTitle: "Tous ces événements sont déjà dans le panier",
-    },
   },
   eventTable: {
-    rank: "◈",
+    clickToEnter: "Cliquer pour saisir une valeur",
     type: "Type",
     gene: "Gène",
     chr: "Chr",
     strand: "Brin",
-    exonStart: "Exon start",
-    exonEnd: "Exon end",
+    exonStart: "Début d'exon",
+    exonEnd: "Fin d'exon",
     fdr: "FDR",
     deltaPsi: "ΔΨ",
     direction: "Direction",
@@ -170,7 +172,6 @@ export const fr: Translations = {
     incLevel2: "IncLevel2",
     noResults: "Aucun résultat",
     downloadSvg: "Télécharger le logo en SVG",
-    selectPage: "Sélectionner / désélectionner la page",
     result: "résultat",
     resultPlural: "résultats",
     firstPage: "Première page",
@@ -178,14 +179,12 @@ export const fr: Translations = {
     next: "Suiv.",
     lastPage: "Dernière page",
     loading: "Chargement…",
-    inBasket: "Dans le panier",
   },
   top10View: {
     noEvents: "Aucun événement trouvé.",
     modeLabels: {
       gene: "Événements annotés",
       stringdb: "Interactions STRING-DB avec le gène candidat",
-      pathways: "Voies moléculaires (à venir)",
       motifs: "Patterns d'épissage récurrents",
       splice: "Sites consensus d'épissage",
       hnrnp: "Enrichissement de motifs hnRNP (inspiré rMAPS2)",
@@ -202,77 +201,15 @@ export const fr: Translations = {
     },
     noAnalysisId: "analysisId non disponible pour ce contexte.",
     noDeepAnalysis: "Cette analyse nécessite une analyse approfondie sauvegardée.",
-    goCategories: "Catégories GO :",
-    goBP: "Processus biologique",
-    goMF: "Fonction moléculaire",
-    goCC: "Composant cellulaire",
-    goHoverHint: "Survolez le nom du gène pour la description UniProt",
     stringdbSource: "Source :",
     stringdbDesc: "STRING-DB v12 · réseau de preuve d'interaction protéine–protéine · cliquez sur l'image pour ouvrir STRING.",
-  },
-  basket: {
-    openBasket: "Ouvrir le panier",
-    title: "Panier",
-    header: "Panier — {{n}} événement",
-    headerPlural: "Panier — {{n}} événements",
-    subtitle: "Sélectionnez des événements puis lancez l'analyse approfondie.",
-    close: "Fermer",
-    empty: {
-      title: "Le panier est vide.",
-      subtitle:
-        "Sélectionnez des événements dans la liste puis cliquez sur <strong>Ajouter au panier</strong>.",
-    },
-    event: "événement",
-    eventPlural: "événements",
-    remove: "Retirer du panier",
-    continueAnalysis: "Poursuivre l'analyse",
-    clearBasket: "Vider le panier",
-  },
-  analysisOptions: {
-    title: "Poursuite de l'analyse",
-    alwaysIncluded: "Toujours inclus",
-    alwaysIncludedModules: {
-      gene: "Gène & localisation",
-      go: "Gene Ontology (GO)",
-      panelapp: "PanelApp Australia",
-      scores: "Scores rMATS",
-    },
-    optionalModules: "Modules optionnels",
-    modules: {
-      stringdb: {
-        label: "STRING-DB & interactions protéiques",
-        description:
-          "Réseau d'interactions entre le gène candidat et les gènes porteurs d'événements",
-      },
-      pathways: {
-        label: "Voies moléculaires",
-        description: "Enrichissement de voies (KEGG / Reactome) — module à venir",
-      },
-      motifs: {
-        label: "Motifs récurrents",
-        description:
-          "Sites GT-AG canoniques, score PPT, point de branchement, cadre de lecture — événements SE uniquement",
-      },
-      splice: {
-        label: "Sites consensus d'épissage",
-        description:
-          "Séquences 5′/3′ par événement, track PPT & diagramme transcrit MANE",
-      },
-    },
-    basketEventsPrefix: "{{n}} événement du panier +",
-    basketEventsPrefixPlural: "{{n}} événements du panier +",
-    basketEventsInfo: "Ces événements du panier seront inclus dans l'analyse approfondie.",
-    cancel: "Annuler",
-    launch: "Lancer l'analyse",
   },
   sidebarNav: {
     collapse: "Masquer le volet",
     expand: "Afficher le volet",
     tabs: {
-      gene: "Événement",
       annotatedEvents: "Événements annotés",
       interactions: "Interactions",
-      pathways: "Voies moléc.",
       motifs: "Motifs récur.",
       splice: "Sites consensus",
       hnrnp: "Motifs hnRNP",
@@ -307,7 +244,6 @@ export const fr: Translations = {
     scores: {
       meanPsi1: "PSI moy. G1",
       meanPsi2: "PSI moy. G2",
-      counts: "Comptages (3 premiers échantillons)",
     },
     stringdb: {
       noSymbol: "Symbole du gène non disponible.",
@@ -321,10 +257,6 @@ export const fr: Translations = {
       publications: "Publications associées",
       openStringDB: "Ouvrir dans STRING-DB",
     },
-    comingSoon: "Module à venir",
-    comingSoonModule:
-      "Le module <strong>{{label}}</strong> est en cours de développement.",
-    basketEvent: "Événement du panier",
     direction: {
       skippingUp: "↑ Saut chez {{group}}",
     },
@@ -334,12 +266,33 @@ export const fr: Translations = {
     },
   },
   motifPanel: {
+    colFeature: "Caractéristique",
+    cmpSeWithFeatures: "Événements SE avec features",
+    cmpMeanExonSize: "Taille moyenne de l'exon",
+    cmpMedianExonSize: "Taille médiane de l'exon",
+    cmpCanonicalGt: "GT canonique (5'SS)",
+    cmpCanonicalAg: "AG canonique (3'SS)",
+    cmpMeanPpt: "Score PPT moyen",
+    cmpPptT: "Teneur en T du PPT",
+    cmpPptC: "Teneur en C du PPT",
+    cmpInFrame: "En phase",
+    cmpFrameshift: "Décalage du cadre",
+    cmpNonCoding: "Non codant",
+    cmpUpstreamGt: "GT amont (5'SS)",
+    cmpDownstreamAg: "AG aval (3'SS)",
+    cmpMeanUpIntron: "Intron amont moyen",
+    cmpMedianUpIntron: "Intron amont médian",
+    cmpMeanDnIntron: "Intron aval moyen",
+    cmpMedianDnIntron: "Intron aval médian",
+    cmpBpFound: "Point de branchement détecté",
+    cmpMeanDeltaPsi: "ΔΨ moyen",
     notComputed: "Analyse de patterns non calculée",
     notComputedDesc: "Calculez les features d'épissage pour les {{n}} événements SE de cette analyse afin de visualiser les patterns récurrents (sites GT-AG, PPT, point de branchement, classe de cadre de lecture).",
     computeBtn: "Calculer les features",
     computing: "Calcul en cours…",
     computingDesc: "Requêtes aux sites d'épissage via Ensembl REST — cette opération peut prendre quelques dizaines de secondes.",
     computeError: "Erreur lors du calcul. Réessayez.",
+    computeFailed: "Le calcul en arrière-plan s'est terminé avec une erreur : {{error}}",
     thresholds: "Seuils de significativité :",
     significantOnly: "événements significatifs uniquement",
     modify: "Modifier",
@@ -365,7 +318,7 @@ export const fr: Translations = {
     frameLabelUnknown: "Inconnu",
     sectionComparison: "Comparaison — Significatifs vs Non-significatifs",
     sectionFrameComparison: "Cadre de lecture — Significatifs vs Non-significatifs",
-    sectionBp: "Branch point detection (YNYURAY motif)",
+    sectionBp: "Détection du point de branchement (motif YNYURAY)",
     bpDetected: "détectés",
     histogramAriaLabel: "Distribution des tailles d'exons sautés",
     histogramBinTitle: "{{start}}–{{end}} nt : {{count}} événements",
@@ -375,6 +328,11 @@ export const fr: Translations = {
     histogramLegendMean: "Moyenne",
     histogramLegendMedian: "Médiane",
     histogramTooltipEvents: "évén.",
+    colPValue: "p-value",
+    colQValue: "q (BH)",
+    mwuSuffix: "(Mann-Whitney)",
+    legendQ: "q < 0,05 (BH)",
+    legendTests: "{{n}} tests, correction BH · survolez p pour le nom du test",
   },
   spliceSiteTrack: {
     header: "Sites d'épissage — 4 jonctions de l'exon sauté",
@@ -387,6 +345,11 @@ export const fr: Translations = {
     skippedExonLabel: "exon sauté",
     upstreamExonLabel: "exon amont",
     downstreamExonLabel: "exon aval",
+  },
+  pptTrack: {
+    bpDetected: "✓ Point de branchement ({{motif}}) détecté — BP −{{dist}} nt du début de l'exon (3′SS)",
+    bpNotDetected: "— Point de branchement (YNYURAY) non détecté dans la fenêtre PPT",
+    bpCellTitle: "Adénosine du point de branchement — motif {{motif}} — {{dist}} nt en amont du début de l'exon",
   },
   maneTrack: {
     title: "Transcrit MANE Select",
@@ -407,30 +370,6 @@ export const fr: Translations = {
     running: "Calcul en cours ({{n}} itér.)…",
     error:
       "Erreur lors du calcul. Vérifiez que les données PSI sont disponibles.",
-    tabs: {
-      delta_psi: {
-        label: "ΔΨ",
-        description: "Différence d'inclusion PSI par événement (test per-event).",
-      },
-      ppt_score: {
-        label: "Score PPT",
-        description:
-          "Score polypyrimidique moyen (% C/T dans les 47 nt avant 3'SS).",
-      },
-      exon_size: {
-        label: "Taille exon",
-        description: "Taille de l'exon sauté (normalisée sur la plage observée).",
-      },
-      frame_in_frame: {
-        label: "Phase / In-frame",
-        description: "Fraction d'événements prédits in-frame (saut de 3n nt).",
-      },
-      canonical_sites: {
-        label: "Sites GT-AG",
-        description:
-          "Score moyen de canonicité des sites d'épissage (GT donor, AG accepteur).",
-      },
-    },
     results: {
       eventsTested: "Événements testés",
       totalEvents: "Total événements (permutés)",
@@ -446,15 +385,18 @@ export const fr: Translations = {
       method:
         "Test de permutation bilatéral — H₀ : les étiquettes de groupe sont interchangeables — p empirique = (k+1)/(N+1) avec correction de continuité (Phipson & Smyth 2010).",
       validEvents: "Événements valides",
-      g1: "G1 (ΔΨ<0)",
-      g2: "G2 (ΔΨ>0)",
       observedDelta: "Δ observé",
       empiricalP: "p empirique",
-      nullDistLabel: "Distribution nulle — {{label}}",
-      insufficientData:
-        "Données insuffisantes pour ce paramètre (n={{n}} événements avec valeur).",
-      requiresPermutation:
-        "Calculez le test de permutation pour voir ce paramètre. Les features de splice doivent être disponibles (FASTA requis pour PPT).",
+      metric: "Métrique",
+      metricTitle: "Tests de permutation sur métriques agrégées",
+      exactBadge: "exact",
+      exactSplits: "énumération exacte des {{n}} répartitions d'étiquettes",
+      exactFraction: "Énumération exacte",
+      exactFractionHint: "{{pct}} % des événements testés avec énumération de toutes les répartitions (sans tirage Monte-Carlo)",
+      minPAttainable: "p min. atteignable",
+      replicates: "Réplicats G1 / G2",
+      lowResolution:
+        "Avec n₁={{n1}} et n₂={{n2}} réplicats, seules {{n}} permutations distinctes existent ; la plus petite p-value atteignable est {{p}}. Les p-values par événement ne peuvent pas atteindre les seuils de significativité usuels — interprétez plutôt la distribution nulle globale.",
       gene: "Gène",
       observedDeltaPsi: "ΔΨ observé",
       empiricalPValue: "p empirique",
@@ -525,8 +467,9 @@ export const fr: Translations = {
       title: "Méthode — Analyse d'enrichissement de motifs hnRNP",
       body:
         "Inspirée de rMAPS2 (Hwang et al., NAR 2020 ; 48:W300-W306), cette analyse recherche " +
-        "dans cinq régions génomiques autour de chaque exon sauté (exon amont, intron amont, " +
-        "corps de l'exon sauté, intron aval, exon aval) 19 motifs consensus connus de protéines " +
+        "dans sept régions génomiques autour de chaque exon sauté (jusqu'à 250 nt flanquants des exons amont " +
+        "et aval, corps de l'exon sauté, et pour chaque intron flanquant les 250 nt après le 5′ss " +
+        "et les 250 nt avant le 3′ss) 19 motifs consensus connus de protéines " +
         "de liaison à l'ARN de la famille hnRNP, réparties en huit familles protéiques. " +
         "Les motifs incluent hnRNP A1/A2 (TAGG, TAGGG, TAGGGA, AGG), " +
         "hnRNP E — PCBP1/E1 (CCWWHCC = CC[AT][AT][ACT]CC) et PCBP2/E2 (CCYYCCH = CC[CT][CT]CC[ACT], " +
@@ -539,8 +482,33 @@ export const fr: Translations = {
         "Les régions introniques excluent les 6 nt du 5'SS et les 20 nt du 3'SS, suivant la convention " +
         "rMAPS2 (ces régions sont fortement contraintes par les signaux de sites d'épissage). " +
         "rMAPS2 utilise une fenêtre glissante (50 pb) avec test de Wilcoxon sur la densité de motifs ; " +
-        "notre implémentation simplifiée utilise un test z de deux proportions sur la présence de " +
-        "motifs par région avec correction BH FDR (q < 0,05, 95 tests).",
+        "notre implémentation applique deux tests par motif × région : un test z de deux proportions " +
+        "sur la présence du motif (qui sature pour les motifs courts sur des régions de 250 nt) et un " +
+        "test de Mann-Whitney U sur la densité de motifs par événement. Les deux sont corrigés par " +
+        "Benjamini-Hochberg ; une paire est déclarée significative si l'un des deux q < 0,05.",
+    },
+    geneOntology: {
+      title: "Source — Annotations Gene Ontology",
+      body:
+        "Les termes GO (Processus biologique, Fonction moléculaire, Composant cellulaire) sont " +
+        "récupérés pour le symbole du gène via mygene.info. Seuls les premiers termes de chaque " +
+        "catégorie sont affichés ; le code de preuve apparaît au survol (GO Consortium, 2021).",
+    },
+    panelapp: {
+      title: "Source — Panels de maladie PanelApp Australia",
+      body:
+        "Les panels proviennent de PanelApp Australia. La confiance gène–panel suit la notation " +
+        "PanelApp : <b>vert</b> = niveau diagnostique (niveau 3), <b>ambre</b> = limite (niveau 2), " +
+        "<b>rouge</b> = preuves insuffisantes (niveau 1) (Martin et al., 2019).",
+    },
+    stringdb: {
+      title: "Source — Interactions protéine–protéine STRING",
+      body:
+        "L'interaction entre chaque gène candidat et le gène porteur de l'événement est interrogée " +
+        "dans STRING v12. Le score combiné (0–1) intègre les canaux de preuve (expériences, bases " +
+        "curatées, co-expression, fouille de texte, …) ; l'épaisseur des arcs est proportionnelle au " +
+        "score de chaque canal (Szklarczyk et al., 2023). L'absence d'interaction dans STRING n'est " +
+        "pas une preuve d'absence.",
     },
     enrichr: {
       title: "Méthode — Enrichissement de voies Enrichr",
@@ -552,6 +520,7 @@ export const fr: Translations = {
         "la p-value pour le classement. Référence : Chen et al., Enrichr, BMC Bioinformatics 2013.",
     },
     exonDiagram: {
+    resetZoom: "Réinitialiser le zoom",
       title: "Méthode — Définition d'un événement SE dans rMATS",
       body:
         "Un événement <b>Exon Sauté (SE)</b> est défini par rMATS comme un exon cassette " +
@@ -566,12 +535,15 @@ export const fr: Translations = {
     },
   },
   spliceView: {
+    downloadSvg: "Télécharger le schéma de l'exon en SVG",
     nonSeEventTitle: "Événement {{type}}",
     nonSeEventDesc: "L'analyse de sites canoniques (5'SS GT, 3'SS AG, PPT, branchpoint) est restreinte aux événements SE (exon skipping). Les données statistiques (FDR, ΔΨ) restent disponibles dans les autres onglets.",
     notComputed: "Features non calculées pour cet événement.",
     computing: "Calcul…",
     computeBtn: "Calculer les features",
     computingDesc: "Récupération des séquences et calcul des features d'épissage pour tous les événements SE",
+    computeError: "Le calcul des features d'épissage a échoué",
+    computeErrorHint: "Consultez le journal du backend ; le calcul peut être relancé depuis une carte d'événement (« Compute features »).",
   },
   mutatedGenePanel: {
     noContext: "Contexte d'analyse non disponible.",
@@ -642,7 +614,8 @@ export const fr: Translations = {
     pptModerate: "PPT modéré",
     pptWeak: "PPT faible",
     bp: "Point de branchement (YNYURAY)",
-    bpFound: "Trouvé — ~{{dist}} nt avant 3'SS",
+    bpFound: "Trouvé — BP −{{dist}} nt du début de l'exon (3′SS)",
+    bpMotif: "Motif : {{motif}}",
     bpHoverDetail: "Survolez pour voir le détail",
     bpNotFound: "Non détecté dans la région PPT",
     maneTranscript: "Transcrit MANE : {{id}}",
@@ -650,7 +623,7 @@ export const fr: Translations = {
   },
   manhattan: {
     title: "Manhattan Plot — Significativité des événements à l'échelle du génome",
-    toggle: "Manhattan Plot",
+    toggle: "Graphique Manhattan",
     loading: "Chargement des données Manhattan…",
     noData: "Aucun événement avec des coordonnées chromosomiques disponible.",
     xAxis: "Chromosome",
@@ -658,6 +631,21 @@ export const fr: Translations = {
     description: "{{n}} événements affichés · chaque point est un événement d'épissage positionné par coordonnée génomique · axe y = −log₁₀(FDR) · ligne rouge pointillée = seuil FDR 0.05",
     viewInTable: "Voir dans le tableau",
     clickHint: "Cliquez sur un point pour inspecter les détails",
+  },
+  patternComparison: {
+    notAvailable: "Comparaison des patterns indisponible. Vérifiez que les features d'épissage ont été calculées.",
+    donorLogo: "Logo de séquence du donneur 5′SS (9 nt)",
+    acceptorLogo: "Logo de séquence de l'accepteur 3′SS (23 nt)",
+    upstreamDonorLogo: "Donneur 5′SS de l'exon amont (9 nt)",
+    downstreamAcceptorLogo: "Accepteur 3′SS de l'exon aval (23 nt)",
+    noData: "Pas de données",
+    methodology: "Méthodologie",
+    methodGroups: "Les événements sont classés {{significant}} lorsque les seuils de FDR et de |ΔΨ| sont tous deux atteints (et le seuil de p-value lorsqu'il est défini). Tous les autres événements forment le groupe témoin {{nonSignificant}}.",
+    methodLogos: "Les logos de séquence sont tracés en mode fréquence : chaque colonne occupe toute la hauteur et la hauteur de chaque lettre est proportionnelle à la fréquence brute du nucléotide à cette position (pas de pondération par le contenu en information), comme dans le rapport PDF. Les dinucléotides canoniques (GT en +1/+2 pour le 5′SS, AG en −2/−1 pour le 3′SS) sont surlignés en jaune.",
+    methodTests: "Les variables continues (taille de l'exon, des introns, score et composition du PPT, ΔΨ moyen) sont comparées par le test t de Welch (variances inégales) et, ces tailles étant asymétriques à droite, par un test U de Mann-Whitney (lignes suffixées « Mann-Whitney »). Les proportions (GT/AG canoniques, % en phase, point de branchement détecté) utilisent un test z à deux proportions, exécuté seulement avec ≥ 5 événements par groupe. Tous les tests sont bilatéraux ; les p-values sont corrigées sur les 20 tests du panneau par la procédure de Benjamini-Hochberg (q-value) et la pastille reflète q < 0,05.",
+    methodFrame: "Le saut d'exon est classé d'après le transcrit MANE Select : en phase lorsque la longueur codante de l'exon sauté est divisible par 3, décalage du cadre sinon, non codant lorsque l'exon est dans une UTR ; les événements sans annotation MANE sont rapportés comme inconnus et exclus du pourcentage en phase (jamais déduits de la taille de l'exon).",
+    labelSignificant: "significatifs",
+    labelNonSignificant: "non significatifs",
   },
   deepAnalysis: {
     breadcrumb: "Analyse approfondie",
@@ -684,13 +672,17 @@ export const fr: Translations = {
     confirmDelete: "Supprimer cette analyse approfondie ? Cette action est irréversible.",
     delete: "Supprimer",
     methodology: "Méthodologie :",
-    eventTypes: "Types d'événements :",
-    seOnlyNotice: "Analyse séquences (motifs, logos, PPT) — SE uniquement",
-    optionalModulesActive: "{{n}} module optionnel activé",
-    optionalModulesActivePlural: "{{n}} modules optionnels activés",
+    seOnlyNotice: "Analyse de séquence (sites, logos, PPT, point de branchement, hnRNP, permutation) : événements SE uniquement",
   },
   hnrnpPanel: {
     error: "Erreur lors du chargement des données d'enrichissement de motifs hnRNP.",
+    retry: "Réessayer",
+    computing: "Calcul de l'enrichissement en motifs hnRNP…",
+    computingEvents: "{{n}} événements SE",
+    computingHint: "L'enrichissement s'exécute en arrière-plan sur le serveur (extraction des séquences, balayage des motifs, tests de rang) et ce panneau se rafraîchit automatiquement. Sur un grand jeu de données (~100 000 événements), comptez plusieurs minutes ; le résultat est ensuite conservé en mémoire jusqu'au redémarrage du backend.",
+    stage_extract: "Extraction des séquences",
+    stage_scan: "Balayage des motifs",
+    stage_compare: "Tests statistiques",
     sigEvents: "Événements significatifs",
     bgEvents: "Événements de référence",
     significantMotifs: "Motifs significatifs",
@@ -707,12 +699,28 @@ export const fr: Translations = {
     colSig: "Sig.",
     colBg: "Référence",
     showing: "Affichage de {{n}} sur {{total}} résultats",
-    bonferroni: "p-values ajustées BH FDR",
+    bonferroni: "q-values ajustées BH FDR — présence : test z de deux proportions · densité : Mann-Whitney U · * q < 0,05 · une paire est significative si l'un des deux tests passe",
+    colPresenceQ: "q présence",
+    colDensityQ: "q densité",
+    presenceTooltip: "Test z de deux proportions sur la présence du motif par événement (ajusté BH)",
+    densityTooltip: "Test de Mann-Whitney U sur la densité de motifs par événement (ajusté BH)",
     heatmapTitle: "Carte de chaleur — meilleur motif par protéine × région",
+    heatmapNote: "La couleur de la cellule utilise la plus petite des deux q-values (présence, densité) ; * = q < 0,05 pour au moins un test.",
     enriched: "Enrichi chez sig.",
     depleted: "Appauvri chez sig.",
     silencer: "Silenceur (ESS/ISS)",
     enhancer: "Activateur (ESE/ISE)",
+    regions: {
+      upstream_exon: "Exon amont",
+      upstream_intron: "Intron amont",
+      upstream_intron_5ss: "Intron amont (côté 5′ss)",
+      upstream_intron_3ss: "Intron amont (côté 3′ss)",
+      skipped_exon: "Exon sauté",
+      downstream_intron: "Intron aval",
+      downstream_intron_5ss: "Intron aval (côté 5′ss)",
+      downstream_intron_3ss: "Intron aval (côté 3′ss)",
+      downstream_exon: "Exon aval",
+    },
   },
   enrichrPanel: {
     error: "Erreur lors du chargement des résultats Enrichr.",

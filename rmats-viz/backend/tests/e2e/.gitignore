@@ -1,0 +1,7 @@
+data/
+results.json
+e2e.log
+*.pdf
+*.xlsx
+mane_cache.db*
+__pycache__/

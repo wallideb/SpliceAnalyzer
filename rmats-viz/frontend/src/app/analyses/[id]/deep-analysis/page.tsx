@@ -9,7 +9,7 @@
  * Route: /analyses/[id]/deep-analysis
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -32,6 +32,8 @@ const MODULES = [
   { key: "frame", label: "Reading frame analysis" },
   { key: "hnrnp", label: "hnRNP motif enrichment" },
   { key: "enrichr", label: "Enrichr pathway analysis" },
+  // Only meaningful when candidate (mutated) genes exist — enabled by default then (E9).
+  { key: "stringdb", label: "Interactions (STRING)" },
 ] as const;
 
 export default function DeepAnalysisListPage() {
@@ -129,6 +131,15 @@ export default function DeepAnalysisListPage() {
       ),
     [analysis],
   );
+
+  // Default the STRING module ON once we know the analysis has candidate genes
+  // (only once, so the user can still switch it off afterwards).
+  const stringDefaultApplied = useRef(false);
+  useEffect(() => {
+    if (stringDefaultApplied.current || mutatedGenes.length === 0) return;
+    stringDefaultApplied.current = true;
+    setSelectedModules((prev) => new Set(prev).add("stringdb"));
+  }, [mutatedGenes]);
 
   const group1 = analysis?.sample_groups.find((g) => g.group_index === 1);
   const group2 = analysis?.sample_groups.find((g) => g.group_index === 2);

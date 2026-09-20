@@ -5,9 +5,15 @@
 # annotation (no Ensembl REST API dependency).
 #
 # This file provides:
-#   - Gene → MANE Select transcript mapping
+#   - Gene → MANE Select transcript mapping (the backend indexes transcripts by
+#     their GFF3 `tag=` attribute: `MANE_Select` is used for annotation, while
+#     `MANE_Plus_Clinical` transcripts are kept in a separate index)
 #   - Exon coordinates for transcript diagrams
-#   - CDS coordinates for frame class computation
+#   - CDS coordinates for frame class computation (union of the CDS segments)
+#
+# The gzipped file is read in full by the backend; no tabix index is needed.
+# The docker-compose backend command downloads the same file automatically
+# when it is missing; this script is the manual alternative.
 #
 # Usage:
 #   bash setup_mane_gff3.sh

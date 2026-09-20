@@ -17,6 +17,18 @@ export interface SplicingEvent {
   downstream_ee?: number | null;
   second_exon_start?: number | null;
   second_exon_end?: number | null;
+  // A3SS / A5SS coordinates (A1)
+  long_exon_start?: number | null;
+  long_exon_end?: number | null;
+  short_es?: number | null;
+  short_ee?: number | null;
+  flanking_es?: number | null;
+  flanking_ee?: number | null;
+  // rMATS isoform lengths (needed to interpret JCEC counts)
+  inc_form_len?: number | null;
+  skip_form_len?: number | null;
+  /** "JC" | "JCEC" — counting mode of the source file */
+  counting_mode?: string | null;
   ijc_sample_1?: string | null;
   sjc_sample_1?: string | null;
   ijc_sample_2?: string | null;
@@ -35,4 +47,15 @@ export interface EventsPage {
   page: number;
   page_size: number;
   pages: number;
+}
+
+/** One point of the Manhattan plot (GET /analyses/{id}/events/manhattan). */
+export interface ManhattanPoint {
+  id: string;
+  event_type: string;
+  gene_symbol?: string | null;
+  chr?: string | null;
+  position?: number | null;
+  fdr?: number | null;
+  inc_level_difference?: number | null;
 }

@@ -3,12 +3,6 @@
  * All other locales must mirror this exact structure.
  */
 export const en = {
-  meta: {
-    description: "Differential splicing event explorer",
-  },
-  nav: {
-    analyses: "Analyses",
-  },
   header: {
     themeLight: "Switch to light mode",
     themeDark: "Switch to dark mode",
@@ -33,6 +27,7 @@ export const en = {
     },
     delete: "Delete analysis",
     confirmDelete: "Delete analysis «{{name}}»?",
+    deleteFailed: "Delete failed",
     status: {
       ready: "Ready",
       processing: "Processing",
@@ -40,6 +35,9 @@ export const en = {
     },
   },
   newAnalysis: {
+    removeFile: "Remove this file",
+    group1Placeholder: "e.g. Subjects PCBP1",
+    group2Placeholder: "e.g. Controls",
     title: "New Analysis",
     subtitle: "Import your rMATS files and configure your analysis",
     steps: {
@@ -62,10 +60,20 @@ export const en = {
         "These labels will appear in the IncLevel1 / IncLevel2 columns.",
       selectedGenes: "Selected candidate gene(s)",
     },
+    warnings: {
+      title: "Import notes",
+      subtitle: "The analysis was created, but the import reported the following:",
+      open: "Open the analysis",
+    },
     loading: {
       title: "Analysis in progress…",
       subtitle:
         "Please wait, removing duplicates and prioritising splicing events…",
+      uploading: "Uploading files… {{percent}}%",
+      uploadHint:
+        "Files are sent in small chunks so that large rMATS outputs pass through proxies with a request size limit.",
+      sending: "Sending {{file}} ({{sent}} / {{total}})",
+      processing: "Processing… {{total}} received, the server is parsing and storing the events.",
     },
   },
   analysisDetail: {
@@ -130,6 +138,7 @@ export const en = {
       sortDpsiDesc: "|ΔΨ| ↓ largest",
       sortDpsiAsc: "|ΔΨ| ↑ smallest",
       sortGeneAz: "Gene A→Z",
+      sortGeneZa: "Gene Z→A",
       incLevelVisible: "IncLevel visible",
       incLevelHidden: "IncLevel hidden",
       showIncLevel: "Show inclusion levels",
@@ -145,16 +154,9 @@ export const en = {
     events: "event",
     eventsPlural: "events",
     candidateGenes: "Candidate genes",
-    basket: {
-      selected: "selected",
-      deselect: "Deselect all",
-      add: "Add ({{n}})",
-      alreadyInBasket: "Already in basket",
-      alreadyInBasketTitle: "All these events are already in the basket",
-    },
   },
   eventTable: {
-    rank: "◈",
+    clickToEnter: "Click to enter a value",
     type: "Type",
     gene: "Gene",
     chr: "Chr",
@@ -169,7 +171,6 @@ export const en = {
     incLevel2: "IncLevel2",
     noResults: "No results",
     downloadSvg: "Download logo as SVG",
-    selectPage: "Select / deselect page",
     result: "result",
     resultPlural: "results",
     firstPage: "First page",
@@ -177,14 +178,12 @@ export const en = {
     next: "Next",
     lastPage: "Last page",
     loading: "Loading…",
-    inBasket: "In basket",
   },
   top10View: {
     noEvents: "No events found.",
     modeLabels: {
       gene: "Annotated events",
       stringdb: "STRING-DB interactions with candidate gene",
-      pathways: "Molecular pathways (coming soon)",
       motifs: "Recurrent splicing patterns",
       splice: "Consensus splice sites",
       hnrnp: "hnRNP motif enrichment (rMAPS2-inspired)",
@@ -201,77 +200,15 @@ export const en = {
     },
     noAnalysisId: "analysisId not available for this context.",
     noDeepAnalysis: "This analysis requires a saved deep analysis.",
-    goCategories: "GO categories:",
-    goBP: "Biological process",
-    goMF: "Molecular function",
-    goCC: "Cellular component",
-    goHoverHint: "Hover over the gene name for UniProt description",
     stringdbSource: "Source:",
     stringdbDesc: "STRING-DB v12 · protein–protein interaction evidence network · click the image to open STRING.",
-  },
-  basket: {
-    openBasket: "Open basket",
-    title: "Basket",
-    header: "Basket — {{n}} event",
-    headerPlural: "Basket — {{n}} events",
-    subtitle: "Select events then launch deep analysis.",
-    close: "Close",
-    empty: {
-      title: "The basket is empty.",
-      subtitle:
-        "Select events from the list and click <strong>Add to basket</strong>.",
-    },
-    event: "event",
-    eventPlural: "events",
-    remove: "Remove from basket",
-    continueAnalysis: "Continue Analysis",
-    clearBasket: "Empty basket",
-  },
-  analysisOptions: {
-    title: "Continue Analysis",
-    alwaysIncluded: "Always included",
-    alwaysIncludedModules: {
-      gene: "Gene & Location",
-      go: "Gene Ontology (GO)",
-      panelapp: "PanelApp Australia",
-      scores: "rMATS Scores",
-    },
-    optionalModules: "Optional modules",
-    modules: {
-      stringdb: {
-        label: "STRING-DB & protein interactions",
-        description:
-          "Interaction network between the candidate gene and genes carrying events",
-      },
-      pathways: {
-        label: "Molecular Pathways",
-        description: "Pathway enrichment (KEGG / Reactome) — coming soon",
-      },
-      motifs: {
-        label: "Recurrent Motifs",
-        description:
-          "GT-AG canonical sites, PPT score, branch point, reading frame — SE events only",
-      },
-      splice: {
-        label: "Consensus Splice Sites",
-        description: "Per-event 5′/3′ site sequences, PPT track & MANE transcript diagram",
-      },
-    },
-    basketEventsPrefix: "{{n}} basket event",
-    basketEventsPrefixPlural: "{{n}} basket events",
-    basketEventsInfo:
-      "These basket events will be included in the deep analysis.",
-    cancel: "Cancel",
-    launch: "Launch Analysis",
   },
   sidebarNav: {
     collapse: "Collapse panel",
     expand: "Expand panel",
     tabs: {
-      gene: "Event",
       annotatedEvents: "Annotated Events",
       interactions: "Interactions",
-      pathways: "Mol. Pathways",
       motifs: "Recur. Motifs",
       splice: "Consensus Sites",
       hnrnp: "hnRNP Motifs",
@@ -306,7 +243,6 @@ export const en = {
     scores: {
       meanPsi1: "Mean PSI G1",
       meanPsi2: "Mean PSI G2",
-      counts: "Counts (first 3 samples)",
     },
     stringdb: {
       noSymbol: "Gene symbol not available.",
@@ -319,9 +255,6 @@ export const en = {
       publications: "Associated publications",
       openStringDB: "Open in STRING-DB",
     },
-    comingSoon: "Coming soon",
-    comingSoonModule: "The <strong>{{label}}</strong> module is under development.",
-    basketEvent: "Basket event",
     direction: {
       skippingUp: "↑ Exon skipping in {{group}}",
     },
@@ -331,12 +264,33 @@ export const en = {
     },
   },
   motifPanel: {
+    colFeature: "Feature",
+    cmpSeWithFeatures: "SE events with features",
+    cmpMeanExonSize: "Mean exon size",
+    cmpMedianExonSize: "Median exon size",
+    cmpCanonicalGt: "Canonical GT (5'SS)",
+    cmpCanonicalAg: "Canonical AG (3'SS)",
+    cmpMeanPpt: "Mean PPT score",
+    cmpPptT: "PPT T content",
+    cmpPptC: "PPT C content",
+    cmpInFrame: "In-frame",
+    cmpFrameshift: "Frameshift",
+    cmpNonCoding: "Non-coding",
+    cmpUpstreamGt: "Upstream GT (5'SS)",
+    cmpDownstreamAg: "Downstream AG (3'SS)",
+    cmpMeanUpIntron: "Mean upstream intron",
+    cmpMedianUpIntron: "Median upstream intron",
+    cmpMeanDnIntron: "Mean downstream intron",
+    cmpMedianDnIntron: "Median downstream intron",
+    cmpBpFound: "Branch point found",
+    cmpMeanDeltaPsi: "Mean ΔΨ",
     notComputed: "Pattern analysis not yet computed",
     notComputedDesc: "Compute splice features for the {{n}} SE events of this analysis to visualise recurring patterns (GT-AG sites, PPT, branch point, reading frame).",
     computeBtn: "Compute features",
     computing: "Computing…",
     computingDesc: "Fetching splice-site sequences via Ensembl REST — this may take a few tens of seconds.",
     computeError: "Computation error. Please retry.",
+    computeFailed: "The background computation ended with an error: {{error}}",
     thresholds: "Significance thresholds:",
     significantOnly: "significant events only",
     modify: "Modify",
@@ -372,6 +326,11 @@ export const en = {
     histogramLegendMean: "Mean",
     histogramLegendMedian: "Median",
     histogramTooltipEvents: "events",
+    colPValue: "p-value",
+    colQValue: "q (BH)",
+    mwuSuffix: "(Mann-Whitney)",
+    legendQ: "q < 0.05 (BH)",
+    legendTests: "{{n}} tests, BH-corrected · hover p for the test name",
   },
   spliceSiteTrack: {
     header: "Splice sites — 4 junctions of the skipped exon",
@@ -384,6 +343,11 @@ export const en = {
     skippedExonLabel: "skipped exon",
     upstreamExonLabel: "upstream exon",
     downstreamExonLabel: "downstream exon",
+  },
+  pptTrack: {
+    bpDetected: "✓ Branch point ({{motif}}) detected — BP −{{dist}} nt from the exon start (3′SS)",
+    bpNotDetected: "— Branch point (YNYURAY) not detected in the PPT window",
+    bpCellTitle: "Branch point adenosine — motif {{motif}} — {{dist}} nt upstream of the exon start",
   },
   maneTrack: {
     title: "MANE Select Transcript",
@@ -403,30 +367,6 @@ export const en = {
     launch: "Run permutation test",
     running: "Computing ({{n}} iter.)…",
     error: "Computation error. Check that PSI data are available.",
-    tabs: {
-      delta_psi: {
-        label: "ΔΨ",
-        description: "PSI inclusion difference per event (per-event test).",
-      },
-      ppt_score: {
-        label: "PPT Score",
-        description:
-          "Mean polypyrimidine score (% C/T in the 47 nt before 3′SS).",
-      },
-      exon_size: {
-        label: "Exon Size",
-        description: "Skipped exon size (normalised over observed range).",
-      },
-      frame_in_frame: {
-        label: "Phase / In-frame",
-        description: "Fraction of events predicted in-frame (skip of 3n nt).",
-      },
-      canonical_sites: {
-        label: "GT-AG Sites",
-        description:
-          "Mean canonical splice site score (GT donor, AG acceptor).",
-      },
-    },
     results: {
       eventsTested: "Events tested",
       totalEvents: "Total events (permuted)",
@@ -442,15 +382,18 @@ export const en = {
       method:
         "Bilateral permutation test — H₀: group labels are exchangeable — empirical p = (k+1)/(N+1) with continuity correction (Phipson & Smyth 2010).",
       validEvents: "Valid events",
-      g1: "G1 (ΔΨ<0)",
-      g2: "G2 (ΔΨ>0)",
       observedDelta: "Observed Δ",
       empiricalP: "Empirical p",
-      nullDistLabel: "Null distribution — {{label}}",
-      insufficientData:
-        "Insufficient data for this parameter (n={{n}} events with value).",
-      requiresPermutation:
-        "Run the permutation test to see this parameter. Splice features must be available (FASTA required for PPT).",
+      metric: "Metric",
+      metricTitle: "Aggregate metric permutation tests",
+      exactBadge: "exact",
+      exactSplits: "exact enumeration of all {{n}} label splits",
+      exactFraction: "Exact enumeration",
+      exactFractionHint: "{{pct}}% of tested events enumerated every label split (no Monte-Carlo sampling)",
+      minPAttainable: "Min. attainable p",
+      replicates: "Replicates G1 / G2",
+      lowResolution:
+        "With n₁={{n1}} and n₂={{n2}} replicates only {{n}} distinct permutations exist; the smallest attainable p-value is {{p}}. Per-event p-values cannot reach conventional significance thresholds — interpret the global null distribution instead.",
       gene: "Gene",
       observedDeltaPsi: "Observed ΔΨ",
       empiricalPValue: "Empirical p",
@@ -520,9 +463,10 @@ export const en = {
     hnrnpMotifs: {
       title: "Method — hnRNP motif enrichment analysis",
       body:
-        "Inspired by rMAPS2 (Hwang et al., NAR 2020; 48:W300-W306), this analysis scans five " +
-        "genomic regions around each skipped exon (upstream exon, upstream intron, skipped exon " +
-        "body, downstream intron, downstream exon) for 19 known hnRNP RNA-binding protein " +
+        "Inspired by rMAPS2 (Hwang et al., NAR 2020; 48:W300-W306), this analysis scans seven " +
+        "genomic regions around each skipped exon (up to 250-nt flanks of the upstream and downstream exons, " +
+        "the skipped exon body, and for each flanking intron the 250 nt after the 5′ss and the 250 nt " +
+        "before the 3′ss) for 19 known hnRNP RNA-binding protein " +
         "consensus motifs across eight protein families. Motifs include hnRNP A1/A2 (TAGG, TAGGG, TAGGGA, AGG), " +
         "hnRNP E — PCBP1/E1 (CCWWHCC = CC[AT][AT][ACT]CC) and PCBP2/E2 (CCYYCCH = CC[CT][CT]CC[ACT], " +
         "both from rMAPS2 Supplementary Table S2, Homo sapiens), " +
@@ -532,8 +476,32 @@ export const en = {
         "Chkheidze et al., Mol Cell Biol 1999; Makeyev &amp; Liebhaber, RNA 2002). Intronic regions exclude the " +
         "6-nt 5'SS and 20-nt 3'SS consensus zones, following the rMAPS2 convention that these " +
         "regions are strongly constrained by splice-site signals. rMAPS2 uses a sliding window " +
-        "(50 bp) with Wilcoxon rank-sum test on motif density; our simplified implementation " +
-        "uses a two-proportion z-test on motif presence per region with Benjamini-Hochberg FDR correction (q < 0.05, 95 tests).",
+        "(50 bp) with Wilcoxon rank-sum test on motif density; our implementation runs two tests per " +
+        "motif × region: a two-proportion z-test on motif presence (which saturates for short motifs on " +
+        "250-nt regions) and a Mann-Whitney U test on the per-event motif density. Both are corrected " +
+        "with Benjamini-Hochberg FDR; a pair is reported significant when either q < 0.05.",
+    },
+    geneOntology: {
+      title: "Source — Gene Ontology annotations",
+      body:
+        "GO terms (Biological Process, Molecular Function, Cellular Component) are retrieved " +
+        "for the gene symbol through mygene.info. Only the first terms of each category are " +
+        "displayed; the evidence code is shown on hover (GO Consortium, 2021).",
+    },
+    panelapp: {
+      title: "Source — PanelApp Australia disease panels",
+      body:
+        "Disease panels come from PanelApp Australia. Gene–panel confidence follows the " +
+        "PanelApp rating: <b>green</b> = diagnostic-grade (level 3), <b>amber</b> = borderline " +
+        "(level 2), <b>red</b> = insufficient evidence (level 1) (Martin et al., 2019).",
+    },
+    stringdb: {
+      title: "Source — STRING protein–protein interactions",
+      body:
+        "The interaction between each candidate gene and the event gene is queried from STRING v12. " +
+        "The combined score (0–1) integrates the evidence channels (experiments, curated databases, " +
+        "co-expression, text-mining, …); arc width is proportional to each channel score " +
+        "(Szklarczyk et al., 2023). Absence of an interaction in STRING is not evidence of absence.",
     },
     enrichr: {
       title: "Method — Enrichr pathway enrichment",
@@ -545,6 +513,7 @@ export const en = {
         "p-value for ranking. Reference: Chen et al., Enrichr, BMC Bioinformatics 2013.",
     },
     exonDiagram: {
+    resetZoom: "Reset zoom",
       title: "Method — rMATS SE event definition",
       body:
         "A <b>Skipped Exon (SE)</b> event is defined by rMATS as a cassette exon " +
@@ -559,12 +528,15 @@ export const en = {
     },
   },
   spliceView: {
+    downloadSvg: "Download exon diagram as SVG",
     nonSeEventTitle: "{{type}} event",
     nonSeEventDesc: "Canonical site analysis (5′SS GT, 3′SS AG, PPT, branch point) is restricted to SE (exon skipping) events. Statistical data (FDR, ΔΨ) remain available in other tabs.",
     notComputed: "Features not yet computed for this event.",
     computing: "Computing…",
     computeBtn: "Compute features",
     computingDesc: "Fetching sequences and computing splice features for all SE events",
+    computeError: "Splice feature computation failed",
+    computeErrorHint: "Check the backend log; the run can be restarted from any event card (\"Compute features\").",
   },
   mutatedGenePanel: {
     noContext: "Analysis context not available.",
@@ -635,7 +607,8 @@ export const en = {
     pptModerate: "Moderate PPT",
     pptWeak: "Weak PPT",
     bp: "Branch point (YNYURAY)",
-    bpFound: "Found — ~{{dist}} nt before 3′SS",
+    bpFound: "Found — BP −{{dist}} nt from the exon start (3′SS)",
+    bpMotif: "Motif: {{motif}}",
     bpHoverDetail: "Hover to see detail",
     bpNotFound: "Not detected in PPT region",
     maneTranscript: "MANE transcript: {{id}}",
@@ -651,6 +624,21 @@ export const en = {
     description: "{{n}} events displayed · each dot is a splicing event positioned by genomic coordinate · y-axis = −log₁₀(FDR) · dashed red line = FDR 0.05 threshold",
     viewInTable: "View in table",
     clickHint: "Click a dot to inspect event details",
+  },
+  patternComparison: {
+    notAvailable: "Pattern comparison not available. Ensure splice features have been computed.",
+    donorLogo: "5′SS donor sequence logo (9 nt)",
+    acceptorLogo: "3′SS acceptor sequence logo (23 nt)",
+    upstreamDonorLogo: "Upstream exon 5′SS donor (9 nt)",
+    downstreamAcceptorLogo: "Downstream exon 3′SS acceptor (23 nt)",
+    noData: "No data",
+    methodology: "Methodology",
+    methodGroups: "Events are classified as {{significant}} when the FDR and |ΔΨ| thresholds are both met (and the p-value threshold when one is set). All remaining events form the {{nonSignificant}} control group.",
+    methodLogos: "Sequence logos are drawn in frequency mode: every column fills the full height and each letter's height is proportional to the raw nucleotide frequency at that position (no information-content scaling), as in the PDF report. Canonical dinucleotides (GT at +1/+2 for the 5′SS, AG at −2/−1 for the 3′SS) are highlighted in yellow.",
+    methodTests: "Continuous metrics (exon size, intron sizes, PPT score and composition, mean ΔΨ) are compared with Welch's t-test (unequal variances) and, because these sizes are right-skewed, a Mann-Whitney U test (rows suffixed \"Mann-Whitney\"). Proportions (canonical GT/AG, in-frame %, branch point found) use a two-proportion z-test, run only with ≥ 5 events per group. All tests are two-tailed; p-values are corrected across the 20 tests of the panel with the Benjamini-Hochberg procedure (q-value), and the pill reflects q < 0.05.",
+    methodFrame: "Exon skipping is classified from the MANE Select transcript: in-frame when the coding length of the skipped exon is divisible by 3, frameshift otherwise, non-coding when the exon lies in a UTR; events without MANE annotation are reported as unknown and excluded from the in-frame percentage (never guessed from the exon size).",
+    labelSignificant: "significant",
+    labelNonSignificant: "non-significant",
   },
   deepAnalysis: {
     breadcrumb: "Deep Analysis",
@@ -677,13 +665,17 @@ export const en = {
     confirmDelete: "Delete this deep analysis? This cannot be undone.",
     delete: "Delete",
     methodology: "Methodology:",
-    eventTypes: "Event types:",
-    seOnlyNotice: "Sequence analysis (motifs, logos, PPT) — SE events only",
-    optionalModulesActive: "{{n}} optional module active",
-    optionalModulesActivePlural: "{{n}} optional modules active",
+    seOnlyNotice: "Sequence analysis (splice sites, logos, PPT, branch point, hnRNP, permutation): SE events only",
   },
   hnrnpPanel: {
     error: "Failed to load hnRNP motif enrichment data.",
+    retry: "Retry",
+    computing: "Computing hnRNP motif enrichment…",
+    computingEvents: "{{n}} SE events",
+    computingHint: "The enrichment runs in the background on the server (sequence extraction, motif scan, rank tests) and this panel refreshes automatically. On large datasets (~100k events) it takes several minutes; the result is then kept in memory until the backend restarts.",
+    stage_extract: "Extracting sequences",
+    stage_scan: "Scanning motifs",
+    stage_compare: "Statistical tests",
     sigEvents: "Significant events",
     bgEvents: "Background events",
     significantMotifs: "Significant motifs",
@@ -700,12 +692,28 @@ export const en = {
     colSig: "Sig",
     colBg: "Background",
     showing: "Showing {{n}} of {{total}} results",
-    bonferroni: "BH FDR-adjusted p-values",
+    bonferroni: "BH FDR-adjusted q-values — presence: two-proportion z-test · density: Mann-Whitney U · * q < 0.05 · a pair is significant if either test passes",
+    colPresenceQ: "Presence q",
+    colDensityQ: "Density q",
+    presenceTooltip: "Two-proportion z-test on motif presence per event (BH-adjusted)",
+    densityTooltip: "Mann-Whitney U test on per-event motif density (BH-adjusted)",
     heatmapTitle: "Enrichment heatmap — best motif per protein × region",
+    heatmapNote: "Cell colour uses the smaller of the two q-values (presence, density); * = q < 0.05 for at least one test.",
     enriched: "Enriched in sig.",
     depleted: "Depleted in sig.",
     silencer: "Silencer (ESS/ISS)",
     enhancer: "Enhancer (ESE/ISE)",
+    regions: {
+      upstream_exon: "Upstream exon",
+      upstream_intron: "Upstream intron",
+      upstream_intron_5ss: "Upstream intron (5′ss side)",
+      upstream_intron_3ss: "Upstream intron (3′ss side)",
+      skipped_exon: "Skipped exon",
+      downstream_intron: "Downstream intron",
+      downstream_intron_5ss: "Downstream intron (5′ss side)",
+      downstream_intron_3ss: "Downstream intron (3′ss side)",
+      downstream_exon: "Downstream exon",
+    },
   },
   enrichrPanel: {
     error: "Failed to load Enrichr enrichment results.",

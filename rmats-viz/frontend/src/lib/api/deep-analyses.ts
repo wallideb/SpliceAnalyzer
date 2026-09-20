@@ -17,6 +17,17 @@ export interface DeepAnalysisCreate {
   pvalue_threshold?: number;
   delta_psi_min: number;
   modules: string[];
+  /** Optional number of permutation iterations to record with the analysis. */
+  permutation_iterations?: number;
+}
+
+/** Paginated response of GET /deep-analyses/{id}/events (C5). */
+export interface DeepAnalysisEventsPage {
+  items: SplicingEvent[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
 }
 
 export interface DeepAnalysisResponse {
@@ -80,12 +91,39 @@ export function deleteDeepAnalysis(deepId: string): Promise<void> {
   );
 }
 
-export function getDeepAnalysisEvents(
+/** Maximum page size accepted by the backend for deep-analysis events. */
+const DEEP_EVENTS_PAGE_SIZE = 500;
+
+/** Fetch one page of deep-analysis events. */
+export function getDeepAnalysisEventsPage(
+  deepId: string,
+  significant?: boolean,
+  page = 1,
+  pageSize = DEEP_EVENTS_PAGE_SIZE,
+): Promise<DeepAnalysisEventsPage> {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (significant !== undefined) params.set("significant", String(significant));
+  return fetchJSON(`${BASE}/deep-analyses/${deepId}/events?${params}`);
+}
+
+/**
+ * Fetch ALL deep-analysis events by walking every page (page_size 500) and
+ * returning the concatenated array, so existing callers keep working.
+ */
+export async function getDeepAnalysisEvents(
   deepId: string,
   significant?: boolean,
 ): Promise<SplicingEvent[]> {
-  const params = significant !== undefined ? `?significant=${significant}` : "";
-  return fetchJSON(`${BASE}/deep-analyses/${deepId}/events${params}`);
+  const items: SplicingEvent[] = [];
+  let page = 1;
+  let pages = 1;
+  do {
+    const res = await getDeepAnalysisEventsPage(deepId, significant, page, DEEP_EVENTS_PAGE_SIZE);
+    items.push(...res.items);
+    pages = Math.max(1, res.pages ?? 1);
+    page += 1;
+  } while (page <= pages);
+  return items;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,11 +164,18 @@ export interface GroupPatternStats {
 }
 
 export interface StatTestResult {
+  /** Feature name; Mann-Whitney entries are suffixed `_mwu`. */
   feature: string;
+  /** e.g. "welch_t", "two_proportion_z", "mann_whitney_u" */
   test_name: string;
   statistic: number | null;
   p_value: number | null;
+  /** Raw-p significance (p < 0.05). */
   significant: boolean;
+  /** Benjamini-Hochberg adjusted p-value across all tests of the comparison. */
+  q_value: number | null;
+  /** Significance after BH FDR correction (q < 0.05). */
+  significant_fdr: boolean;
 }
 
 export interface PatternComparisonResponse {

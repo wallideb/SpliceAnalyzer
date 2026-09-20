@@ -31,7 +31,7 @@ export default function AnalysesPage() {
       );
     } catch (err) {
       console.error("Delete failed:", err);
-      alert(`Delete failed: ${err instanceof Error ? err.message : String(err)}`);
+      alert(`${t("analyses.deleteFailed")}: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setDeleting(null);
     }

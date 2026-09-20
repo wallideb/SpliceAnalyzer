@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Minimal ``samtools`` stand-in backed by pysam (no samtools binary in the sandbox).
+
+Supported:
+  samtools --version                  -> "samtools 1.20 (pysam wrapper)"
+  samtools faidx <fasta>              -> build <fasta>.fai
+  samtools faidx <fasta> REGION...    -> multi-FASTA on stdout, 60-char lines,
+                                         one ">REGION" record per region (empty
+                                         record when the region lies beyond the
+                                         contig end, truncated when it overhangs),
+                                         exit 1 + stderr message on an unknown contig
+                                         (matches samtools' "Failed to fetch sequence").
+"""
+import sys
+
+
+def main(argv):
+    if len(argv) >= 1 and argv[0] == "--version":
+        print("samtools 1.20 (pysam wrapper)")
+        print("Using htslib 1.20 (pysam)")
+        return 0
+    if len(argv) >= 2 and argv[0] == "faidx":
+        import pysam
+        fasta = argv[1]
+        regions = argv[2:]
+        if not regions:
+            pysam.faidx(fasta)
+            return 0
+        fa = pysam.FastaFile(fasta)
+        lengths = dict(zip(fa.references, fa.lengths))
+        out = []
+        for reg in regions:
+            contig, _, span = reg.rpartition(":")
+            if not contig:
+                contig, span = reg, ""
+            if contig not in lengths:
+                sys.stderr.write(f"[faidx] Failed to fetch sequence in {reg}\n")
+                sys.stdout.write("".join(out))
+                return 1
+            clen = lengths[contig]
+            if span:
+                s, _, e = span.partition("-")
+                start = int(s.replace(",", ""))
+                end = int(e.replace(",", "")) if e else clen
+            else:
+                start, end = 1, clen
+            start0 = max(start - 1, 0)
+            end0 = min(end, clen)
+            seq = fa.fetch(contig, start0, end0) if end0 > start0 else ""
+            if end0 <= start0 and start0 >= clen:
+                sys.stderr.write(f"[faidx] Warning - Reference {reg} not found in FASTA file, returning empty sequence\n")
+            out.append(f">{reg}\n")
+            for i in range(0, len(seq), 60):
+                out.append(seq[i:i + 60] + "\n")
+        sys.stdout.write("".join(out))
+        return 0
+    sys.stderr.write("usage: samtools --version | samtools faidx <fasta> [region ...]\n")
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

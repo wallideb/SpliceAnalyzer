@@ -14,6 +14,8 @@ export function AppHeader() {
 
         {/* ── Logo + Title ── */}
         <Link href="/analyses" className="flex items-center gap-3 group">
+          {/* static SVG logo: next/image adds nothing for an inline-size vector */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/logo.svg"
             alt="SpliceAnalyzer logo"

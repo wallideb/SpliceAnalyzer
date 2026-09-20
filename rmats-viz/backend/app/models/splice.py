@@ -1,11 +1,11 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    String, Text, Integer, BigInteger, Double, Boolean,
-    ForeignKey, UniqueConstraint, Index, func,
+    DateTime, String, Text, Integer, Double, Boolean,
+    ForeignKey, Index, func,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
 
 
@@ -50,10 +50,14 @@ class EventSpliceFeature(Base):
     ppt_score: Mapped[float | None] = mapped_column(Double(precision=53), nullable=True)
     ppt_longest_run: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Branch-point (YNYURAY rule)
+    # Branch-point (yUnAy / YNYURAY heuristic, branch A mandatory, −18…−44 nt)
     bp_motif_found: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Distance (nt) from the branch adenosine to the exon start (3'SS AG)
     bp_distance: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bp_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 0-based index of the matched 7-mer within ppt_seq, and the 7-mer itself
+    bp_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bp_motif: Mapped[str | None] = mapped_column(String(7), nullable=True)
 
     # MANE / frame annotation
     mane_transcript_id: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -71,4 +75,6 @@ class EventSpliceFeature(Base):
     #   None       — rMATS coordinates used as-is (no MANE correction)
     mane_exon_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
-    computed_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    # TIMESTAMPTZ NOT NULL (0003 / 0018); compared with an aware ``now()`` by the
+    # MANE retry logic of the splice router.
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    String, Text, Integer, Double, Boolean, ForeignKey, Index, func,
+    DateTime, String, Text, Integer, Double, Boolean, ForeignKey, Index, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -12,6 +12,10 @@ class DeepAnalysis(Base):
     """A saved deep-analysis run with threshold parameters and module selection."""
 
     __tablename__ = "deep_analyses"
+    __table_args__ = (
+        # FK index used by the explicit per-table delete path (migration 0013)
+        Index("ix_deep_analyses_analysis_id", "analysis_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     analysis_id: Mapped[uuid.UUID] = mapped_column(
@@ -32,10 +36,12 @@ class DeepAnalysis(Base):
     n_significant: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     n_not_significant: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    # Permutation config (filled when user runs a permutation)
+    # Permutation config — written at creation when the client supplies
+    # ``permutation_iterations`` (DeepAnalysisCreate), otherwise NULL.
     permutation_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    # TIMESTAMP (naive, as created by 0006) NOT NULL (0018)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, server_default=func.now())
 
     # Relationships
     analysis: Mapped["Analysis"] = relationship("Analysis", back_populates="deep_analyses")  # noqa: F821
@@ -53,6 +59,8 @@ class DeepAnalysisEvent(Base):
         Index("ix_dae_deep_analysis_id", "deep_analysis_id"),
         # Composite index for queries that also filter by is_significant
         Index("ix_dae_da_sig", "deep_analysis_id", "is_significant"),
+        # FK index on event_id (migration 0013) — cascade from splicing_events
+        Index("ix_dae_event_id", "event_id"),
     )
 
     deep_analysis_id: Mapped[uuid.UUID] = mapped_column(

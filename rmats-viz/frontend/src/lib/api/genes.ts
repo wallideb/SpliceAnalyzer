@@ -38,21 +38,3 @@ export async function searchGenes(
   return response.results;
 }
 
-/**
- * Resolve an exact HUGO gene symbol to its Ensembl stable ID.
- *
- * @param symbol  - Exact HUGO gene symbol, e.g. "BRCA1"
- * @param species - Species identifier (default: "homo_sapiens")
- * @returns GeneEntry or null if not found
- */
-export async function lookupGene(
-  symbol: string,
-  species = "homo_sapiens",
-): Promise<GeneEntry | null> {
-  try {
-    const params = new URLSearchParams({ species });
-    return await fetchJSON<GeneEntry>(`${BASE}/genes/lookup/${encodeURIComponent(symbol)}?${params}`);
-  } catch {
-    return null;
-  }
-}

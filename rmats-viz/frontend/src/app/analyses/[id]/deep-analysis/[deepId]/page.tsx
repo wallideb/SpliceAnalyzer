@@ -21,6 +21,7 @@ import { ExcelExportModal, type ExcelColumnGroup } from "@/components/ExcelExpor
 import { PdfExportModal, type PdfSection } from "@/components/PdfExportModal";
 import { Top10View } from "@/components/events/Top10View";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
+import { ComputeProgressBar } from "@/components/top10/ComputeProgressBar";
 import { PermutationPanel } from "@/components/top10/PermutationPanel";
 import type { GeneEntry } from "@/types/gene";
 
@@ -197,6 +198,9 @@ export default function DeepAnalysisDetailPage() {
           <span className="text-green-600 dark:text-green-400 font-medium">{deepAnalysis.n_significant} {t("deepAnalysis.significant")}</span>
           <span className="text-muted-foreground">{deepAnalysis.n_not_significant} {t("deepAnalysis.notSignificant")}</span>
           <span className="text-muted-foreground">{new Date(deepAnalysis.created_at).toLocaleDateString()}</span>
+          <span className="px-2 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+            {t("deepAnalysis.seOnlyNotice")}
+          </span>
           {deepAnalysis.modules.length > 0 && (
             <span className="text-muted-foreground">
               {t("deepAnalysis.modules")}: {deepAnalysis.modules.join(", ")}
@@ -218,6 +222,9 @@ export default function DeepAnalysisDetailPage() {
 
       {/* Mutated gene panel */}
       <MutatedGenePanel mutatedGenes={mutatedGenes} analysisId={id} />
+
+      {/* Global splice-feature computation progress (auto-started above) */}
+      {activeModules.has("splice") && <ComputeProgressBar analysisId={id} />}
 
       {/* Loading */}
       {loadingSig && (
@@ -258,6 +265,7 @@ export default function DeepAnalysisDetailPage() {
             analysisId={id}
             fdrThreshold={deepAnalysis?.fdr_threshold}
             deltaPsiMin={deepAnalysis?.delta_psi_min}
+            pvalueThreshold={deepAnalysis?.pvalue_threshold}
           />
         </div>
       )}

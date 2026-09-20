@@ -1,14 +1,41 @@
 "use client";
 import { useCallback, useState } from "react";
+import { useT } from "@/contexts/LanguageContext";
 
-const VALID_TYPES = ["SE", "RI", "A3SS", "A5SS", "MXE"];
+/**
+ * Detected rMATS file identity: event type + counting mode (A2).
+ *
+ *   SE.MATS.JC.txt            → { eventType: "SE",   countingMode: "JC" }
+ *   cohort_A3SS.MATS.JCEC.txt → { eventType: "A3SS", countingMode: "JCEC" }
+ *   SE.MATS.JC (1).txt        → { eventType: "SE",   countingMode: "JC" }   (browser copy)
+ *   results_A5SS.txt          → { eventType: "A5SS", countingMode: null }   (loose token)
+ *   fromGTF.SE.txt            → { eventType: "SE",   countingMode: null }
+ *
+ * The type token must be delimited (start of name or a non-alphanumeric
+ * character), so `PRIMARY_SE.MATS.JC.txt` / `MYSERIES_SE.MATS.JC.txt` are no
+ * longer mis-classified as RI / SE by substring matching.  The backend applies
+ * the same rules and additionally reads the file header, so a chip shown as
+ * "unknown" here may still be imported when the header is unambiguous.
+ */
+export interface DetectedRmatsFile {
+  eventType: string;
+  countingMode: string | null;
+}
 
-function detectEventType(filename: string): string | null {
-  const upper = filename.toUpperCase();
-  for (const t of ["MXE", "A3SS", "A5SS", "RI", "SE"]) {
-    if (upper.includes(t)) return t;
-  }
-  return null;
+const MATS_RE = /(?:^|[^A-Za-z0-9])(SE|MXE|A3SS|A5SS|RI)[._-]MATS[._-](JC|JCEC)(?![A-Za-z0-9])/i;
+const FROM_GTF_RE = /(?:^|[^A-Za-z0-9])fromGTF[._](?:(?:novelJunction|novelSpliceSite|novelEvents)[._])?(SE|MXE|A3SS|A5SS|RI)(?![A-Za-z0-9])/i;
+const TYPE_TOKEN_RE = /(?:^|[^A-Za-z0-9])(SE|MXE|A3SS|A5SS|RI)(?![A-Za-z0-9])/gi;
+const MODE_TOKEN_RE = /(?:^|[^A-Za-z0-9])(JC|JCEC)(?![A-Za-z0-9])/gi;
+
+export function detectRmatsFile(filename: string): DetectedRmatsFile | null {
+  const m = MATS_RE.exec(filename);
+  if (m) return { eventType: m[1].toUpperCase(), countingMode: m[2].toUpperCase() };
+  const g = FROM_GTF_RE.exec(filename);
+  if (g) return { eventType: g[1].toUpperCase(), countingMode: null };
+  const types = Array.from(filename.matchAll(TYPE_TOKEN_RE), (x) => x[1].toUpperCase());
+  if (types.length === 0) return null;
+  const modes = Array.from(filename.matchAll(MODE_TOKEN_RE), (x) => x[1].toUpperCase());
+  return { eventType: types[types.length - 1], countingMode: modes.length ? modes[modes.length - 1] : null };
 }
 
 interface FileUploadZoneProps {
@@ -17,6 +44,7 @@ interface FileUploadZoneProps {
 }
 
 export function FileUploadZone({ files, onChange }: FileUploadZoneProps) {
+  const t = useT();
   const [dragging, setDragging] = useState(false);
 
   const addFiles = useCallback(
@@ -85,8 +113,8 @@ export function FileUploadZone({ files, onChange }: FileUploadZoneProps) {
       {files.length > 0 && (
         <ul className="space-y-1.5">
           {files.map((f) => {
-            const et = detectEventType(f.name);
-            const valid = et !== null;
+            const det = detectRmatsFile(f.name);
+            const valid = det !== null;
             return (
               <li
                 key={f.name}
@@ -98,9 +126,19 @@ export function FileUploadZone({ files, onChange }: FileUploadZoneProps) {
               >
                 <span className="truncate max-w-xs text-foreground">{f.name}</span>
                 <div className="flex items-center gap-2 ml-2 shrink-0">
-                  {et && (
+                  {det && (
                     <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
-                      {et}
+                      {det.eventType}
+                    </span>
+                  )}
+                  {det?.countingMode && (
+                    <span
+                      className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300"
+                      title={det.countingMode === "JCEC"
+                        ? "Junction counts + exon body reads (JCEC)"
+                        : "Junction counts only (JC)"}
+                    >
+                      {det.countingMode}
                     </span>
                   )}
                   {!valid && (
@@ -111,7 +149,7 @@ export function FileUploadZone({ files, onChange }: FileUploadZoneProps) {
                   <button
                     type="button"
                     onClick={() => remove(f.name)}
-                    title="Retirer ce fichier"
+                    title={t("newAnalysis.removeFile")}
                     className="text-muted-foreground hover:text-destructive transition-colors"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>

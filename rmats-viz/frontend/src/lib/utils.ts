@@ -1,10 +1,3 @@
-import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
 export function formatFDR(fdr: number | null | undefined): string {
   if (fdr === null || fdr === undefined) return "N/A";
   if (fdr === 0) return "0";

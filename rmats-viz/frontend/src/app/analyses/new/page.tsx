@@ -1,15 +1,17 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { FileUploadZone } from "@/components/upload/FileUploadZone";
 import { GroupMappingDialog } from "@/components/upload/GroupMappingDialog";
 import { GeneAutocomplete } from "@/components/genes/GeneAutocomplete";
-import { uploadAnalysis } from "@/lib/api/analyses";
+import { uploadAnalysis, type UploadProgress } from "@/lib/api/analyses";
 import { useT } from "@/contexts/LanguageContext";
 import type { GeneEntry } from "@/types/gene";
 
 export default function NewAnalysisPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const t = useT();
   const [name, setName] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -19,6 +21,11 @@ export default function NewAnalysisPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
+  // Import notes returned by the backend (UploadResponse.warnings); when
+  // present the analysis exists but the user is told before navigating.
+  const [uploadWarnings, setUploadWarnings] = useState<{ id: string; warnings: string[] } | null>(null);
+  // Chunked-upload progress (bytes sent, current file) shown on the loading screen.
+  const [progress, setProgress] = useState<UploadProgress | null>(null);
 
   const canNext = name.trim() && files.length > 0;
 
@@ -26,16 +33,26 @@ export default function NewAnalysisPage() {
     if (!canNext) return;
     setLoading(true);
     setError(null);
+    setProgress(null);
     try {
-      const res = await uploadAnalysis({
-        name: name.trim(),
-        group1_label: group1Label,
-        group2_label: group2Label,
-        group1_samples: [],
-        group2_samples: [],
-        mutated_genes: mutatedGenes,
-        files,
-      });
+      const res = await uploadAnalysis(
+        {
+          name: name.trim(),
+          group1_label: group1Label,
+          group2_label: group2Label,
+          group1_samples: [],
+          group2_samples: [],
+          mutated_genes: mutatedGenes,
+          files,
+        },
+        setProgress,
+      );
+      if (res.warnings && res.warnings.length > 0) {
+        setUploadWarnings({ id: res.analysis_id, warnings: res.warnings });
+        setLoading(false);
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: ["analyses"] });
       router.push(`/analyses/${res.analysis_id}`);
     } catch (e) {
       setError((e as Error).message);
@@ -44,7 +61,31 @@ export default function NewAnalysisPage() {
   };
 
   if (loading) {
-    return <DnaLoadingScreen />;
+    return <DnaLoadingScreen progress={progress} />;
+  }
+
+  if (uploadWarnings) {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl px-5 py-4 space-y-3">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">{t("newAnalysis.warnings.title")}</p>
+          <p className="text-xs text-amber-800/80 dark:text-amber-300/80">{t("newAnalysis.warnings.subtitle")}</p>
+          <ul className="list-disc pl-5 space-y-1 text-xs text-amber-900 dark:text-amber-200">
+            {uploadWarnings.warnings.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+          <div className="flex justify-end">
+            <button
+              onClick={() => router.push(`/analyses/${uploadWarnings.id}`)}
+              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm"
+            >
+              {t("newAnalysis.warnings.open")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -179,19 +220,57 @@ export default function NewAnalysisPage() {
   );
 }
 
-function DnaLoadingScreen() {
+function formatMB(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function DnaLoadingScreen({ progress }: { progress: UploadProgress | null }) {
   const t = useT();
+  const uploading = progress?.phase === "upload";
+  const percent =
+    progress && progress.totalBytes > 0
+      ? Math.min(100, Math.round((progress.sentBytes / progress.totalBytes) * 100))
+      : uploading ? 0 : 100;
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-8">
       <div className="relative w-24 h-24 flex items-center justify-center">
+        {/* static SVG logo: next/image adds nothing for an inline-size vector */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.svg" alt="SpliceAnalyzer" className="w-20 h-20 dna-strand" draggable={false} />
       </div>
       <div className="text-center space-y-2">
-        <p className="text-lg font-semibold text-foreground">{t("newAnalysis.loading.title")}</p>
+        <p className="text-lg font-semibold text-foreground">
+          {uploading ? t("newAnalysis.loading.uploading", { percent }) : t("newAnalysis.loading.title")}
+        </p>
         <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
-          {t("newAnalysis.loading.subtitle")}
+          {uploading ? t("newAnalysis.loading.uploadHint") : t("newAnalysis.loading.subtitle")}
         </p>
       </div>
+      {progress && (
+        <div className="w-full max-w-xs space-y-2" role="status" aria-live="polite">
+          <div
+            className="h-2 w-full rounded-full bg-muted overflow-hidden"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
+          >
+            <div
+              className={`h-full rounded-full transition-[width] duration-300 ${uploading ? "bg-blue-500" : "bg-green-500"}`}
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground text-center truncate" title={progress.file}>
+            {uploading
+              ? t("newAnalysis.loading.sending", {
+                  file: progress.file ?? "",
+                  sent: formatMB(progress.sentBytes),
+                  total: formatMB(progress.totalBytes),
+                })
+              : t("newAnalysis.loading.processing", { total: formatMB(progress.totalBytes) })}
+          </p>
+        </div>
+      )}
       <div className="flex gap-2">
         {[0, 1, 2].map((i) => (
           <span

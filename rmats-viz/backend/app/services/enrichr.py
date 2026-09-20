@@ -32,6 +32,7 @@ References
 from __future__ import annotations
 
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
@@ -52,6 +53,53 @@ DEFAULT_LIBRARIES = [
 
 TIMEOUT = 15  # seconds per HTTP call
 
+# Gene-set sizes per library, fetched at most once per process from the GMT
+# endpoint (``geneSetLibrary?mode=text``).  The ``/enrich`` endpoint does not
+# return set sizes and the term name must not be parsed for them (GO ids,
+# KEGG terms without parentheses, ...).  A failed fetch caches ``{}`` so the
+# request is not retried on every enrichment run.
+_LIBRARY_SIZE_CACHE: dict[str, dict[str, int]] = {}
+_LIBRARY_SIZE_LOCK = threading.Lock()
+
+
+def get_library_sizes(lib: str) -> dict[str, int]:
+    """Return {term: number_of_genes} for an Enrichr library (cached per process).
+
+    Parses the GMT text (``term<TAB>description<TAB>gene1<TAB>gene2...``).
+    Network or parsing failures yield an empty dict (and are cached as such).
+    """
+    with _LIBRARY_SIZE_LOCK:
+        cached = _LIBRARY_SIZE_CACHE.get(lib)
+    if cached is not None:
+        return cached
+
+    sizes: dict[str, int] = {}
+    try:
+        resp = requests.get(
+            f"{ENRICHR_URL}/geneSetLibrary",
+            params={"mode": "text", "libraryName": lib},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        for line in resp.text.splitlines():
+            if not line.strip():
+                continue
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 3:
+                continue
+            term = parts[0].strip()
+            genes = [g for g in parts[2:] if g.strip()]
+            if term:
+                sizes[term] = len(genes)
+        logger.info("Enrichr: cached %d gene-set sizes for %s", len(sizes), lib)
+    except Exception as exc:
+        logger.warning("Enrichr: could not fetch gene-set sizes for %s: %s", lib, exc)
+        sizes = {}
+
+    with _LIBRARY_SIZE_LOCK:
+        _LIBRARY_SIZE_CACHE.setdefault(lib, sizes)
+        return _LIBRARY_SIZE_CACHE[lib]
+
 
 @dataclass
 class EnrichrTerm:
@@ -70,7 +118,6 @@ class EnrichrTerm:
 @dataclass
 class EnrichrResult:
     """Full enrichment result for the submitted gene list."""
-    user_list_id: int
     n_genes_submitted: int
     terms: list[EnrichrTerm]
     error: str | None = None
@@ -87,19 +134,18 @@ def _fetch_library(user_list_id: int, lib: str, top_n: int) -> list[EnrichrTerm]
     enrichment = resp.json()
     # Enrichr returns {library_name: [[rank, term, pval, zscore, combined, overlap_genes, adj_pval, ...]]}
     rows = enrichment.get(lib, [])
+    set_sizes = get_library_sizes(lib) if rows else {}
     terms: list[EnrichrTerm] = []
     for i, row in enumerate(rows[:top_n]):
         # row format: [rank, term, pval, zscore, combined_score, overlap_genes, adj_pval, old_pval, old_adj_pval]
         if len(row) < 7:
             continue
         overlap_genes = row[5] if isinstance(row[5], list) else []
-        # Overlap string: "k/n" where k = overlapping genes, n = gene-set size.
         term_str = str(row[1])
-        if "(" in term_str and term_str.endswith(")"):
-            geneset_size = term_str.rsplit("(", 1)[-1].rstrip(")")
-            overlap_str = f"{len(overlap_genes)}/{geneset_size}"
-        else:
-            overlap_str = str(len(overlap_genes))
+        # Overlap string: "k/n" when the gene-set size n is known from the
+        # cached GMT, otherwise just "k" (never parsed from the term name).
+        size = set_sizes.get(term_str)
+        overlap_str = f"{len(overlap_genes)}/{size}" if size else f"{len(overlap_genes)}"
         terms.append(EnrichrTerm(
             library=lib,
             rank=int(row[0]) if row[0] is not None else i + 1,
@@ -135,7 +181,6 @@ def run_enrichment(
     """
     if not gene_symbols:
         return EnrichrResult(
-            user_list_id=0,
             n_genes_submitted=0,
             terms=[],
             error="No gene symbols provided",
@@ -161,7 +206,6 @@ def run_enrichment(
     except Exception as exc:
         logger.warning("Enrichr addList failed: %s", exc)
         return EnrichrResult(
-            user_list_id=0,
             n_genes_submitted=len(unique_symbols),
             terms=[],
             error=f"Enrichr API error: {exc}",
@@ -182,7 +226,6 @@ def run_enrichment(
                 logger.warning("Enrichr enrich failed for %s: %s", lib, exc)
 
     return EnrichrResult(
-        user_list_id=user_list_id,
         n_genes_submitted=len(unique_symbols),
         terms=all_terms,
     )

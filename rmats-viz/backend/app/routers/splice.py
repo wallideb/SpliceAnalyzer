@@ -24,14 +24,16 @@ import statistics
 import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from sqlalchemy import select, delete
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
+from app.models.analysis import Analysis
 from app.models.event import SplicingEvent
 from app.models.deep_analysis import DeepAnalysis, DeepAnalysisEvent
 from app.models.splice import EventSpliceFeature
@@ -64,10 +66,58 @@ from app.services.splice_features import compute_features, compute_pwm, iupac_co
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/splice", tags=["splice"])
 
-# Track which analyses currently have a background compute task running.
-# Keyed by analysis_id (UUID); value is True while the task is active.
-# NOTE: in-memory — only correct with a single uvicorn worker.
-_active_computes: dict[uuid.UUID, bool] = {}
+# Splice-feature computation state lives in ``analyses.compute_status``
+# ('idle' | 'running' | 'done' | 'error') — the DB is the source of truth so
+# progress polling and the export readiness check are correct across uvicorn
+# workers and after a crash of the background task (see main.py lifespan for
+# the restart reset).
+
+# Negative MANE lookups are retried at most once per this interval, using
+# EventSpliceFeature.computed_at as the timestamp of the last attempt.
+_MANE_RETRY_TTL = timedelta(hours=24)
+
+# Heartbeat staleness.  While a computation is 'running' the background task
+# bumps ``analyses.updated_at`` after every processed chunk (see
+# ``_heartbeat``).  A 'running' row whose updated_at is older than this is
+# treated as orphaned (worker crashed / container restarted) and may be reset
+# on startup (main.py lifespan) or re-claimed by a new POST /splice/compute.
+# Must comfortably exceed the wall time of one chunk (_COMPUTE_CHUNK events).
+COMPUTE_STALE_AFTER = timedelta(minutes=30)
+
+
+async def _set_compute_status(analysis_id: uuid.UUID, status: str, error: str | None = None) -> None:
+    """Persist the background-compute state for an analysis (own session)."""
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Analysis)
+                .where(Analysis.id == analysis_id)
+                .values(compute_status=status, compute_error=error)
+            )
+            await db.commit()
+    except Exception:
+        logger.exception("Failed to set compute_status=%s for %s", status, analysis_id)
+
+
+async def _heartbeat(analysis_id: uuid.UUID) -> None:
+    """Refresh ``updated_at`` on a 'running' row so it is not considered stale."""
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Analysis)
+                .where(Analysis.id == analysis_id, Analysis.compute_status == "running")
+                .values(updated_at=func.now())
+            )
+            await db.commit()
+    except Exception:
+        logger.exception("Failed to refresh compute heartbeat for %s", analysis_id)
+
+
+async def get_compute_status(db: AsyncSession, analysis_id: uuid.UUID) -> str | None:
+    """Return the persisted compute status ('idle'|'running'|'done'|'error') or None if unknown."""
+    return (await db.execute(
+        select(Analysis.compute_status).where(Analysis.id == analysis_id)
+    )).scalar_one_or_none()
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +148,8 @@ def _feat_to_response(feat: EventSpliceFeature, event: SplicingEvent) -> SpliceF
         bp_motif_found=feat.bp_motif_found,
         bp_distance=feat.bp_distance,
         bp_score=feat.bp_score,
+        bp_position=feat.bp_position,
+        bp_motif=feat.bp_motif,
         mane_transcript_id=feat.mane_transcript_id,
         exon_rank=feat.exon_rank,
         frame_region=feat.frame_region,
@@ -259,6 +311,8 @@ def _build_feature_row(
         bp_motif_found         = feat_data.bp_motif_found,
         bp_distance            = feat_data.bp_distance,
         bp_score               = feat_data.bp_score,
+        bp_position            = getattr(feat_data, "bp_position", None),
+        bp_motif               = (getattr(feat_data, "bp_motif", None) or None),
         mane_transcript_id     = mane.get("transcript_id"),
         exon_rank              = mane.get("exon_rank"),
         frame_region           = mane.get("frame_region", "unknown"),
@@ -292,23 +346,13 @@ async def _upsert_feature(
     return result.scalar_one()
 
 
-async def _compute_one(
-    event: SplicingEvent,
-    db: AsyncSession,
-    fa_ok: bool,
-) -> EventSpliceFeature:
-    """Compute features for a single SE event (used by the per-event GET endpoint)."""
-    feat_data, mane, seq_source, mane_exon_source = await _fetch_features(event, fa_ok)
-    return await _upsert_feature(event, feat_data, mane, db, seq_source, mane_exon_source)
-
-
 # ---------------------------------------------------------------------------
 # POST /splice/compute/{analysis_id}
 # ---------------------------------------------------------------------------
 
 _COMPUTE_CHUNK = 2_000  # events processed per MANE/feature chunk
 # asyncpg hard-limits query parameters to 32 767.  Each EventSpliceFeature row
-# has 25 columns, so the safe DB-write batch size is floor(32767 / 25) = 1310.
+# has 27 columns, so the safe DB-write batch size is floor(32767 / 27) = 1213.
 _DB_WRITE_BATCH = 1_000  # keep a round number well under the limit
 
 
@@ -321,7 +365,13 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
     When a local FASTA is available, uses mega-batched samtools (one
     subprocess per chunk of 200 events ≈ 1000 regions) which is 20-50x
     faster than one subprocess per event.
+
+    ``analyses.compute_status`` is 'running' while this task is active and is
+    set to 'done' or 'error' (with ``compute_error``) in the ``finally`` block.
     """
+    final_status = "done"
+    final_error: str | None = None
+    n_failed_chunks = 0
     try:
         async with AsyncSessionLocal() as db:
             result = await db.execute(
@@ -347,7 +397,8 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                     mane_boundary_list: list[tuple[int, int, str] | None] = []
                     try:
                         from app.config import settings as _cfg
-                        _ensure_mane = load_mane_gff3(_cfg.MANE_GFF3) if not mane_local_loaded() else True
+                        if not mane_local_loaded():
+                            load_mane_gff3(_cfg.MANE_GFF3)
                         if mane_local_loaded():
                             # Build tuples for ALL events in the chunk (including
                             # invalid ones as placeholders) so indices align with
@@ -503,9 +554,12 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                             )
                         n_computed += len(bulk_rows)
                     await db.commit()
+                    await _heartbeat(analysis_id)
                     if chunk_start % 1000 == 0:
                         logger.info("Compute progress: %d/%d", n_computed, n_total)
                 except Exception as chunk_exc:
+                    n_failed_chunks += 1
+                    final_error = f"{n_failed_chunks} chunk(s) failed; last error: {chunk_exc}"
                     logger.error(
                         "Chunk %d–%d failed for %s: %s — continuing with next chunk",
                         chunk_start, min(chunk_start + _COMPUTE_CHUNK, n_total),
@@ -517,10 +571,17 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                         pass  # best-effort — session may already be clean
 
             logger.info("Background compute done: %d/%d SE events for %s", n_computed, n_total, analysis_id)
-    except Exception as exc:
+            if n_failed_chunks:
+                final_status = "error"
+    except BaseException as exc:  # includes CancelledError on shutdown
+        final_status = "error"
+        final_error = f"Background compute crashed: {exc!r}"
         logger.error("Background compute task crashed for %s: %s", analysis_id, exc)
+        if not isinstance(exc, Exception):
+            # Let cancellation propagate; the finally block records the state.
+            raise
     finally:
-        _active_computes.pop(analysis_id, None)
+        await _set_compute_status(analysis_id, final_status, final_error)
 
 
 @router.post("/compute/{analysis_id}", response_model=ComputeJobResponse, status_code=202)
@@ -544,8 +605,26 @@ async def compute_splice_features(
     if not count_res.scalar_one_or_none():
         raise HTTPException(404, "No SE events found for this analysis")
 
-    # Don't start a duplicate task if one is already running (e.g. page refresh)
-    if analysis_id in _active_computes:
+    # Don't start a duplicate task if one is already running (e.g. page refresh).
+    # Atomic claim: only the request that flips 'running' on a non-running row
+    # starts the task (safe with concurrent requests / several workers).  A
+    # 'running' row whose heartbeat (updated_at) is older than
+    # COMPUTE_STALE_AFTER belongs to a dead worker and may be re-claimed.
+    claim = await db.execute(
+        update(Analysis)
+        .where(
+            Analysis.id == analysis_id,
+            or_(
+                Analysis.compute_status != "running",
+                Analysis.updated_at < func.now() - COMPUTE_STALE_AFTER,
+            ),
+        )
+        .values(compute_status="running", compute_error=None, updated_at=func.now())
+        .returning(Analysis.id)
+    )
+    claimed = claim.scalar_one_or_none()
+    await db.commit()
+    if claimed is None:
         return ComputeJobResponse(
             analysis_id=str(analysis_id),
             n_se_events=0,
@@ -555,7 +634,6 @@ async def compute_splice_features(
         )
 
     fa_ok = fasta_available()
-    _active_computes[analysis_id] = True  # register before add_task to avoid race
     background_tasks.add_task(_run_compute_background, analysis_id, fa_ok)
 
     return ComputeJobResponse(
@@ -576,8 +654,18 @@ async def get_compute_progress(
     analysis_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return splice feature computation progress for an analysis."""
-    from sqlalchemy import func
+    """Return splice feature computation progress for an analysis.
+
+    ``status`` mirrors ``analyses.compute_status`` ('idle'|'running'|'done'|
+    'error'); ``done`` is true when the task is not running any more (even if
+    it failed — see ``error``) or every SE event already has features.
+    """
+    compute_status = await get_compute_status(db, analysis_id)
+    if compute_status is None:
+        raise HTTPException(404, "Analysis not found")
+    compute_error = (await db.execute(
+        select(Analysis.compute_error).where(Analysis.id == analysis_id)
+    )).scalar_one_or_none()
 
     n_se_result = await db.execute(
         select(func.count(SplicingEvent.id)).where(
@@ -602,7 +690,7 @@ async def get_compute_progress(
     # Task is done when all events are computed OR the background task has
     # finished (even with partial failures or total crash — otherwise the
     # frontend polls forever waiting for n_computed to reach n_se).
-    task_running = analysis_id in _active_computes
+    task_running = compute_status == "running"
     done = n_computed >= n_se or not task_running
 
     return {
@@ -610,6 +698,8 @@ async def get_compute_progress(
         "n_computed": n_computed,
         "pct": round(n_computed / n_se * 100, 1) if n_se > 0 else 0,
         "done": done,
+        "status": compute_status,
+        "error": compute_error if compute_status == "error" else None,
     }
 
 
@@ -625,14 +715,18 @@ async def get_splice_feature(event_id: uuid.UUID):
     connection is released before slow I/O (samtools / Ensembl / MANE).
     This prevents pool exhaustion when 10+ cards load in parallel.
 
-    Uses ``_ENDPOINT_SEM`` to cap total concurrent requests.  When the
-    semaphore is full, returns HTTP 503 so the frontend can retry later.
+    Uses ``_ENDPOINT_SEM`` to cap total concurrent requests.  When no slot
+    frees up within 0.5 s, returns HTTP 503 so the frontend can retry later.
     """
-    if not _ENDPOINT_SEM._value:  # noqa: SLF001 – fast non-blocking check
+    try:
+        await asyncio.wait_for(_ENDPOINT_SEM.acquire(), timeout=0.5)
+    except asyncio.TimeoutError:
         raise HTTPException(503, "Server busy computing splice features, retry shortly")
 
-    async with _ENDPOINT_SEM:
+    try:
         return await _get_splice_feature_inner(event_id)
+    finally:
+        _ENDPOINT_SEM.release()
 
 
 async def _get_splice_feature_inner(event_id: uuid.UUID) -> SpliceFeatureResponse:
@@ -658,13 +752,24 @@ async def _get_splice_feature_inner(event_id: uuid.UUID) -> SpliceFeatureRespons
         feat = feat_res.scalar_one_or_none()
 
         # If feature exists AND already has MANE data (or gene_id is missing),
-        # return immediately.  Otherwise retry MANE lookup.
+        # return immediately.  A missing MANE annotation is retried at most
+        # once per _MANE_RETRY_TTL (negative-result cache keyed on computed_at)
+        # so genes absent from the GFF3 do not trigger a network lookup on
+        # every card load.
         if feat is not None:
             has_mane = feat.mane_transcript_id is not None
-            can_retry_mane = (not has_mane) and bool(event.gene_id)
-            if not can_retry_mane:
+            now = datetime.now(timezone.utc)
+            computed_at = feat.computed_at
+            if computed_at is not None and computed_at.tzinfo is None:
+                computed_at = computed_at.replace(tzinfo=timezone.utc)
+            should_retry = (
+                (not has_mane)
+                and bool(event.gene_id)
+                and (computed_at is None or now - computed_at > _MANE_RETRY_TTL)
+            )
+            if not should_retry:
                 return _feat_to_response(feat, event)
-            # Retry MANE in background — return current data but schedule update
+            # Retry MANE — return current data but schedule update
             _retry_event = event   # snapshot for closure
     # ── session closed — connection returned to pool ─────────────────────
 
@@ -680,9 +785,8 @@ async def _get_splice_feature_inner(event_id: uuid.UUID) -> SpliceFeatureRespons
                 _retry_event.exon_start or 0,
                 _retry_event.exon_end or 0,
             )
-            if mane.get("transcript_id"):
-                async with AsyncSessionLocal() as db:
-                    from sqlalchemy import update
+            async with AsyncSessionLocal() as db:
+                if mane.get("transcript_id"):
                     await db.execute(
                         update(EventSpliceFeature)
                         .where(EventSpliceFeature.event_id == event_id)
@@ -692,15 +796,24 @@ async def _get_splice_feature_inner(event_id: uuid.UUID) -> SpliceFeatureRespons
                             frame_region=mane.get("frame_region", "unknown"),
                             frame_class=mane.get("frame_class") or feat.frame_class,
                             cds_exon_length=mane.get("cds_exon_length"),
+                            computed_at=func.now(),
                         )
                     )
-                    await db.commit()
-                    # Re-read updated feature
-                    feat_res = await db.execute(
-                        select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
+                else:
+                    # Still no MANE: stamp the attempt so the next retry waits
+                    # another _MANE_RETRY_TTL.
+                    await db.execute(
+                        update(EventSpliceFeature)
+                        .where(EventSpliceFeature.event_id == event_id)
+                        .values(computed_at=func.now())
                     )
-                    feat = feat_res.scalar_one()
-                    return _feat_to_response(feat, _retry_event)
+                await db.commit()
+                # Re-read updated feature
+                feat_res = await db.execute(
+                    select(EventSpliceFeature).where(EventSpliceFeature.event_id == event_id)
+                )
+                feat = feat_res.scalar_one()
+                return _feat_to_response(feat, _retry_event)
         except Exception as exc:
             logger.debug("MANE retry failed for %s: %s", event_id, exc)
         return _feat_to_response(feat, _retry_event)
@@ -741,6 +854,7 @@ async def get_splice_patterns(
     analysis_id: uuid.UUID,
     fdr_threshold: float = Query(0.05, ge=0.0, le=1.0, description="FDR significance cutoff"),
     abs_delta_psi_min: float = Query(0.05, ge=0.0, le=1.0, description="Minimum |ΔΨ| for significance"),
+    pvalue_threshold: float | None = Query(None, ge=0.0, le=1.0, description="Optional p-value maximum for significance (ignored with deep_analysis_id)"),
     deep_analysis_id: uuid.UUID | None = Query(None, description="If set, only analyse significant events from this deep analysis"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -748,6 +862,8 @@ async def get_splice_patterns(
 
     When deep_analysis_id is provided, only events tagged as significant
     in that deep analysis are included (thresholds are informational only).
+    Otherwise an event is significant when FDR ≤ fdr_threshold, |ΔΨ| ≥
+    abs_delta_psi_min and, if given, p ≤ pvalue_threshold.
     """
 
     # Fetch events + their features (join)
@@ -787,18 +903,25 @@ async def get_splice_patterns(
     size_dist: Counter[int] = Counter()
     donor_9: list[str] = []
     acc_23: list[str] = []
+    # Canonical-site flags may be None (window truncated near a contig end):
+    # unknown → excluded from both numerator (n_*) and denominator (n_*_known).
     n_gt = 0
+    n_gt_known = 0
     n_ag = 0
+    n_ag_known = 0
     up_donor_9: list[str] = []
     dn_acc_23: list[str] = []
     n_up_gt = 0
+    n_up_gt_known = 0
     n_dn_ag = 0
+    n_dn_ag_known = 0
     n_with_up_seq = 0
     n_with_dn_seq = 0
     ppt_scores: list[float] = []
     ppt_runs: list[int] = []
     fc_counts: Counter[str] = Counter()
     bp_found_count = 0
+    n_with_ppt_seq = 0  # bp_found denominator: BP is searched in ppt_seq
     n_with_seq = 0
     delta_psi_list: list[float] = []
     delta_psi_significant: list[float] = []
@@ -817,7 +940,10 @@ async def get_splice_patterns(
                 ev.inc_level_difference is not None
                 and abs(ev.inc_level_difference) >= abs_delta_psi_min
             )
-            if fdr_ok and dpsi_ok:
+            pv_ok = pvalue_threshold is None or (
+                ev.p_value is not None and ev.p_value <= pvalue_threshold
+            )
+            if fdr_ok and dpsi_ok and pv_ok:
                 n_significant += 1
                 delta_psi_significant.append(ev.inc_level_difference)  # type: ignore[arg-type]
             else:
@@ -842,40 +968,52 @@ async def get_splice_patterns(
         if feat.downstream_intron_size is not None:
             down_sizes.append(feat.downstream_intron_size)
 
+        # BP — eligibility is a non-empty PPT sequence (the branch point is
+        # searched in ppt_seq), independent of donor_seq.
+        if feat.ppt_seq:
+            n_with_ppt_seq += 1
+            if feat.bp_motif_found:
+                bp_found_count += 1
+
         # Sequence-dependent metrics
         if feat.donor_seq:
             n_with_seq += 1
             # Donor
             if len(feat.donor_seq) >= 9:
                 donor_9.append(feat.donor_seq[:9])
-                if feat.donor_is_gt:
-                    n_gt += 1
+                if feat.donor_is_gt is not None:
+                    n_gt_known += 1
+                    if feat.donor_is_gt:
+                        n_gt += 1
             # Acceptor
             if feat.acceptor_seq and len(feat.acceptor_seq) >= 23:
                 acc_23.append(feat.acceptor_seq[-23:])
-                if feat.acceptor_is_ag:
-                    n_ag += 1
+                if feat.acceptor_is_ag is not None:
+                    n_ag_known += 1
+                    if feat.acceptor_is_ag:
+                        n_ag += 1
             # PPT
             if feat.ppt_score is not None:
                 ppt_scores.append(feat.ppt_score)
             if feat.ppt_longest_run is not None:
                 ppt_runs.append(feat.ppt_longest_run)
-            # BP
-            if feat.bp_motif_found:
-                bp_found_count += 1
             # Flanking exon splice sites
             if feat.upstream_donor_seq:
                 n_with_up_seq += 1
                 if len(feat.upstream_donor_seq) >= 9:
                     up_donor_9.append(feat.upstream_donor_seq[:9])
-                if feat.upstream_donor_is_gt:
-                    n_up_gt += 1
+                    if feat.upstream_donor_is_gt is not None:
+                        n_up_gt_known += 1
+                        if feat.upstream_donor_is_gt:
+                            n_up_gt += 1
             if feat.downstream_acceptor_seq:
                 n_with_dn_seq += 1
                 if len(feat.downstream_acceptor_seq) >= 23:
                     dn_acc_23.append(feat.downstream_acceptor_seq[-23:])
-                if feat.downstream_acceptor_is_ag:
-                    n_dn_ag += 1
+                    if feat.downstream_acceptor_is_ag is not None:
+                        n_dn_ag_known += 1
+                        if feat.downstream_acceptor_is_ag:
+                            n_dn_ag += 1
 
     # Deep-analysis significance counts
     if deep_analysis_id is not None:
@@ -914,7 +1052,7 @@ async def get_splice_patterns(
         consensus     = iupac_consensus(donor_9) if donor_9 else None,
         pwm           = compute_pwm(donor_9),
         n_canonical   = n_gt,
-        pct_canonical = round(n_gt / len(donor_9) * 100, 1) if donor_9 else 0.0,
+        pct_canonical = round(n_gt / n_gt_known * 100, 1) if n_gt_known else 0.0,
         examples      = donor_9[:8],
     )
     acc_stats = SiteStats(
@@ -922,7 +1060,7 @@ async def get_splice_patterns(
         consensus     = iupac_consensus(acc_23) if acc_23 else None,
         pwm           = compute_pwm(acc_23),
         n_canonical   = n_ag,
-        pct_canonical = round(n_ag / len(acc_23) * 100, 1) if acc_23 else 0.0,
+        pct_canonical = round(n_ag / n_ag_known * 100, 1) if n_ag_known else 0.0,
         examples      = acc_23[:8],
     )
     up_donor_stats: SiteStats | None = SiteStats(
@@ -930,7 +1068,7 @@ async def get_splice_patterns(
         consensus     = iupac_consensus(up_donor_9) if up_donor_9 else None,
         pwm           = compute_pwm(up_donor_9),
         n_canonical   = n_up_gt,
-        pct_canonical = round(n_up_gt / len(up_donor_9) * 100, 1) if up_donor_9 else 0.0,
+        pct_canonical = round(n_up_gt / n_up_gt_known * 100, 1) if n_up_gt_known else 0.0,
         examples      = up_donor_9[:8],
     ) if up_donor_9 else None
     dn_acc_stats: SiteStats | None = SiteStats(
@@ -938,7 +1076,7 @@ async def get_splice_patterns(
         consensus     = iupac_consensus(dn_acc_23) if dn_acc_23 else None,
         pwm           = compute_pwm(dn_acc_23),
         n_canonical   = n_dn_ag,
-        pct_canonical = round(n_dn_ag / len(dn_acc_23) * 100, 1) if dn_acc_23 else 0.0,
+        pct_canonical = round(n_dn_ag / n_dn_ag_known * 100, 1) if n_dn_ag_known else 0.0,
         examples      = dn_acc_23[:8],
     ) if dn_acc_23 else None
     ppt_stats = PPTStats(
@@ -953,7 +1091,7 @@ async def get_splice_patterns(
         unknown    = fc_counts["unknown"],
     )
 
-    bp_pct = round(bp_found_count / n_with_seq * 100, 1) if n_with_seq else None
+    bp_pct = round(bp_found_count / n_with_ppt_seq * 100, 1) if n_with_ppt_seq else None
 
     return PatternAnalysisResponse(
         analysis_id                 = str(analysis_id),
@@ -1046,19 +1184,23 @@ async def run_permutation_test(
     n_iterations: int = 500,
     fdr_threshold: float | None = None,
     delta_psi_min: float | None = None,
+    pvalue_threshold: float | None = Query(None, ge=0, le=1),
     db: AsyncSession = Depends(get_db),
 ):
     """Run a permutation test for all SE events of an analysis.
 
-    For each SE event, the patient/control group labels are randomly shuffled
-    *n_iterations* times and ΔΨ is recomputed.  The empirical p-value is the
-    fraction of permutations where |permuted ΔΨ| ≥ |observed ΔΨ|.
+    For each SE event, the patient/control group labels are shuffled and ΔΨ is
+    recomputed.  When the number of distinct label splits C(n1+n2, n1) is
+    ≤ 5000 every split is enumerated (exact p = r / N); otherwise
+    *n_iterations* Monte-Carlo draws are used with p = (r + 1) / (K + 1).
 
     Parameters
     ----------
-    n_iterations   : number of permutation iterations (default 500, max 2000).
-    fdr_threshold  : optional FDR threshold to count significant events (from deep analysis).
-    delta_psi_min  : optional |ΔΨ| minimum to count significant events (from deep analysis).
+    n_iterations     : number of permutation iterations (default 500, max 2000).
+    fdr_threshold    : optional FDR threshold to count significant events (from deep analysis).
+    delta_psi_min    : optional |ΔΨ| minimum to count significant events (from deep analysis).
+    pvalue_threshold : optional rMATS p-value maximum applied to the significant subset
+                       (only used together with fdr_threshold + delta_psi_min).
 
     Response
     --------
@@ -1109,7 +1251,9 @@ async def run_permutation_test(
             str(ev.id) for ev in se_events
             if (ev.fdr is not None and ev.fdr <= fdr_threshold
                     and ev.inc_level_difference is not None
-                    and abs(ev.inc_level_difference) >= delta_psi_min)
+                    and abs(ev.inc_level_difference) >= delta_psi_min
+                    and (pvalue_threshold is None
+                         or (ev.p_value is not None and ev.p_value <= pvalue_threshold)))
         }
         n_sig = len(sig_event_ids)
 
@@ -1149,6 +1293,8 @@ async def run_permutation_test(
                 "empirical_p_value":  r.empirical_p_value,
                 "n1":                 r.n1,
                 "n2":                 r.n2,
+                "exact":              bool(getattr(r, "exact", False)),
+                "n_splits":           getattr(r, "n_splits", None),
                 "null_hist_bins":     r.null_hist_bins,
                 "null_hist_counts":   r.null_hist_counts,
             }
@@ -1160,6 +1306,10 @@ async def run_permutation_test(
         observed_hist_counts    = obs_hist_counts,
         pct_p05                 = pct_p05,
         pct_p01                 = pct_p01,
+        exact_fraction          = float(getattr(perm_result, "exact_fraction", 0.0) or 0.0),
+        min_p_attainable        = getattr(perm_result, "min_p_attainable", None),
+        n_replicates_g1         = getattr(perm_result, "n_replicates_g1", None),
+        n_replicates_g2         = getattr(perm_result, "n_replicates_g2", None),
         metric_results          = [
             MetricPermResult(
                 metric_name       = r.metric_name,

@@ -8,7 +8,7 @@
  *   GET /api/v1/analyses/{id}/events/manhattan – Manhattan plot data
  */
 
-import type { EventsPage } from "@/types/event";
+import type { EventsPage, ManhattanPoint } from "@/types/event";
 import { BASE, fetchJSON } from "./client";
 
 // ---------------------------------------------------------------------------
@@ -45,6 +45,6 @@ export async function listEvents(analysisId: string, query: EventsQuery = {}): P
   return fetchJSON(`${BASE}/analyses/${analysisId}/events?${params}`);
 }
 
-export async function getManhattanData(analysisId: string): Promise<import("@/components/events/ManhattanPlot").ManhattanPoint[]> {
+export async function getManhattanData(analysisId: string): Promise<ManhattanPoint[]> {
   return fetchJSON(`${BASE}/analyses/${analysisId}/events/manhattan`);
 }

@@ -18,8 +18,20 @@ class Settings(BaseSettings):
     # Download from: https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/current/
     # Expected file: MANE.GRCh38.v*.ensembl_genomic.gff.gz
     MANE_GFF3: str = "/data/MANE.GRCh38.ensembl_genomic.gff.gz"
-    # Intronic window (nt) to fetch around each splice site
-    SPLICE_WINDOW: int = 50
+    # Optional directory where the deep-analysis PDF export also writes every
+    # figure as a standalone SVG (one sub-directory per deep analysis).
+    # None (default) disables the side-dump entirely.
+    SVG_EXPORT_DIR: str | None = None
+
+    # ── Chunked upload ───────────────────────────────────────────────────────
+    # Browsers upload rMATS files through POST /analyses/uploads in ≤ 512 KB
+    # requests (reverse proxies such as the Codespaces port forwarder or a
+    # default nginx reject bodies > 1 MB with 413).  Chunks are assembled in
+    # one sub-directory per upload session under this directory ...
+    UPLOAD_TMP_DIR: str = "/tmp/spliceanalyzer_uploads"
+    # ... and sessions older than this are purged (best effort) whenever a new
+    # session is created, so an abandoned browser tab cannot fill the disk.
+    UPLOAD_SESSION_TTL_HOURS: int = 24
 
     @property
     def cors_origins_list(self) -> List[str]:

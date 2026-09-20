@@ -7,7 +7,8 @@
  * an animated progress bar during batch computation.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getComputeProgress } from "@/lib/api/splice";
 import { useT } from "@/contexts/LanguageContext";
 
@@ -19,6 +20,7 @@ interface Props {
 
 export function ComputeProgressBar({ analysisId, onComplete }: Props) {
   const t = useT();
+  const qc = useQueryClient();
 
   const { data } = useQuery({
     queryKey: ["compute-progress", analysisId],
@@ -26,16 +28,41 @@ export function ComputeProgressBar({ analysisId, onComplete }: Props) {
     enabled: !!analysisId,
     refetchInterval: (query) => {
       const d = query.state.data;
-      if (d?.done) {
-        onComplete?.();
-        return false; // stop polling
-      }
+      if (d?.done) return false; // stop polling
       return 2000; // poll every 2s
     },
     staleTime: 0,
   });
 
-  if (!data || data.done) return null;
+  // When a run we observed as "running" finishes, refresh every panel that
+  // depends on the features (cards, patterns, comparison) and notify the host.
+  const sawRunning = useRef(false);
+  useEffect(() => {
+    if (!data) return;
+    if (data.status === "running") sawRunning.current = true;
+    if (data.done && sawRunning.current) {
+      sawRunning.current = false;
+      qc.invalidateQueries({ queryKey: ["splice-feature"] });
+      qc.invalidateQueries({ queryKey: ["splice-patterns"] });
+      qc.invalidateQueries({ queryKey: ["pattern-comparison"] });
+      qc.invalidateQueries({ queryKey: ["mane-transcript"] });
+      onComplete?.();
+    }
+  }, [data, qc, onComplete]);
+
+  if (!data) return null;
+
+  if (data.status === "error") {
+    return (
+      <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-xs text-red-700 space-y-1">
+        <span className="font-semibold">{t("spliceView.computeError")}</span>
+        {data.error && <p className="font-mono text-[10px] break-all">{data.error}</p>}
+        <p className="text-[10px]">{t("spliceView.computeErrorHint")}</p>
+      </div>
+    );
+  }
+
+  if (data.done) return null;
 
   return (
     <div className="rounded-lg border border-border bg-card p-3 space-y-2 shadow-sm animate-in fade-in duration-300">

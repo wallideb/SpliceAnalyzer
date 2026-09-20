@@ -517,6 +517,8 @@ export const fr: Translations = {
     computing: "Calcul…",
     computeBtn: "Calculer les features",
     computingDesc: "Récupération des séquences et calcul des features d'épissage pour tous les événements SE",
+    computeError: "Le calcul des features d'épissage a échoué",
+    computeErrorHint: "Consultez le journal du backend ; le calcul peut être relancé depuis une carte d'événement (« Compute features »).",
   },
   mutatedGenePanel: {
     noContext: "Contexte d'analyse non disponible.",

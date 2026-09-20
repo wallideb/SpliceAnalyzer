@@ -510,6 +510,8 @@ export const en = {
     computing: "Computing…",
     computeBtn: "Compute features",
     computingDesc: "Fetching sequences and computing splice features for all SE events",
+    computeError: "Splice feature computation failed",
+    computeErrorHint: "Check the backend log; the run can be restarted from any event card (\"Compute features\").",
   },
   mutatedGenePanel: {
     noContext: "Analysis context not available.",

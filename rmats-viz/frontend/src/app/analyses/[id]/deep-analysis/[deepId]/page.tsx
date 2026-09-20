@@ -21,6 +21,7 @@ import { ExcelExportModal, type ExcelColumnGroup } from "@/components/ExcelExpor
 import { PdfExportModal, type PdfSection } from "@/components/PdfExportModal";
 import { Top10View } from "@/components/events/Top10View";
 import { MutatedGenePanel } from "@/components/top10/MutatedGenePanel";
+import { ComputeProgressBar } from "@/components/top10/ComputeProgressBar";
 import { PermutationPanel } from "@/components/top10/PermutationPanel";
 import type { GeneEntry } from "@/types/gene";
 
@@ -218,6 +219,9 @@ export default function DeepAnalysisDetailPage() {
 
       {/* Mutated gene panel */}
       <MutatedGenePanel mutatedGenes={mutatedGenes} analysisId={id} />
+
+      {/* Global splice-feature computation progress (auto-started above) */}
+      {activeModules.has("splice") && <ComputeProgressBar analysisId={id} />}
 
       {/* Loading */}
       {loadingSig && (

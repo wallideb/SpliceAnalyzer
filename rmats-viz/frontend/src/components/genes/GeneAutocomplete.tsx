@@ -233,6 +233,7 @@ export function GeneAutocomplete({ value, onChange }: GeneAutocompleteProps) {
             spellCheck={false}
             aria-autocomplete="list"
             role="combobox"
+            aria-controls="gene-autocomplete-listbox"
             aria-expanded={isOpen}
           />
           {/* Loading spinner */}
@@ -256,6 +257,7 @@ export function GeneAutocomplete({ value, onChange }: GeneAutocompleteProps) {
         <ul
           ref={dropdownRef}
           className="absolute z-50 mt-1 w-full bg-card text-card-foreground border border-border rounded-lg shadow-xl overflow-hidden"
+          id="gene-autocomplete-listbox"
           role="listbox"
         >
           {suggestions.map((gene, idx) => (

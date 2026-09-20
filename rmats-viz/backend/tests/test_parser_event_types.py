@@ -421,3 +421,36 @@ def test_parse_empty_payload_returns_empty_dataframe():
     for payload in (b"", b"\n", b"  \r\n\t\n"):
         df = parse_rmats_file(payload, "SE", uuid.uuid4())
         assert df.empty
+
+
+# ---------------------------------------------------------------------------
+# Tolerant filename detection (browser copies, suffixes, loose tokens + header)
+# ---------------------------------------------------------------------------
+
+_SE_HEADER = ["ID", "GeneID", "geneSymbol", "chr", "strand", "exonStart_0base", "exonEnd"]
+_ALT_HEADER = ["ID", "GeneID", "geneSymbol", "chr", "strand", "longExonStart_0base", "longExonEnd"]
+_RI_HEADER = ["ID", "GeneID", "riExonStart_0base", "riExonEnd"]
+
+
+def test_detect_tolerates_copies_suffixes_and_separators():
+    assert detect_event_type("SE.MATS.JC (1).txt") == "SE"
+    assert detect_event_type("RI.MATS.JC - Copie.txt") == "RI"
+    assert detect_event_type("A3SS.MATS.JCEC.txt.gz") == "A3SS"
+    assert detect_event_type("SE_MATS_JC.txt") == "SE"
+    assert detect_event_type("run1-A5SS-JC.txt") == "A5SS"
+    assert detect_counting_mode("SE.MATS.JC (1).txt") == "JC"
+    assert detect_counting_mode("A3SS.MATS.JCEC.txt.gz") == "JCEC"
+    assert detect_counting_mode("SE_MATS_JCEC.txt") == "JCEC"
+
+
+def test_detect_header_assisted():
+    # header family wins over a misleading loose token
+    assert detect_event_type("cohort RI results.txt", _SE_HEADER) == "SE"
+    assert detect_event_type("results.txt", _RI_HEADER) == "RI"
+    # no delimited token inside SERIES: strict and loose both fail, header decides
+    assert detect_event_type("SERIES.MATS.JC.txt") is None
+    assert detect_event_type("SERIES.MATS.JC.txt", _SE_HEADER) == "SE"
+    # A3SS/A5SS need the token when the name is not canonical
+    assert detect_event_type("results_A5SS.txt", _ALT_HEADER) == "A5SS"
+    assert detect_event_type("results.txt", _ALT_HEADER) is None
+    assert detect_event_type("summary.txt") is None

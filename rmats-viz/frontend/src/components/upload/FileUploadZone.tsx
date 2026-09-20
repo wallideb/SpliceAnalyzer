@@ -4,29 +4,37 @@ import { useCallback, useState } from "react";
 /**
  * Detected rMATS file identity: event type + counting mode (A2).
  *
- *   SE.MATS.JC.txt          → { eventType: "SE",  countingMode: "JC" }
+ *   SE.MATS.JC.txt            → { eventType: "SE",   countingMode: "JC" }
  *   cohort_A3SS.MATS.JCEC.txt → { eventType: "A3SS", countingMode: "JCEC" }
- *   fromGTF.SE.txt          → { eventType: "SE",  countingMode: null }
+ *   SE.MATS.JC (1).txt        → { eventType: "SE",   countingMode: "JC" }   (browser copy)
+ *   results_A5SS.txt          → { eventType: "A5SS", countingMode: null }   (loose token)
+ *   fromGTF.SE.txt            → { eventType: "SE",   countingMode: null }
  *
- * The token must be delimited (start of name or one of . _ - / space) and
- * immediately followed by `.MATS.<JC|JCEC>.txt`, so filenames such as
- * `PRIMARY_SE.MATS.JC.txt` or `MYSERIES_SE.MATS.JC.txt` are no longer
- * mis-classified as RI / SE by substring matching.
+ * The type token must be delimited (start of name or a non-alphanumeric
+ * character), so `PRIMARY_SE.MATS.JC.txt` / `MYSERIES_SE.MATS.JC.txt` are no
+ * longer mis-classified as RI / SE by substring matching.  The backend applies
+ * the same rules and additionally reads the file header, so a chip shown as
+ * "unknown" here may still be imported when the header is unambiguous.
  */
 export interface DetectedRmatsFile {
   eventType: string;
   countingMode: string | null;
 }
 
-const MATS_RE = /(?:^|[._\-\/ ])(SE|MXE|A3SS|A5SS|RI)\.MATS\.(JC|JCEC)\.txt$/i;
-const FROM_GTF_RE = /(?:^|[._\-\/ ])fromGTF(?:\.novelJunction|\.novelSpliceSite)?\.(SE|MXE|A3SS|A5SS|RI)\.txt$/i;
+const MATS_RE = /(?:^|[^A-Za-z0-9])(SE|MXE|A3SS|A5SS|RI)[._-]MATS[._-](JC|JCEC)(?![A-Za-z0-9])/i;
+const FROM_GTF_RE = /(?:^|[^A-Za-z0-9])fromGTF[._](?:(?:novelJunction|novelSpliceSite|novelEvents)[._])?(SE|MXE|A3SS|A5SS|RI)(?![A-Za-z0-9])/i;
+const TYPE_TOKEN_RE = /(?:^|[^A-Za-z0-9])(SE|MXE|A3SS|A5SS|RI)(?![A-Za-z0-9])/gi;
+const MODE_TOKEN_RE = /(?:^|[^A-Za-z0-9])(JC|JCEC)(?![A-Za-z0-9])/gi;
 
 export function detectRmatsFile(filename: string): DetectedRmatsFile | null {
   const m = MATS_RE.exec(filename);
   if (m) return { eventType: m[1].toUpperCase(), countingMode: m[2].toUpperCase() };
   const g = FROM_GTF_RE.exec(filename);
   if (g) return { eventType: g[1].toUpperCase(), countingMode: null };
-  return null;
+  const types = Array.from(filename.matchAll(TYPE_TOKEN_RE), (x) => x[1].toUpperCase());
+  if (types.length === 0) return null;
+  const modes = Array.from(filename.matchAll(MODE_TOKEN_RE), (x) => x[1].toUpperCase());
+  return { eventType: types[types.length - 1], countingMode: modes.length ? modes[modes.length - 1] : null };
 }
 
 interface FileUploadZoneProps {

@@ -49,19 +49,27 @@ logger = logging.getLogger(__name__)
 
 EVENT_TYPES: tuple[str, ...] = ("SE", "MXE", "A3SS", "A5SS", "RI")
 
-# ``<TYPE>.MATS.<JC|JCEC>.txt`` preceded by start-of-string or a separator,
-# so that ``PRIMARY_SE.MATS.JC.txt`` → SE and ``MYSERIES_SE.MATS.JC.txt`` → SE
-# (the old substring test returned RI for both).
+# ``<TYPE>.MATS.<JC|JCEC>`` with the type token delimited on the left (start of
+# name or a non-alphanumeric character) and the mode token delimited on the
+# right, so that ``PRIMARY_SE.MATS.JC.txt`` → SE, ``MYSERIES_SE.MATS.JC.txt`` →
+# SE (the old substring test returned RI for both), and browser/OS copies such
+# as ``SE.MATS.JC (1).txt``, ``RI.MATS.JC - Copie.txt``, ``A3SS.MATS.JCEC.txt.gz``
+# or ``SE_MATS_JC.txt`` are still recognised.
 _MATS_FILE_RE = re.compile(
-    r"(?:^|[._\-/ ])(SE|MXE|A3SS|A5SS|RI)\.MATS\.(JC|JCEC)\.txt$", re.I
+    r"(?:^|[^A-Za-z0-9])(SE|MXE|A3SS|A5SS|RI)[._-]MATS[._-](JC|JCEC)(?![A-Za-z0-9])", re.I
 )
 # ``fromGTF.<TYPE>.txt``, ``fromGTF.novelJunction.<TYPE>.txt``,
 # ``fromGTF.novelSpliceSite.<TYPE>.txt`` (and legacy ``fromGTF.novelEvents.<TYPE>.txt``)
 _FROM_GTF_RE = re.compile(
-    r"(?:^|[._\-/ ])fromGTF\.(?:(?:novelJunction|novelSpliceSite|novelEvents)\.)?"
-    r"(SE|MXE|A3SS|A5SS|RI)\.txt$",
+    r"(?:^|[^A-Za-z0-9])fromGTF[._](?:(?:novelJunction|novelSpliceSite|novelEvents)[._])?"
+    r"(SE|MXE|A3SS|A5SS|RI)(?![A-Za-z0-9])",
     re.I,
 )
+# Loose fallback: a delimited type token anywhere in the name (``results_A5SS.txt``).
+# Only used together with the header (see ``detect_event_type``) so that a
+# stray ``RI``/``SE`` token can never override an unambiguous header.
+_TYPE_TOKEN_RE = re.compile(r"(?:^|[^A-Za-z0-9])(SE|MXE|A3SS|A5SS|RI)(?![A-Za-z0-9])", re.I)
+_MODE_TOKEN_RE = re.compile(r"(?:^|[^A-Za-z0-9])(JC|JCEC)(?![A-Za-z0-9])", re.I)
 
 # Raw header columns that identify an event type unambiguously
 _HEADER_RI = {"riExonStart_0base", "riExonStart", "riExonEnd"}
@@ -81,11 +89,17 @@ _COUNT_COLS = ("ijc_sample_1", "sjc_sample_1", "ijc_sample_2", "sjc_sample_2")
 # ---------------------------------------------------------------------------
 
 
-def detect_event_type(filename: str) -> str | None:
-    """Infer the rMATS event type from the filename (case-insensitive).
+def detect_event_type(filename: str, header_columns: Iterable[str] | None = None) -> str | None:
+    """Infer the rMATS event type from the filename, optionally helped by the header.
 
-    Recognises ``<TYPE>.MATS.JC.txt`` / ``<TYPE>.MATS.JCEC.txt`` (with any
-    prefix followed by a separator) and ``fromGTF[.novelJunction|.novelSpliceSite].<TYPE>.txt``.
+    1. ``<TYPE>.MATS.<JC|JCEC>`` or ``fromGTF[.novel*].<TYPE>`` in the name
+       (any prefix/suffix, case-insensitive) → that type.
+    2. Otherwise, when *header_columns* is given: an unambiguous header
+       (``riExonStart_0base`` → RI, ``1stExonStart_0base`` → MXE,
+       ``exonStart_0base`` → SE) wins; an A3SS/A5SS header (``longExonStart_0base``)
+       is resolved with a delimited ``A3SS``/``A5SS`` token in the name.
+    3. Otherwise a delimited type token anywhere in the name (``results_A5SS.txt``).
+
     Returns one of SE, MXE, A3SS, A5SS, RI or ``None``.
     """
     name = (filename or "").strip()
@@ -95,16 +109,40 @@ def detect_event_type(filename: str) -> str | None:
     m = _FROM_GTF_RE.search(name)
     if m:
         return m.group(1).upper()
+
+    tokens = [t.upper() for t in _TYPE_TOKEN_RE.findall(name)]
+    if header_columns is not None:
+        cols = {str(c).strip() for c in header_columns}
+        if cols & _HEADER_RI:
+            return "RI"
+        if cols & _HEADER_MXE:
+            return "MXE"
+        if cols & _HEADER_ALT_SITE:
+            alt = [t for t in tokens if t in ("A3SS", "A5SS")]
+            if alt:
+                return alt[-1]
+            logger.warning(
+                "%s: header is A3SS/A5SS but the name carries no A3SS/A5SS token; "
+                "rename the file (e.g. A3SS.MATS.JC.txt) to import it", name,
+            )
+            return None
+        if cols & _HEADER_SE:
+            return "SE"
+    if tokens:
+        logger.info("%s: event type %s inferred from a loose filename token", name, tokens[-1])
+        return tokens[-1]
     return None
 
 
 def detect_counting_mode(filename: str) -> str | None:
     """Return the rMATS counting mode encoded in the filename: ``"JC"``,
     ``"JCEC"`` or ``None`` (e.g. ``fromGTF.*`` annotation files)."""
-    m = _MATS_FILE_RE.search((filename or "").strip())
+    name = (filename or "").strip()
+    m = _MATS_FILE_RE.search(name)
     if m:
         return m.group(2).upper()
-    return None
+    modes = [t.upper() for t in _MODE_TOKEN_RE.findall(name)]
+    return modes[-1] if modes else None
 
 
 def detect_event_type_from_header(columns: Iterable[str]) -> str | None:
@@ -628,7 +666,8 @@ async def parse_and_store(
         event_type = detect_event_type(filename)
         counting_mode = detect_counting_mode(filename)
         if event_type is None:
-            event_type = detect_event_type_from_header(_read_header(content))
+            # Header-assisted detection (loose filename token + header family)
+            event_type = detect_event_type(filename, _read_header(content))
             if event_type is None:
                 logger.warning(
                     "Cannot infer event type from filename or header: %s — skipping", filename

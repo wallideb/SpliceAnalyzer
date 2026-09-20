@@ -6,7 +6,8 @@ first, then falls back to PanelApp Genomics England (UK) if no results are
 found. Both instances share the same REST API format.
 
 External endpoints:
-    PanelApp AU  – https://panelapp.agha.umccr.org/api/v1/genes/
+    PanelApp AU  – https://panelapp-aus.org/api/v1/genes/ (the former
+    panelapp.agha.umccr.org host no longer resolves, 2026-09)
     PanelApp UK  – https://panelapp.genomicsengland.co.uk/api/v1/genes/
 
 Confidence levels (PanelApp convention):
@@ -43,7 +44,7 @@ _MAX_PAGES = 10  # safety limit to avoid infinite loops
 
 # Primary and fallback PanelApp base URLs
 _SOURCES: list[str] = [
-    "https://panelapp.agha.umccr.org/api/v1",        # PanelApp Australia
+    "https://panelapp-aus.org/api/v1",               # PanelApp Australia (new host)
     "https://panelapp.genomicsengland.co.uk/api/v1",  # PanelApp UK (fallback)
 ]
 

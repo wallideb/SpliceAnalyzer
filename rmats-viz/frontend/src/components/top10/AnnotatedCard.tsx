@@ -222,7 +222,7 @@ function PanelAppView({ annotation, isLoading }: { annotation?: GeneAnnotation; 
           </div>
         );
       })}
-      <a href={`https://panelapp.agha.umccr.org/panels/entities/${encodeURIComponent(annotation?.symbol ?? "")}/`}
+      <a href={`https://panelapp.genomicsengland.co.uk/panels/entities/${encodeURIComponent(annotation?.symbol ?? "")}/`}
         target="_blank" rel="noopener noreferrer"
         className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline mt-1">
         <ExternalIcon />

@@ -173,7 +173,7 @@ A second-pass module that partitions events into **significant** and **non-signi
 | [UniProt](https://www.uniprot.org/) | Protein function summaries |
 | [STRING-DB v12](https://string-db.org/) | Protein-protein interactions |
 | [Europe PMC](https://europepmc.org/) | Literature PMIDs |
-| [PanelApp AU](https://panelapp.agha.umccr.org/) / [PanelApp UK](https://panelapp.genomicsengland.co.uk/) | Disease gene panel membership |
+| [PanelApp AU](https://panelapp-aus.org/) / [PanelApp UK](https://panelapp.genomicsengland.co.uk/) | Disease gene panel membership |
 | [Enrichr](https://maayanlab.cloud/Enrichr) | Pathway and gene-set enrichment |
 
 All three application services are orchestrated with **Docker Compose**.

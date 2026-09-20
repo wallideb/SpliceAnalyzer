@@ -30,6 +30,7 @@
 ### Routers, export, services
 - Manhattan data in natural chromosome order; `GET /deep-analyses/{id}/events` paginated; compute status persisted in `analyses.compute_status/compute_error` with an atomic claim and a 30-min heartbeat (safe with several workers; stale runs reset at startup); 503 path without private attributes; MANE negative results retried at most every 24 h.
 - PDF: acceptor logos use the last 23 nt (as the API), frame denominators exclude unknown, test counts derived from the data, permutation table at 50/100/250/500 (single row when everything is enumerated exactly), hnRNP tables/heatmap for 7 regions with both q-values, Enrichr top 10, methodology and statistics appendices rewritten accordingly, SVG side files only when `SVG_EXPORT_DIR` is set.
+- PanelApp Australia host updated to `panelapp-aus.org` (the former `panelapp.agha.umccr.org` no longer resolves; confirmed during the Codespace verification), UK fallback unchanged; UI link points to PanelApp UK.
 - Enrichr overlap `k/n` from library GMT sizes (no more GO ids in the overlap column); STRING returns no interaction when the pair does not match; PanelApp 6 h cache; in-process FASTA download at startup removed (use `data/setup_grch38_fasta.sh`); `numpy` pinned; dead code removed (`extract_region`, `motif_density`, `EVENT_TYPE_KEYWORDS`, `SPLICE_WINDOW`, `AnalysisCreate`, `VerticalBarChart`).
 
 ### Frontend

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.analysis import Analysis
 from app.models.event import SplicingEvent
-from app.schemas.event import EventsPage, ManhattanPoint, SplicingEventResponse
+from app.schemas.event import EventsPage, ManhattanPoint
 
 router = APIRouter(tags=["events"])
 

@@ -1,11 +1,11 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    DateTime, String, Text, Integer, BigInteger, Double, Boolean,
-    ForeignKey, UniqueConstraint, Index, func,
+    DateTime, String, Text, Integer, Double, Boolean,
+    ForeignKey, Index, func,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
 
 

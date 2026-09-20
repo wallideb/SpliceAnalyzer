@@ -15,6 +15,7 @@
  */
 
 import { useRef, useState, useCallback, type ReactNode } from "react";
+import { useT } from "@/contexts/LanguageContext";
 
 interface Props {
   children: ReactNode;
@@ -31,6 +32,7 @@ export function ZoomableContainer({
   maxZoom = 4,
   className = "",
 }: Props) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -152,7 +154,7 @@ export function ZoomableContainer({
               reset();
             }}
             className="text-[10px] text-muted-foreground hover:text-foreground bg-card/90 backdrop-blur-sm border border-border rounded px-2 py-1 transition-colors min-w-[28px] text-center"
-            title="Reset zoom"
+            title={t("exonDiagram.resetZoom")}
           >
             1:1
           </button>

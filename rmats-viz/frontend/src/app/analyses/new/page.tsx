@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { FileUploadZone } from "@/components/upload/FileUploadZone";
 import { GroupMappingDialog } from "@/components/upload/GroupMappingDialog";
 import { GeneAutocomplete } from "@/components/genes/GeneAutocomplete";
@@ -10,6 +11,7 @@ import type { GeneEntry } from "@/types/gene";
 
 export default function NewAnalysisPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const t = useT();
   const [name, setName] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -50,6 +52,7 @@ export default function NewAnalysisPage() {
         setLoading(false);
         return;
       }
+      await queryClient.invalidateQueries({ queryKey: ["analyses"] });
       router.push(`/analyses/${res.analysis_id}`);
     } catch (e) {
       setError((e as Error).message);

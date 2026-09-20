@@ -193,8 +193,8 @@ All are thin HTTP clients without keys; all **PORT** to `fetch` with a promise c
 ### 2.10 Other findings worth recording
 - `sample_groups.sample_names` is stored but never used: rMATS `SAMPLE_1/SAMPLE_2` are positional. The new app must let the user name replicates (from `summary.txt` or the rMATS `-b1/-b2` lists if provided) purely for display.
 - `permutation.observed_delta` recomputes ΔΨ from PSI strings instead of using `IncLevelDifference`; keep rMATS' value as the displayed ΔΨ and use the recomputed one only inside the permutation.
-- The PDF bibliography numbering [1]–[28] (see `HNRNP_REMOVED_REFERENCES.md`) must be reproduced.
-- `plan.md` (pipeline simplification) is implemented; `FUTURE_EVENT_TYPES_PLAN.md` (MXE/A3SS/A5SS roadmap) is the seed of section 9 and is superseded by it.
+- The PDF bibliography numbering [1]–[30] (defined in `rmats-viz/backend/app/routers/export.py`, Appendix B: [1]–[12] always, [13]–[30] with the hnRNP section) must be reproduced.
+- The former planning notes (pipeline simplification, MXE/A3SS/A5SS roadmap) are implemented or superseded by section 9 and were removed from the repository.
 
 ---
 
@@ -775,7 +775,7 @@ Registry ids used above (keep the same ids in `src/lib/references.ts`; PubMed/DO
 - [fas_ess] Wang Z et al. Systematic identification and analysis of exonic splicing silencers. Cell 2004;119:831–845.
 - [esrseq] Ke S et al. Quantitative evaluation of all hexamers as exonic splicing elements. Genome Res 2011;21(8):1360–1374.
 - [martinez2006] Martinez-Contreras R et al. Intronic binding sites for hnRNP A/B and hnRNP F/H proteins stimulate pre-mRNA splicing. PLoS Biol 2006;4(2):e21; and hnRNP proteins and splicing control. Adv Exp Med Biol 2007;623:123–147.
-- [hnrnp_refs] The 18 hnRNP references [11]–[28] of `HNRNP_REMOVED_REFERENCES.md` (Hwang 2020, Ray 2013, Martinez-Contreras 2007, Chkheidze 1999, Makeyev 2002, Zhu 2001, Damgaard 2002, Kashima 2007, Chen 1999, Erkelenz 2013, König 2010, Zarnack 2013, House 2006, Hui 2005, Huelga 2012, Xue 2009, Wagner 2001, Witten 2011) — reproduce verbatim in the PDF appendix.
+- [hnrnp_refs] The 18 hnRNP references [13]–[30] of the PDF Appendix B in `export.py` (Hwang 2020, Ray 2013, Martinez-Contreras 2006, Chkheidze 1999, Makeyev 2002, Zhu 2001, Damgaard 2002, Kashima 2007, Chen 1999, Erkelenz 2013, König 2010, Zarnack 2013, House 2006, Hui 2005, Huelga 2012, Xue 2009, Wagner 2001, Witten 2011) — reproduce verbatim in the PDF appendix.
 - [encode_rbp] Van Nostrand EL et al. A large-scale binding and functional map of human RNA-binding proteins. Nature 2020;583:711–719.
 - [spliceai] Jaganathan K et al. Predicting splicing from primary sequence with deep learning. Cell 2019;176:535–548 (models CC BY-NC 4.0); SpliceAI-lookup: https://github.com/broadinstitute/SpliceAI-lookup
 - [schneider] Schneider TD, Stephens RM. Sequence logos: a new way to display consensus sequences. NAR 1990;18(20):6097–6100.

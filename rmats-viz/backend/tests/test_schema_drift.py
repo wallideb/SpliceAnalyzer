@@ -19,7 +19,7 @@ BACKEND = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND))
 
 from app.database import Base  # noqa: E402
-from app.models import analysis, deep_analysis, event, splice  # noqa: E402,F401 – register models
+from app.models import analysis, deep_analysis, event, splice  # noqa: E402,F401  # register models
 
 
 def _script_dir() -> ScriptDirectory:

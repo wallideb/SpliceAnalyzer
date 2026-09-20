@@ -70,17 +70,6 @@ export const REFERENCES: Record<string, Reference> = {
   // NOTE: not cited by any <ScienceNote> yet — kept for the planned MaxEntScan
   // splice-site strength port (E4). Do not remove.
   // ─────────────────────────────────────────────────────────────────────────
-  maxent: {
-    id: "maxent",
-    short: "Yeo & Burge, 2004",
-    full:
-      "Yeo G, Burge CB. " +
-      "Maximum entropy modeling of short sequence motifs with applications to " +
-      "RNA splicing signals. " +
-      "J Comput Biol. 2004;11(2-3):377–394.",
-    doi: "10.1089/1066527041410418",
-    pmid: 15285897,
-  },
 
   // ─────────────────────────────────────────────────────────────────────────
   // Branch point motif (YNYURAY)

@@ -432,8 +432,8 @@ export function MotifPatternPanel({ events, analysisId, deepAnalysisId, fdrThres
   // Frame totals for bar widths
   const frameTotal = (frame.in_frame + frame.frameshift + frame.non_coding + frame.unknown) || 1;
   const frameBars = [
-    { label: "In-frame",                              value: frame.in_frame,   pct: (frame.in_frame / frameTotal) * 100,   color: "bg-green-500" },
-    { label: "Frameshift",                            value: frame.frameshift,  pct: (frame.frameshift / frameTotal) * 100,  color: "bg-red-500" },
+    { label: t("motifPanel.cmpInFrame"),               value: frame.in_frame,   pct: (frame.in_frame / frameTotal) * 100,   color: "bg-green-500" },
+    { label: t("motifPanel.cmpFrameshift"),            value: frame.frameshift,  pct: (frame.frameshift / frameTotal) * 100,  color: "bg-red-500" },
     { label: t("motifPanel.frameLabelNonCoding"),     value: frame.non_coding,  pct: (frame.non_coding / frameTotal) * 100,  color: "bg-slate-400" },
     { label: t("motifPanel.frameLabelUnknown"),       value: frame.unknown,     pct: (frame.unknown / frameTotal) * 100,     color: "bg-muted-foreground/30" },
   ];
@@ -804,7 +804,7 @@ function FeatureComparisonSection({
           <table className="w-full text-sm">
             <thead className="bg-muted/50 border-b border-border">
               <tr>
-                <th className="px-3 py-2.5 text-xs font-semibold text-left text-muted-foreground w-1/4">Feature</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-left text-muted-foreground w-1/4">{t("motifPanel.colFeature")}</th>
                 <th className="px-3 py-2.5 text-xs font-bold text-center text-green-700 dark:text-green-400">
                   {t("deepAnalysis.significant")} <span className="font-normal opacity-70">({sig.n_events})</span>
                 </th>
@@ -817,25 +817,25 @@ function FeatureComparisonSection({
               </tr>
             </thead>
             <tbody>
-              <CmpRow label="SE events with features" sigVal={sig.n_se_with_features} nonsigVal={nonsig.n_se_with_features} />
-              {continuousRows("Mean exon size", "exon_size", fmtNt(sig.exon_size_mean), fmtNt(nonsig.exon_size_mean), fmtNt(sig.exon_size_median), fmtNt(nonsig.exon_size_median))}
-              <CmpRow label="Median exon size" sigVal={fmtNt(sig.exon_size_median)} nonsigVal={fmtNt(nonsig.exon_size_median)} />
-              <CmpRow label="Canonical GT (5'SS)" sigVal={sig.pct_canonical_gt} nonsigVal={nonsig.pct_canonical_gt} format="pct" test={p("canonical_gt")} />
-              <CmpRow label="Canonical AG (3'SS)" sigVal={sig.pct_canonical_ag} nonsigVal={nonsig.pct_canonical_ag} format="pct" test={p("canonical_ag")} />
-              {continuousRows("Mean PPT score", "ppt_score", fmtPct100(sig.ppt_mean_score), fmtPct100(nonsig.ppt_mean_score))}
-              {continuousRows("PPT T content", "ppt_t_content", fmtPct100(sig.ppt_mean_t_content), fmtPct100(nonsig.ppt_mean_t_content))}
-              {continuousRows("PPT C content", "ppt_c_content", fmtPct100(sig.ppt_mean_c_content), fmtPct100(nonsig.ppt_mean_c_content))}
-              <CmpRow label="In-frame" sigVal={sig.frame_in_frame} nonsigVal={nonsig.frame_in_frame} test={p("in_frame_pct")} />
-              <CmpRow label="Frameshift" sigVal={sig.frame_frameshift} nonsigVal={nonsig.frame_frameshift} />
-              <CmpRow label="Non-coding" sigVal={sig.frame_non_coding} nonsigVal={nonsig.frame_non_coding} />
-              <CmpRow label="Upstream GT (5'SS)" sigVal={sig.pct_upstream_gt} nonsigVal={nonsig.pct_upstream_gt} format="pct" test={p("upstream_canonical_gt")} />
-              <CmpRow label="Downstream AG (3'SS)" sigVal={sig.pct_downstream_ag} nonsigVal={nonsig.pct_downstream_ag} format="pct" test={p("downstream_canonical_ag")} />
-              {continuousRows("Mean upstream intron", "upstream_intron_size", fmtNt(sig.upstream_intron_size_mean), fmtNt(nonsig.upstream_intron_size_mean), fmtNt(sig.upstream_intron_size_median), fmtNt(nonsig.upstream_intron_size_median))}
-              <CmpRow label="Median upstream intron" sigVal={fmtNt(sig.upstream_intron_size_median)} nonsigVal={fmtNt(nonsig.upstream_intron_size_median)} />
-              {continuousRows("Mean downstream intron", "downstream_intron_size", fmtNt(sig.downstream_intron_size_mean), fmtNt(nonsig.downstream_intron_size_mean), fmtNt(sig.downstream_intron_size_median), fmtNt(nonsig.downstream_intron_size_median))}
-              <CmpRow label="Median downstream intron" sigVal={fmtNt(sig.downstream_intron_size_median)} nonsigVal={fmtNt(nonsig.downstream_intron_size_median)} />
-              <CmpRow label="Branch point found" sigVal={sig.bp_found_pct} nonsigVal={nonsig.bp_found_pct} format="pct" test={p("bp_found")} />
-              {continuousRows("Mean ΔΨ", "mean_delta_psi", sig.mean_delta_psi != null ? formatDeltaPSI(sig.mean_delta_psi) : null, nonsig.mean_delta_psi != null ? formatDeltaPSI(nonsig.mean_delta_psi) : null)}
+              <CmpRow label={t("motifPanel.cmpSeWithFeatures")} sigVal={sig.n_se_with_features} nonsigVal={nonsig.n_se_with_features} />
+              {continuousRows(t("motifPanel.cmpMeanExonSize"), "exon_size", fmtNt(sig.exon_size_mean), fmtNt(nonsig.exon_size_mean), fmtNt(sig.exon_size_median), fmtNt(nonsig.exon_size_median))}
+              <CmpRow label={t("motifPanel.cmpMedianExonSize")} sigVal={fmtNt(sig.exon_size_median)} nonsigVal={fmtNt(nonsig.exon_size_median)} />
+              <CmpRow label={t("motifPanel.cmpCanonicalGt")} sigVal={sig.pct_canonical_gt} nonsigVal={nonsig.pct_canonical_gt} format="pct" test={p("canonical_gt")} />
+              <CmpRow label={t("motifPanel.cmpCanonicalAg")} sigVal={sig.pct_canonical_ag} nonsigVal={nonsig.pct_canonical_ag} format="pct" test={p("canonical_ag")} />
+              {continuousRows(t("motifPanel.cmpMeanPpt"), "ppt_score", fmtPct100(sig.ppt_mean_score), fmtPct100(nonsig.ppt_mean_score))}
+              {continuousRows(t("motifPanel.cmpPptT"), "ppt_t_content", fmtPct100(sig.ppt_mean_t_content), fmtPct100(nonsig.ppt_mean_t_content))}
+              {continuousRows(t("motifPanel.cmpPptC"), "ppt_c_content", fmtPct100(sig.ppt_mean_c_content), fmtPct100(nonsig.ppt_mean_c_content))}
+              <CmpRow label={t("motifPanel.cmpInFrame")} sigVal={sig.frame_in_frame} nonsigVal={nonsig.frame_in_frame} test={p("in_frame_pct")} />
+              <CmpRow label={t("motifPanel.cmpFrameshift")} sigVal={sig.frame_frameshift} nonsigVal={nonsig.frame_frameshift} />
+              <CmpRow label={t("motifPanel.cmpNonCoding")} sigVal={sig.frame_non_coding} nonsigVal={nonsig.frame_non_coding} />
+              <CmpRow label={t("motifPanel.cmpUpstreamGt")} sigVal={sig.pct_upstream_gt} nonsigVal={nonsig.pct_upstream_gt} format="pct" test={p("upstream_canonical_gt")} />
+              <CmpRow label={t("motifPanel.cmpDownstreamAg")} sigVal={sig.pct_downstream_ag} nonsigVal={nonsig.pct_downstream_ag} format="pct" test={p("downstream_canonical_ag")} />
+              {continuousRows(t("motifPanel.cmpMeanUpIntron"), "upstream_intron_size", fmtNt(sig.upstream_intron_size_mean), fmtNt(nonsig.upstream_intron_size_mean), fmtNt(sig.upstream_intron_size_median), fmtNt(nonsig.upstream_intron_size_median))}
+              <CmpRow label={t("motifPanel.cmpMedianUpIntron")} sigVal={fmtNt(sig.upstream_intron_size_median)} nonsigVal={fmtNt(nonsig.upstream_intron_size_median)} />
+              {continuousRows(t("motifPanel.cmpMeanDnIntron"), "downstream_intron_size", fmtNt(sig.downstream_intron_size_mean), fmtNt(nonsig.downstream_intron_size_mean), fmtNt(sig.downstream_intron_size_median), fmtNt(nonsig.downstream_intron_size_median))}
+              <CmpRow label={t("motifPanel.cmpMedianDnIntron")} sigVal={fmtNt(sig.downstream_intron_size_median)} nonsigVal={fmtNt(nonsig.downstream_intron_size_median)} />
+              <CmpRow label={t("motifPanel.cmpBpFound")} sigVal={sig.bp_found_pct} nonsigVal={nonsig.bp_found_pct} format="pct" test={p("bp_found")} />
+              {continuousRows(t("motifPanel.cmpMeanDeltaPsi"), "mean_delta_psi", sig.mean_delta_psi != null ? formatDeltaPSI(sig.mean_delta_psi) : null, nonsig.mean_delta_psi != null ? formatDeltaPSI(nonsig.mean_delta_psi) : null)}
             </tbody>
           </table>
           {tests && tests.length > 0 && (

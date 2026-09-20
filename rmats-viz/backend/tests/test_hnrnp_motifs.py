@@ -14,13 +14,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.services import hnrnp_motifs as hm
+from app.services.stats import bh_adjust
 from app.services.hnrnp_motifs import (
     HNRNP_MOTIFS,
     REGION_NAMES,
     REGULATORY_EFFECTS,
     MotifRegionResult,
     SERegions,
-    _bh_adjust,
     _mann_whitney_u,
     _proportion_z_test,
     compare_groups,
@@ -267,7 +267,7 @@ def test_mann_whitney_tie_correction_matches_reference():
 
 def test_bh_adjust_monotone_and_bounded():
     p = [0.01, 0.04, 0.03, 0.20, 0.5, 0.0005, 0.9]
-    q = _bh_adjust(p)
+    q = bh_adjust(p)
     assert len(q) == len(p)
     assert all(0 <= qi <= 1 for qi in q)
     assert all(qi >= pi for qi, pi in zip(q, p))
@@ -278,8 +278,8 @@ def test_bh_adjust_monotone_and_bounded():
     # Known values: smallest p × n / 1, largest is unchanged
     assert q[5] == pytest.approx(0.0005 * 7)
     assert q[6] == pytest.approx(0.9)
-    assert _bh_adjust([]) == []
-    assert _bh_adjust([0.2]) == [0.2]
+    assert bh_adjust([]) == []
+    assert bh_adjust([0.2]) == [0.2]
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +382,6 @@ def test_stats_helpers_are_shared_with_deep_analyses_router():
     from app.services import stats
     assert da._mann_whitney_u is hm._mann_whitney_u is stats.mann_whitney_u
     assert da._proportion_z_test is hm._proportion_z_test is stats.proportion_z_test
-    assert da._normal_cdf is hm._normal_cdf is stats.normal_cdf
     assert da._bh_adjust is stats.bh_adjust and hm._bh_adjust_optional is stats.bh_adjust
     a = [0.1, 0.0, 0.3, 0.0, 0.2, 0.5, 0.0]
     b = [0.0, 0.0, 0.1, 0.0, 0.0, 0.05]

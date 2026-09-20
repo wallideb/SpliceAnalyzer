@@ -8,7 +8,6 @@ Run:  python -m pytest tests/test_hnrnp_jobs.py -v
 
 from __future__ import annotations
 
-import asyncio
 import threading
 import uuid
 from types import SimpleNamespace

@@ -346,16 +346,6 @@ async def _upsert_feature(
     return result.scalar_one()
 
 
-async def _compute_one(
-    event: SplicingEvent,
-    db: AsyncSession,
-    fa_ok: bool,
-) -> EventSpliceFeature:
-    """Compute features for a single SE event (used by the per-event GET endpoint)."""
-    feat_data, mane, seq_source, mane_exon_source = await _fetch_features(event, fa_ok)
-    return await _upsert_feature(event, feat_data, mane, db, seq_source, mane_exon_source)
-
-
 # ---------------------------------------------------------------------------
 # POST /splice/compute/{analysis_id}
 # ---------------------------------------------------------------------------
@@ -407,7 +397,8 @@ async def _run_compute_background(analysis_id: uuid.UUID, fa_ok: bool) -> None:
                     mane_boundary_list: list[tuple[int, int, str] | None] = []
                     try:
                         from app.config import settings as _cfg
-                        _ensure_mane = load_mane_gff3(_cfg.MANE_GFF3) if not mane_local_loaded() else True
+                        if not mane_local_loaded():
+                            load_mane_gff3(_cfg.MANE_GFF3)
                         if mane_local_loaded():
                             # Build tuples for ALL events in the chunk (including
                             # invalid ones as placeholders) so indices align with

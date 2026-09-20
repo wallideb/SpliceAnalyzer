@@ -34,7 +34,6 @@ sys.path.insert(0, BACKEND)
 os.chdir(BACKEND)
 
 import shutil  # noqa: E402
-import subprocess  # noqa: E402
 
 try:  # pysam is optional: samtools is the fallback oracle
     import pysam  # noqa: E402

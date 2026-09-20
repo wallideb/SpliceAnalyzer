@@ -48,7 +48,7 @@ genomic (+ strand) coordinates and the caller reverse-complements the
 extracted sequences on the − strand.
 
 Motifs scanned (consensus sequences from literature & CISBP-RNA):
-  - hnRNP A1/A2: UAGG, UAGGG, AGG
+  - hnRNP A1/A2: UAGG, UAGGG, UAGGGA, AGG
   - hnRNP E1 (PCBP1): CCWWHCC  [CC[AT][AT][ACT]CC — rMAPS2 Suppl. Table S2, Homo sapiens]
   - hnRNP E2 (PCBP2): CCYYCCH  [CC[CT][CT]CC[ACT] — rMAPS2 Suppl. Table S2, Homo sapiens]
   - hnRNP F/H:   GGGG, GGG
@@ -198,13 +198,13 @@ REGION_NAMES = [
 # applied to both of its windows (5'SS-proximal and 3'SS-proximal).
 #
 # Sources:
-#   hnRNP A1/A2 — Zhu et al., Mol Cell 2001; Damgaard et al., EMBO J 2002;
-#     Kashima et al., Nat Genet 2007 (SMN2 ISS-N1)
+#   hnRNP A1/A2 — Zhu et al., Mol Cell 2001; Damgaard et al., RNA 2002;
+#     Kashima et al., Hum Mol Genet 2007 (SMN2 ISS-N1)
 #   hnRNP F/H — Martinez-Contreras et al., PLoS Biol 2006; Chen et al.,
-#     Genes Dev 1999 (β-tropomyosin ESS); Erkelenz et al., Genome Biol 2013
+#     Genes Dev 1999 (β-tropomyosin ESS); Erkelenz et al., RNA 2013
 #   hnRNP C — König et al., Nat Struct Mol Biol 2010 (iCLIP); Zarnack et al.,
 #     Cell 2013 (Alu exonisation)
-#   hnRNP L — House & Lynch, EMBO J 2006 (CD45 ESS); Hui et al., EMBO J 2005
+#   hnRNP L — House & Lynch, Nat Struct Mol Biol 2006 (CD45 ESS); Hui et al., EMBO J 2005
 #   hnRNP M — Huelga et al., Cell Rep 2012 (CLIP-seq)
 #   PTB — Xue et al., Mol Cell 2009 (CLIP, RNA map); Wagner & Garcia-Blanco,
 #     Mol Cell Biol 2001
@@ -247,8 +247,6 @@ _FLANK_LEN = 250
 
 # Minimum group size for the normal-approximation tests (presence z-test and
 # Mann-Whitney U); below this the approximations are unreliable.
-_MIN_GROUP_SIZE = _stats.MIN_GROUP_N
-
 # scan_group reports progress every this many events
 _PROGRESS_EVERY = 1000
 
@@ -512,7 +510,7 @@ def compare_groups(
     For each (motif, region) pair present in both groups:
     - presence test: pooled two-proportion z-test on binary hit presence
       (large-sample normal approximation; None when either group has fewer
-      than ``_MIN_GROUP_SIZE`` events or the pooled proportion is 0 or 1);
+      than ``stats.MIN_GROUP_N`` events or the pooled proportion is 0 or 1);
     - density test: Mann-Whitney U on the per-event densities (normal
       approximation with tie and continuity corrections; same minimum group
       size; None when every pooled density is tied).
@@ -571,18 +569,12 @@ def compare_groups(
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Stats helpers — single implementation shared with routers/deep_analyses
-# (see services/stats.py); the private names are kept for the tests.
+# (see services/stats.py).
 # ──────────────────────────────────────────────────────────────────────────────
 
-_normal_cdf = _stats.normal_cdf
 _proportion_z_test = _stats.proportion_z_test
 _mann_whitney_u = _stats.mann_whitney_u
 _bh_adjust_optional = _stats.bh_adjust
-
-
-def _bh_adjust(p_values: list[float]) -> list[float]:
-    """BH q-values for a list without ``None`` (thin wrapper, kept for tests)."""
-    return [q for q in _stats.bh_adjust(p_values) if q is not None]
 
 
 # ──────────────────────────────────────────────────────────────────────────────

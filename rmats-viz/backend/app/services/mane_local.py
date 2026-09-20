@@ -38,7 +38,6 @@ _gene_index: dict[str, dict[str, Any]] = {}
 _tx_index: dict[str, dict[str, Any]] = {}
 
 # gene_id → [transcript dicts tagged MANE_Plus_Clinical]
-_plus_clinical_index: dict[str, list[dict[str, Any]]] = {}
 
 _TAG_MANE_SELECT = "MANE_Select"
 _TAG_MANE_PLUS_CLINICAL = "MANE_Plus_Clinical"
@@ -57,7 +56,6 @@ def _reset_index() -> None:
     with _lock:
         _gene_index.clear()
         _tx_index.clear()
-        _plus_clinical_index.clear()
         _loaded = False
 
 
@@ -101,7 +99,7 @@ def load_mane_gff3(path: str | Path) -> bool:
                 len(_gene_index),
                 len(_tx_index),
                 sum(1 for d in _tx_index.values() if d.get("is_mane_select")),
-                sum(len(v) for v in _plus_clinical_index.values()),
+                sum(1 for d in _tx_index.values() if d.get("is_mane_plus_clinical")),
             )
             return True
         except Exception as exc:
@@ -190,8 +188,8 @@ def _do_parse(path: Path) -> None:
     # Build indices
     # One gene may have several transcripts in the GFF3 (one MANE Select plus
     # MANE Plus Clinical transcripts, in any order).  The gene index holds
-    # the transcript tagged MANE_Select; Plus Clinical transcripts go to a
-    # separate index.  Genes without a MANE_Select tag (old files without a
+    # the transcript tagged MANE_Select; Plus Clinical transcripts stay
+    # reachable by transcript id only.  Genes without a MANE_Select tag (old files without a
     # ``tag`` attribute) fall back to the first transcript seen.
     first_seen: dict[str, dict[str, Any]] = {}
     n_select = 0
@@ -216,7 +214,6 @@ def _do_parse(path: Path) -> None:
                 _gene_index[gene_id] = data
         if data["is_mane_plus_clinical"]:
             n_plus += 1
-            _plus_clinical_index.setdefault(gene_id, []).append(data)
 
     n_fallback = 0
     for gene_id, data in first_seen.items():
@@ -250,15 +247,6 @@ def get_mane_for_gene(gene_id: str) -> dict[str, Any] | None:
     # Strip version suffix if present
     gene_id_clean = gene_id.split(".")[0]
     return _gene_index.get(gene_id_clean)
-
-
-def get_mane_plus_clinical(gene_id: str) -> list[dict[str, Any]]:
-    """Return the MANE Plus Clinical transcripts of a gene (may be empty).
-
-    Each entry has the same keys as ``get_mane_for_gene``.
-    """
-    gene_id_clean = gene_id.split(".")[0]
-    return list(_plus_clinical_index.get(gene_id_clean, []))
 
 
 def get_transcript_data(transcript_id: str) -> dict[str, Any] | None:

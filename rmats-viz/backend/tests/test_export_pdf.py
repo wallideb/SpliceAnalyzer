@@ -207,3 +207,47 @@ def test_frame_breakdown_denominator_excludes_unknown():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_pdf_permutation_note_monte_carlo_vs_exact():
+    """The minimum-attainable-p note names 1/(K+1) for a Monte-Carlo design and
+    1/N for an exact one; the p-value threshold appears on the title page."""
+    import re
+
+    def _text(pdf: bytes) -> str:
+        import fitz  # PyMuPDF, test-only dependency
+        return " ".join(" ".join(p.get_text().split()) for p in fitz.open(stream=pdf, filetype="pdf"))
+
+    an = _analysis()
+    deep = _deep(an, pvalue_threshold=0.01)
+    events = [_event(an, i) for i in range(6)]
+    feats = {ev.id: _feature(ev, frame="in_frame", gt=True) for ev in events}
+    sig_map = {ev.id: True for ev in events}
+    mc_rows = [
+        {"iterations": k, "n_tested": 6, "pct_p05": 50.0, "pct_p01": 0.0,
+         "exact_fraction": 0.0, "min_p_attainable": round(1 / (k + 1), 6),
+         "n_replicates_g1": 5, "n_replicates_g2": 49}
+        for k in (50, 100, 250, 500)
+    ]
+    pdf = _build_pdf(an, events, feats, "Subjects", "Controls", deep_analysis=deep,
+                     sig_map=sig_map, permutation_table=mc_rows,
+                     selected_sections={"a", "b", "d"})
+    try:
+        txt = _text(pdf)
+    except ImportError:
+        assert pdf.startswith(_PDF_MAGIC)
+        return
+    assert "1/(K+1) for the reference row, K = 500" in txt
+    assert "only a handful" not in txt
+    # the delta glyph is extracted as U+2206 by PyMuPDF: match around it
+    assert re.search(r"Thresholds: FDR ≤ 0\.05, \|.Ψ\| ≥ 0\.1, p ≤ 0\.01", txt)
+    assert re.search(r"Significant Events \(FDR ≤ 0\.05, \|.Ψ\| ≥ 0\.1, p ≤ 0\.01\)", txt)
+
+    exact_rows = [{"iterations": 500, "label": "exact enumeration (all label permutations)",
+                   "n_tested": 6, "pct_p05": 50.0, "pct_p01": 0.0, "exact_fraction": 1.0,
+                   "min_p_attainable": 0.05, "n_replicates_g1": 3, "n_replicates_g2": 3}]
+    pdf = _build_pdf(an, events, feats, "Subjects", "Controls", deep_analysis=deep,
+                     sig_map=sig_map, permutation_table=exact_rows,
+                     selected_sections={"a", "b", "d"})
+    txt = _text(pdf)
+    assert "(= 1/N)" in txt and "only a handful" in txt

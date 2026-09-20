@@ -14,7 +14,7 @@ httpx==0.27.0
 openpyxl==3.1.2
 reportlab==4.2.2
 requests==2.32.3
-urllib3>=1.21.1,<2.5
+urllib3>=1.21.1,<2.5  # requests transitive pin: keep the 1.x/2.x API compatible with requests 2.31
 # Test runner (kept in the image so `docker compose exec backend python -m pytest tests`
 # works without network access inside the container).
 pytest>=8,<9

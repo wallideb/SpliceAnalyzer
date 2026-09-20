@@ -13,7 +13,6 @@ import sys
 import uuid
 from pathlib import Path
 
-import pandas as pd
 
 # Allow running from backend/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))

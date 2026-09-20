@@ -118,7 +118,6 @@ class EnrichrTerm:
 @dataclass
 class EnrichrResult:
     """Full enrichment result for the submitted gene list."""
-    user_list_id: int
     n_genes_submitted: int
     terms: list[EnrichrTerm]
     error: str | None = None
@@ -182,7 +181,6 @@ def run_enrichment(
     """
     if not gene_symbols:
         return EnrichrResult(
-            user_list_id=0,
             n_genes_submitted=0,
             terms=[],
             error="No gene symbols provided",
@@ -208,7 +206,6 @@ def run_enrichment(
     except Exception as exc:
         logger.warning("Enrichr addList failed: %s", exc)
         return EnrichrResult(
-            user_list_id=0,
             n_genes_submitted=len(unique_symbols),
             terms=[],
             error=f"Enrichr API error: {exc}",
@@ -229,7 +226,6 @@ def run_enrichment(
                 logger.warning("Enrichr enrich failed for %s: %s", lib, exc)
 
     return EnrichrResult(
-        user_list_id=user_list_id,
         n_genes_submitted=len(unique_symbols),
         terms=all_terms,
     )

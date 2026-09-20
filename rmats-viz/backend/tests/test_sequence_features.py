@@ -441,9 +441,8 @@ def test_mane_local_selects_mane_select_tag_not_file_order(fake_mane_gff3):
     # exons parsed and 0-based
     assert data["exons"] == [{"start": 999, "end": 1300}, {"start": 2999, "end": 3300}]
 
-    plus = mane_local.get_mane_plus_clinical("ENSG00000000001")
-    assert [t["transcript_id"] for t in plus] == ["ENST00000000002"]
-    assert mane_local.get_mane_plus_clinical("ENSG00000000009") == []
+    # the Plus Clinical transcript is not the gene's MANE Select
+    assert mane_local.get_mane_for_gene("ENSG00000000001")["transcript_id"] != "ENST00000000002"
 
     # both transcripts remain reachable by id
     assert mane_local.get_transcript_exons_local("ENST00000000002")[0]["size"] == 201

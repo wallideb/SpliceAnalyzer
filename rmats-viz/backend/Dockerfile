@@ -6,7 +6,7 @@ WORKDIR /app
 # used by app/services/sequence.py (`samtools faidx`) for every splice-site /
 # hnRNP region extraction from the GRCh38 FASTA.  The FASTA itself is NOT
 # downloaded by the application any more — run data/setup_grch38_fasta.sh
-# (or the compose init step) once so that /data/GRCh38.fa(.fai) exists.
+# once so that /data/GRCh38.fa(.fai) exists (see README, Quick start).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev \
     samtools \

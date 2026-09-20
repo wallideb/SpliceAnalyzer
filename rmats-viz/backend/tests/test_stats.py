@@ -9,7 +9,6 @@ lazily from the settings defaults, so no database is needed.
 """
 from __future__ import annotations
 
-import math
 import sys
 from pathlib import Path
 

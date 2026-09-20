@@ -27,6 +27,7 @@ export const en = {
     },
     delete: "Delete analysis",
     confirmDelete: "Delete analysis «{{name}}»?",
+    deleteFailed: "Delete failed",
     status: {
       ready: "Ready",
       processing: "Processing",
@@ -34,6 +35,9 @@ export const en = {
     },
   },
   newAnalysis: {
+    removeFile: "Remove this file",
+    group1Placeholder: "e.g. Subjects PCBP1",
+    group2Placeholder: "e.g. Controls",
     title: "New Analysis",
     subtitle: "Import your rMATS files and configure your analysis",
     steps: {
@@ -152,6 +156,7 @@ export const en = {
     candidateGenes: "Candidate genes",
   },
   eventTable: {
+    clickToEnter: "Click to enter a value",
     type: "Type",
     gene: "Gene",
     chr: "Chr",
@@ -202,7 +207,6 @@ export const en = {
     collapse: "Collapse panel",
     expand: "Expand panel",
     tabs: {
-      gene: "Event",
       annotatedEvents: "Annotated Events",
       interactions: "Interactions",
       motifs: "Recur. Motifs",
@@ -239,7 +243,6 @@ export const en = {
     scores: {
       meanPsi1: "Mean PSI G1",
       meanPsi2: "Mean PSI G2",
-      counts: "Counts (first 3 samples)",
     },
     stringdb: {
       noSymbol: "Gene symbol not available.",
@@ -261,6 +264,26 @@ export const en = {
     },
   },
   motifPanel: {
+    colFeature: "Feature",
+    cmpSeWithFeatures: "SE events with features",
+    cmpMeanExonSize: "Mean exon size",
+    cmpMedianExonSize: "Median exon size",
+    cmpCanonicalGt: "Canonical GT (5'SS)",
+    cmpCanonicalAg: "Canonical AG (3'SS)",
+    cmpMeanPpt: "Mean PPT score",
+    cmpPptT: "PPT T content",
+    cmpPptC: "PPT C content",
+    cmpInFrame: "In-frame",
+    cmpFrameshift: "Frameshift",
+    cmpNonCoding: "Non-coding",
+    cmpUpstreamGt: "Upstream GT (5'SS)",
+    cmpDownstreamAg: "Downstream AG (3'SS)",
+    cmpMeanUpIntron: "Mean upstream intron",
+    cmpMedianUpIntron: "Median upstream intron",
+    cmpMeanDnIntron: "Mean downstream intron",
+    cmpMedianDnIntron: "Median downstream intron",
+    cmpBpFound: "Branch point found",
+    cmpMeanDeltaPsi: "Mean ΔΨ",
     notComputed: "Pattern analysis not yet computed",
     notComputedDesc: "Compute splice features for the {{n}} SE events of this analysis to visualise recurring patterns (GT-AG sites, PPT, branch point, reading frame).",
     computeBtn: "Compute features",
@@ -490,6 +513,7 @@ export const en = {
         "p-value for ranking. Reference: Chen et al., Enrichr, BMC Bioinformatics 2013.",
     },
     exonDiagram: {
+    resetZoom: "Reset zoom",
       title: "Method — rMATS SE event definition",
       body:
         "A <b>Skipped Exon (SE)</b> event is defined by rMATS as a cassette exon " +
@@ -504,6 +528,7 @@ export const en = {
     },
   },
   spliceView: {
+    downloadSvg: "Download exon diagram as SVG",
     nonSeEventTitle: "{{type}} event",
     nonSeEventDesc: "Canonical site analysis (5′SS GT, 3′SS AG, PPT, branch point) is restricted to SE (exon skipping) events. Statistical data (FDR, ΔΨ) remain available in other tabs.",
     notComputed: "Features not yet computed for this event.",
@@ -600,6 +625,21 @@ export const en = {
     viewInTable: "View in table",
     clickHint: "Click a dot to inspect event details",
   },
+  patternComparison: {
+    notAvailable: "Pattern comparison not available. Ensure splice features have been computed.",
+    donorLogo: "5′SS donor sequence logo (9 nt)",
+    acceptorLogo: "3′SS acceptor sequence logo (23 nt)",
+    upstreamDonorLogo: "Upstream exon 5′SS donor (9 nt)",
+    downstreamAcceptorLogo: "Downstream exon 3′SS acceptor (23 nt)",
+    noData: "No data",
+    methodology: "Methodology",
+    methodGroups: "Events are classified as {{significant}} when the FDR and |ΔΨ| thresholds are both met (and the p-value threshold when one is set). All remaining events form the {{nonSignificant}} control group.",
+    methodLogos: "Sequence logos are drawn in frequency mode: every column fills the full height and each letter's height is proportional to the raw nucleotide frequency at that position (no information-content scaling), as in the PDF report. Canonical dinucleotides (GT at +1/+2 for the 5′SS, AG at −2/−1 for the 3′SS) are highlighted in yellow.",
+    methodTests: "Continuous metrics (exon size, intron sizes, PPT score and composition, mean ΔΨ) are compared with Welch's t-test (unequal variances) and, because these sizes are right-skewed, a Mann-Whitney U test (rows suffixed \"Mann-Whitney\"). Proportions (canonical GT/AG, in-frame %, branch point found) use a two-proportion z-test, run only with ≥ 5 events per group. All tests are two-tailed; p-values are corrected across the 20 tests of the panel with the Benjamini-Hochberg procedure (q-value), and the pill reflects q < 0.05.",
+    methodFrame: "Exon skipping is classified from the MANE Select transcript: in-frame when the coding length of the skipped exon is divisible by 3, frameshift otherwise, non-coding when the exon lies in a UTR; events without MANE annotation are reported as unknown and excluded from the in-frame percentage (never guessed from the exon size).",
+    labelSignificant: "significant",
+    labelNonSignificant: "non-significant",
+  },
   deepAnalysis: {
     breadcrumb: "Deep Analysis",
     title: "Deep Analyses",
@@ -625,10 +665,7 @@ export const en = {
     confirmDelete: "Delete this deep analysis? This cannot be undone.",
     delete: "Delete",
     methodology: "Methodology:",
-    eventTypes: "Event types:",
-    seOnlyNotice: "Sequence analysis (motifs, logos, PPT) — SE events only",
-    optionalModulesActive: "{{n}} optional module active",
-    optionalModulesActivePlural: "{{n}} optional modules active",
+    seOnlyNotice: "Sequence analysis (splice sites, logos, PPT, branch point, hnRNP, permutation): SE events only",
   },
   hnrnpPanel: {
     error: "Failed to load hnRNP motif enrichment data.",

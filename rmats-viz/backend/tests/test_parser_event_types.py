@@ -22,7 +22,6 @@ from app.services.parser import (  # noqa: E402
     deduplicate_with_overlap,
     detect_counting_mode,
     detect_event_type,
-    detect_event_type_from_header,
     filter_low_coverage,
     parse_rmats_file,
 )
@@ -139,14 +138,14 @@ def test_detect_counting_mode():
     assert detect_counting_mode("summary.txt") is None
 
 
-def test_detect_event_type_from_header():
-    assert detect_event_type_from_header(SE_HEADER.split("\t")) == "SE"
-    assert detect_event_type_from_header(RI_HEADER.split("\t")) == "RI"
+def test_detect_event_type_from_header_when_name_is_uninformative():
+    assert detect_event_type("results.txt", SE_HEADER.split("\t")) == "SE"
+    assert detect_event_type("results.txt", RI_HEADER.split("\t")) == "RI"
     mxe_cols = ["ID", "GeneID", "1stExonStart_0base", "1stExonEnd", "2ndExonStart_0base", "2ndExonEnd"]
-    assert detect_event_type_from_header(mxe_cols) == "MXE"
+    assert detect_event_type("results.txt", mxe_cols) == "MXE"
     # A3SS and A5SS share a header: ambiguous → None
-    assert detect_event_type_from_header(A3SS_HEADER.split("\t")) is None
-    assert detect_event_type_from_header(["foo", "bar"]) is None
+    assert detect_event_type("results.txt", A3SS_HEADER.split("\t")) is None
+    assert detect_event_type("results.txt", ["foo", "bar"]) is None
 
 
 def test_required_cols_by_type():

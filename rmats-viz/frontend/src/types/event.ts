@@ -48,3 +48,14 @@ export interface EventsPage {
   page_size: number;
   pages: number;
 }
+
+/** One point of the Manhattan plot (GET /analyses/{id}/events/manhattan). */
+export interface ManhattanPoint {
+  id: string;
+  event_type: string;
+  gene_symbol?: string | null;
+  chr?: string | null;
+  position?: number | null;
+  fdr?: number | null;
+  inc_level_difference?: number | null;
+}

@@ -475,11 +475,9 @@ def _regularized_beta(x: float, a: float, b: float, max_iter: int = 200) -> floa
 # single implementations of services/stats.py (shared with the hnRNP motif
 # module so both report identical statistics); the private names are kept
 # for the tests and the docstrings live there.
-_normal_cdf = _stats.normal_cdf
 _proportion_z_test = _stats.proportion_z_test
 _mann_whitney_u = _stats.mann_whitney_u
 _bh_adjust = _stats.bh_adjust
-_MIN_GROUP_N = _stats.MIN_GROUP_N  # minimum observations per group for the z / U tests
 
 
 def _compute_stat_tests(
@@ -548,26 +546,22 @@ def _compute_stat_tests(
         [ppt_c_content(f.ppt_seq) for f in nonsig_feats if f.ppt_seq],
     )
 
-    # Canonical-site flags can be None (window truncated at a contig end):
-    # unknown → excluded from numerator AND denominator of the z-tests.
-    def _prop(feats: list, flag_attr: str, seq_attr: str, min_len: int) -> tuple[int, int]:
-        known = [
-            getattr(f, flag_attr) for f in feats
-            if getattr(f, seq_attr) and len(getattr(f, seq_attr)) >= min_len
-            and getattr(f, flag_attr) is not None
-        ]
+    # Canonical-site flags can be None (window truncated at a contig end, the
+    # dinucleotide cannot be read): unknown → excluded from numerator AND
+    # denominator.  Same denominator as _compute_group_stats and the PDF
+    # summary sections (every event whose flag is known).
+    def _prop(feats: list, flag_attr: str) -> tuple[int, int]:
+        known = [getattr(f, flag_attr) for f in feats if getattr(f, flag_attr) is not None]
         return sum(1 for v in known if v), len(known)
 
     # 4. Canonical GT (5'SS) — proportion z-test
-    sig_with_seq = [f for f in sig_feats if f.donor_seq and len(f.donor_seq) >= 9]
-    ns_with_seq = [f for f in nonsig_feats if f.donor_seq and len(f.donor_seq) >= 9]
-    k1, n1 = _prop(sig_feats, "donor_is_gt", "donor_seq", 9)
-    k2, n2 = _prop(nonsig_feats, "donor_is_gt", "donor_seq", 9)
+    k1, n1 = _prop(sig_feats, "donor_is_gt")
+    k2, n2 = _prop(nonsig_feats, "donor_is_gt")
     _add("canonical_gt", "Proportion z-test", *_proportion_z_test(k1, n1, k2, n2))
 
     # 5. Canonical AG (3'SS) — proportion z-test
-    k1, n1 = _prop(sig_feats, "acceptor_is_ag", "acceptor_seq", 23)
-    k2, n2 = _prop(nonsig_feats, "acceptor_is_ag", "acceptor_seq", 23)
+    k1, n1 = _prop(sig_feats, "acceptor_is_ag")
+    k2, n2 = _prop(nonsig_feats, "acceptor_is_ag")
     _add("canonical_ag", "Proportion z-test", *_proportion_z_test(k1, n1, k2, n2))
 
     # 6. In-frame proportion (known frames only) — proportion z-test
@@ -587,13 +581,13 @@ def _compute_stat_tests(
     _add("bp_found", "Proportion z-test", *_proportion_z_test(k1, len(sig_with_ppt), k2, len(ns_with_ppt)))
 
     # 8. Upstream donor GT (flanking exon) — proportion z-test
-    k1, n1 = _prop(sig_feats, "upstream_donor_is_gt", "upstream_donor_seq", 9)
-    k2, n2 = _prop(nonsig_feats, "upstream_donor_is_gt", "upstream_donor_seq", 9)
+    k1, n1 = _prop(sig_feats, "upstream_donor_is_gt")
+    k2, n2 = _prop(nonsig_feats, "upstream_donor_is_gt")
     _add("upstream_canonical_gt", "Proportion z-test", *_proportion_z_test(k1, n1, k2, n2))
 
     # 9. Downstream acceptor AG (flanking exon) — proportion z-test
-    k1, n1 = _prop(sig_feats, "downstream_acceptor_is_ag", "downstream_acceptor_seq", 23)
-    k2, n2 = _prop(nonsig_feats, "downstream_acceptor_is_ag", "downstream_acceptor_seq", 23)
+    k1, n1 = _prop(sig_feats, "downstream_acceptor_is_ag")
+    k2, n2 = _prop(nonsig_feats, "downstream_acceptor_is_ag")
     _add("downstream_canonical_ag", "Proportion z-test", *_proportion_z_test(k1, n1, k2, n2))
 
     # 10. Upstream intron size

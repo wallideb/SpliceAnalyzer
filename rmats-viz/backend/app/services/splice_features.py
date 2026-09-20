@@ -228,10 +228,8 @@ def compute_features(
 
     exon_start    = _get(event, "exon_start")
     exon_end      = _get(event, "exon_end")
-    upstream_es   = _get(event, "upstream_es")
     upstream_ee   = _get(event, "upstream_ee")
     downstream_es = _get(event, "downstream_es")
-    downstream_ee = _get(event, "downstream_ee")
     strand        = _get(event, "strand") or "+"
 
     res = SpliceFeatureResult()

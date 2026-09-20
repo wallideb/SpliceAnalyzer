@@ -476,7 +476,7 @@ function StatSlider({
           ) : displayValue ? (
             <button
               onClick={() => setShowInput(true)}
-              title="Click to enter value"
+              title={t("eventTable.clickToEnter")}
               className={`text-xs font-bold px-2 py-0.5 rounded-md cursor-text hover:ring-1 transition-shadow ${
                 isViolet
                   ? "text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-800 hover:ring-violet-400"

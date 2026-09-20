@@ -2,7 +2,7 @@
 
 **Title:** Fix ingestion, sequence, statistics and report defects (ORIGINAL_CODE_FIXES A–E); add in-browser migration spec
 
-**Scope:** 18 commits, 83 files (+8 541 / −3 163). Backend (FastAPI/Python), frontend (Next.js), README, three Alembic migrations (0016, 0017, 0018), 157 backend tests (was 12), frontend `tsc` + `next build` clean. Two independent adversarial reviews plus a high-effort automated code review were run and their findings fixed (see `ORIGINAL_CODE_FIXES.md`, "Status after the fix pass").
+**Scope:** 18 commits, 83 files (+8 541 / −3 163). Backend (FastAPI/Python), frontend (Next.js), README, three Alembic migrations (0016, 0017, 0018), 163 backend tests (was 12), frontend `tsc` + `next build` clean. Two independent adversarial reviews plus a high-effort automated code review were run and their findings fixed (see `ORIGINAL_CODE_FIXES.md`, "Status after the fix pass").
 
 ## Summary of changes
 

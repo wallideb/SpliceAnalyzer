@@ -198,6 +198,9 @@ export default function DeepAnalysisDetailPage() {
           <span className="text-green-600 dark:text-green-400 font-medium">{deepAnalysis.n_significant} {t("deepAnalysis.significant")}</span>
           <span className="text-muted-foreground">{deepAnalysis.n_not_significant} {t("deepAnalysis.notSignificant")}</span>
           <span className="text-muted-foreground">{new Date(deepAnalysis.created_at).toLocaleDateString()}</span>
+          <span className="px-2 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+            {t("deepAnalysis.seOnlyNotice")}
+          </span>
           {deepAnalysis.modules.length > 0 && (
             <span className="text-muted-foreground">
               {t("deepAnalysis.modules")}: {deepAnalysis.modules.join(", ")}

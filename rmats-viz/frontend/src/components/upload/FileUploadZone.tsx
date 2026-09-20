@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useState } from "react";
+import { useT } from "@/contexts/LanguageContext";
 
 /**
  * Detected rMATS file identity: event type + counting mode (A2).
@@ -43,6 +44,7 @@ interface FileUploadZoneProps {
 }
 
 export function FileUploadZone({ files, onChange }: FileUploadZoneProps) {
+  const t = useT();
   const [dragging, setDragging] = useState(false);
 
   const addFiles = useCallback(
@@ -147,7 +149,7 @@ export function FileUploadZone({ files, onChange }: FileUploadZoneProps) {
                   <button
                     type="button"
                     onClick={() => remove(f.name)}
-                    title="Retirer ce fichier"
+                    title={t("newAnalysis.removeFile")}
                     className="text-muted-foreground hover:text-destructive transition-colors"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>

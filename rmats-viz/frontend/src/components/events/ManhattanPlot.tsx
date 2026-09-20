@@ -6,15 +6,8 @@ import { EventDetailCard } from "./EventDetailCard";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export interface ManhattanPoint {
-  id: string;
-  event_type: string;
-  gene_symbol?: string | null;
-  chr?: string | null;
-  position?: number | null;
-  fdr?: number | null;
-  inc_level_difference?: number | null;
-}
+import type { ManhattanPoint } from "@/types/event";
+export type { ManhattanPoint };
 
 export interface GeneMarker {
   symbol: string;

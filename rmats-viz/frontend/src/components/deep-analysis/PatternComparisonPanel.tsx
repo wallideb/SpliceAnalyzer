@@ -81,9 +81,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
 
   if (isError || !data) {
     return (
-      <p className="text-xs text-muted-foreground py-4">
-        Pattern comparison not available. Ensure splice features have been computed.
-      </p>
+      <p className="text-xs text-muted-foreground py-4">{t("patternComparison.notAvailable")}</p>
     );
   }
 
@@ -99,7 +97,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
       {(sig.donor_pwm || nonsig.donor_pwm) && (
         <div className="rounded-xl border border-border bg-card shadow-sm p-4 space-y-3">
           <p className="text-[11px] font-bold text-foreground uppercase tracking-wide">
-            5&apos;SS Donor sequence logo (9 nt)
+            {t("patternComparison.donorLogo")}
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
@@ -124,7 +122,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
                   )}
                 </>
               ) : (
-                <p className="text-[10px] text-muted-foreground">No data</p>
+                <p className="text-[10px] text-muted-foreground">{t("patternComparison.noData")}</p>
               )}
             </div>
             <div>
@@ -149,7 +147,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
                   )}
                 </>
               ) : (
-                <p className="text-[10px] text-muted-foreground">No data</p>
+                <p className="text-[10px] text-muted-foreground">{t("patternComparison.noData")}</p>
               )}
             </div>
           </div>
@@ -161,7 +159,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
       {(sig.acceptor_pwm || nonsig.acceptor_pwm) && (
         <div className="rounded-xl border border-border bg-card shadow-sm p-4 space-y-3">
           <p className="text-[11px] font-bold text-foreground uppercase tracking-wide">
-            3&apos;SS Acceptor sequence logo (23 nt)
+            {t("patternComparison.acceptorLogo")}
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
@@ -186,7 +184,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
                   )}
                 </>
               ) : (
-                <p className="text-[10px] text-muted-foreground">No data</p>
+                <p className="text-[10px] text-muted-foreground">{t("patternComparison.noData")}</p>
               )}
             </div>
             <div>
@@ -211,7 +209,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
                   )}
                 </>
               ) : (
-                <p className="text-[10px] text-muted-foreground">No data</p>
+                <p className="text-[10px] text-muted-foreground">{t("patternComparison.noData")}</p>
               )}
             </div>
           </div>
@@ -223,7 +221,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
       {(sig.upstream_donor_pwm || nonsig.upstream_donor_pwm) && (
         <div className="rounded-xl border border-border bg-card shadow-sm p-4 space-y-3">
           <p className="text-[11px] font-bold text-foreground uppercase tracking-wide">
-            Upstream exon 5&apos;SS Donor (9 nt)
+            {t("patternComparison.upstreamDonorLogo")}
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
@@ -240,7 +238,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
                   )}
                 </>
               ) : (
-                <p className="text-[10px] text-muted-foreground">No data</p>
+                <p className="text-[10px] text-muted-foreground">{t("patternComparison.noData")}</p>
               )}
             </div>
             <div>
@@ -257,7 +255,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
                   )}
                 </>
               ) : (
-                <p className="text-[10px] text-muted-foreground">No data</p>
+                <p className="text-[10px] text-muted-foreground">{t("patternComparison.noData")}</p>
               )}
             </div>
           </div>
@@ -269,7 +267,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
       {(sig.downstream_acceptor_pwm || nonsig.downstream_acceptor_pwm) && (
         <div className="rounded-xl border border-border bg-card shadow-sm p-4 space-y-3">
           <p className="text-[11px] font-bold text-foreground uppercase tracking-wide">
-            Downstream exon 3&apos;SS Acceptor (23 nt)
+            {t("patternComparison.downstreamAcceptorLogo")}
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
@@ -286,7 +284,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
                   )}
                 </>
               ) : (
-                <p className="text-[10px] text-muted-foreground">No data</p>
+                <p className="text-[10px] text-muted-foreground">{t("patternComparison.noData")}</p>
               )}
             </div>
             <div>
@@ -303,7 +301,7 @@ export function PatternComparisonPanel({ deepId }: Props) {
                   )}
                 </>
               ) : (
-                <p className="text-[10px] text-muted-foreground">No data</p>
+                <p className="text-[10px] text-muted-foreground">{t("patternComparison.noData")}</p>
               )}
             </div>
           </div>
@@ -314,30 +312,18 @@ export function PatternComparisonPanel({ deepId }: Props) {
       {/* ── Methodology ── */}
       <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-2">
         <p className="text-[11px] font-bold text-foreground uppercase tracking-wide">
-          Methodology
+          {t("patternComparison.methodology")}
         </p>
         <div className="text-[10px] text-muted-foreground leading-relaxed space-y-1.5">
           <p>
-            Events are classified as <span className="font-semibold text-green-700 dark:text-green-400">significant</span> when
-            both FDR and |ΔΨ| thresholds are met simultaneously.
-            All remaining events form the <span className="font-semibold text-slate-500">non-significant</span> control group.
+            {t("patternComparison.methodGroups", {
+              significant: t("patternComparison.labelSignificant"),
+              nonSignificant: t("patternComparison.labelNonSignificant"),
+            })}
           </p>
-          <p>
-            <strong>Sequence logos</strong> follow the WebLogo / Schneider &amp; Stephens (1990) convention:
-            column height reflects information content (bits), letter height is proportional to nucleotide frequency.
-            Canonical dinucleotides (GT at +1/+2 for 5&apos;SS, AG at -2/-1 for 3&apos;SS) are highlighted in yellow.
-          </p>
-          <p>
-            <strong>Statistical tests:</strong> continuous metrics (exon size, intron sizes, PPT score, mean ΔΨ) are compared
-            using Welch&apos;s t-test (unequal variances) and, because these sizes are right-skewed, a Mann-Whitney U test
-            (rows suffixed &quot;Mann-Whitney&quot;). Proportions (canonical GT/AG, in-frame %, branch point found)
-            use a two-proportion z-test. All tests are two-tailed; p-values are corrected across all tests of the
-            comparison with the Benjamini-Hochberg procedure (q-value), and the pill reflects q &lt; 0.05.
-          </p>
-          <p>
-            <strong>Reading frame:</strong> exon skipping is classified as in-frame (exon length divisible by 3)
-            or frameshift based on the MANE Select transcript annotation when available, otherwise by exon size divisibility.
-          </p>
+          <p>{t("patternComparison.methodLogos")}</p>
+          <p>{t("patternComparison.methodTests")}</p>
+          <p>{t("patternComparison.methodFrame")}</p>
         </div>
       </div>
     </div>

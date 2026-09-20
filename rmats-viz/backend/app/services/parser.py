@@ -47,7 +47,6 @@ from app.utils.composite_key import (
 
 logger = logging.getLogger(__name__)
 
-EVENT_TYPES: tuple[str, ...] = ("SE", "MXE", "A3SS", "A5SS", "RI")
 
 # ``<TYPE>.MATS.<JC|JCEC>`` with the type token delimited on the left (start of
 # name or a non-alphanumeric character) and the mode token delimited on the
@@ -143,30 +142,6 @@ def detect_counting_mode(filename: str) -> str | None:
         return m.group(2).upper()
     modes = [t.upper() for t in _MODE_TOKEN_RE.findall(name)]
     return modes[-1] if modes else None
-
-
-def detect_event_type_from_header(columns: Iterable[str]) -> str | None:
-    """Infer the event type from the raw rMATS header columns.
-
-    ``riExonStart_0base`` → RI, ``1stExonStart_0base`` / ``2ndExonStart_0base``
-    → MXE, ``exonStart_0base`` → SE.  A3SS and A5SS files share the same
-    header (``longExonStart_0base`` …) and cannot be told apart, so ``None``
-    is returned for them (the filename is required).
-    """
-    cols = {str(c).strip() for c in columns}
-    if cols & _HEADER_RI:
-        return "RI"
-    if cols & _HEADER_MXE:
-        return "MXE"
-    if cols & _HEADER_ALT_SITE:
-        logger.warning(
-            "Header matches A3SS/A5SS but the two types cannot be distinguished "
-            "from the header alone; the filename must contain the event type"
-        )
-        return None
-    if cols & _HEADER_SE:
-        return "SE"
-    return None
 
 
 def _read_header(content: bytes) -> list[str]:

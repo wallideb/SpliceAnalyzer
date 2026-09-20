@@ -2559,7 +2559,7 @@ def _build_pdf(
                 sp(0.1),
                 caption(
                     f"Schematic representation of skipped-exon features in significant events "
-                    f"identified in {group1_label} subjects. Consensus splice-site sequences, "
+                    f"({group1_label} vs. {group2_label}). Consensus splice-site sequences, "
                     f"PPT score, reading frame, and branch-point detection rate are shown. "
                     f"Red stars (★) indicate features for which a statistically significant "
                     f"difference (raw p &lt; 0.05) was found compared to background events "
